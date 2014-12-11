@@ -10,16 +10,21 @@ import (
 
 type errorHandler func(w http.ResponseWriter, r *http.Request, err string)
 
-// Options is a struct for specifying configuration options for the secure.Secure middleware.
+// Options is a struct for specifying configuration options for the middleware.
 type Options struct {
-	// The function that will return the Key to validate the JWT. It can be either a
-	// shared secret or a public key.
+	// The function that will return the Key to validate the JWT.
+	// It can be either a shared secret or a public key.
+	// Default value: nil
 	ValidationKeyGetter jwt.Keyfunc
-	// The name of the property in the request where the user information from the JWT will be stored.
+	// The name of the property in the request where the user information
+	// from the JWT will be stored.
+	// Default value: "user"
 	UserProperty string
 	// The function that will be called when there's an error validating the token
+	// Default value:
 	ErrorHandler errorHandler
 	// A boolean indicating if the credentials are required or not
+	// Default value: false
 	CredentialsOptional bool
 }
 
