@@ -11,7 +11,7 @@ This module lets you authenticate HTTP requests using JWT tokens in your Go Prog
 
 ## Installing
 
-````go
+````bash
 go get github.com/auth0/go-jwt-middleware
 ````
 
@@ -26,9 +26,11 @@ package main
 import (
     "net/http"
     "github.com/auth0/go-jwt-middleware"
+    "github.com/gorilla/context"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    user := context.Get(r, "user")
     w.Write([]byte("hello world. This is an authenticated request"))
 })
 
@@ -53,9 +55,11 @@ package main
 import (
     "net/http"
     "github.com/auth0/go-jwt-middleware"
+    "github.com/gorilla/context"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    user := context.Get(r, "user")
     w.Write([]byte("hello world. This is an authenticated request"))
 })
 
