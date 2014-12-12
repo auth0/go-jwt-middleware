@@ -109,6 +109,10 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	if !parsedToken.Valid {
+		m.Options.ErrorHandler(w, r, "The token isn't valid")
+	}
+
 	context.Set(r, m.Options.UserProperty, parsedToken)
 
 	return nil
