@@ -88,6 +88,9 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
+		if m.Options.CredentialsOptional {
+			return nil
+		}
 		errorMsg := "Authorization header isn't sent"
 		m.Options.ErrorHandler(w, r, errorMsg)
 		return errors.New(errorMsg)
