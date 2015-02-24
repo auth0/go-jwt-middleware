@@ -105,8 +105,10 @@ type Options struct {
   // Default value: false
   CredentialsOptional bool
   // A function that extracts the token from the request
+  // Default: FromAuthHeader (i.e., from Authorization header as bearer token)
   Extractor TokenExtractor
   // Debug flag turns on debugging output
+  // Default: false  
   Debug bool
 }
 ````
