@@ -104,8 +104,45 @@ type Options struct {
   // A boolean indicating if the credentials are required or not
   // Default value: false
   CredentialsOptional bool
+  // A function that extracts the token from the request
+  Extractor TokenExtractor
+  // Debug flag turns on debugging output
+  Debug bool
 }
 ````
+
+### Token Extraction
+
+The default value for the `Extractor` option is the `FromAuthHeader`
+function which assumes that the JWT will be provided as a bearer token
+in an `Authorization` header, i.e.,
+
+```
+Authorization: bearer {token}
+```
+
+To extract the token from a query string parameter, you can use the
+`FromParameter` function, e.g.,
+
+```go
+jwtmiddleware.New(jwtmiddleware.Options{
+  Extractor: jwtmiddleware.FromParameter("auth_code"),
+})
+```
+
+In this case, the `FromParameter` function will look for a JWT in the
+`auth_code` query parameter.
+
+Or, if you want to allow both, you can use the `FromFirst` function to
+try and extract the token first in one way and then in one or more
+other ways, e.g.,
+
+```go
+jwtmiddleware.New(jwtmiddleware.Options{
+	Extractor: jwtmiddleware.FromFirst(jwtmiddleware.FromAuthHeader,
+	                                   jwtmiddleware.FromParameter("auth_code")),
+})
+```
 
 ## Examples
 
