@@ -78,6 +78,12 @@ func New(options ...Options) *JWTMiddleware {
 	}
 }
 
+func (m *JWTMiddleware) logf(format string, args ...interface{}) {
+	if m.Options.Debug {
+		log.Printf(format, args...)
+	}
+}
+
 // Special implementation for Negroni, but could be used elsewhere.
 func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	err := m.CheckJWT(w, r)
@@ -168,9 +174,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	if token == "" {
 		// Check if it was required
 		if m.Options.CredentialsOptional {
-			if m.Options.Debug {
-				log.Printf("  No credentials found (CredentialsOptional=true)")
-			}
+			m.logf("  No credentials found (CredentialsOptional=true)")
 			// No error, just no token (and that is ok given that CredentialsOptional is true)
 			return nil
 		}
@@ -178,9 +182,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		// If we get here, the required token is missing
 		errorMsg := "Required authorization token not found"
 		m.Options.ErrorHandler(w, r, errorMsg)
-		if m.Options.Debug {
-			log.Printf("  Error: No credentials found (CredentialsOptional=false)")
-		}
+		m.logf("  Error: No credentials found (CredentialsOptional=false)")
 		return fmt.Errorf(errorMsg)
 	}
 
@@ -189,27 +191,19 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	// Check if there was an error in parsing...
 	if err != nil {
-		if m.Options.Debug {
-			log.Printf("Error parsing token: %v", err)
-		}
-
+		m.logf("Error parsing token: %v", err)
 		m.Options.ErrorHandler(w, r, err.Error())
 		return fmt.Errorf("Error parsing token: %v", err)
 	}
 
 	// Check if the parsed token is valid...
 	if !parsedToken.Valid {
-		if m.Options.Debug {
-			log.Printf("Token is invalid")
-		}
-
+		m.logf("Token is invalid")
 		m.Options.ErrorHandler(w, r, "The token isn't valid")
 		return fmt.Errorf("Token is invalid")
 	}
 
-	if m.Options.Debug {
-		log.Printf("JWT: %v", parsedToken)
-	}
+	m.logf("JWT: %v", parsedToken)
 
 	// If we get here, everything worked and we can set the
 	// user property in context.
