@@ -156,12 +156,10 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	token, err := m.Options.Extractor(r)
 
 	// If debugging is turned on, log the outcome
-	if m.Options.Debug {
-		if err != nil {
-			log.Printf("Error extracting JWT: %v", err)
-		} else {
-			log.Printf("Token extracted: %s", token)
-		}
+	if err != nil {
+		m.logf("Error extracting JWT: %v", err)
+	} else {
+		m.logf("Token extracted: %s", token)
 	}
 
 	// If an error occurs, call the error handler and return an error
