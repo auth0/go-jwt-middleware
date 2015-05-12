@@ -1,4 +1,4 @@
-# Negroni example
+# Martini example
 
 This is an example of how to use the middleware with Martini.
 
