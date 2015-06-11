@@ -24,25 +24,32 @@ You can use `jwtmiddleware` with default `net/http` as follows.
 package main
 
 import (
-    "net/http"
-    "github.com/auth0/go-jwt-middleware"
-    "github.com/gorilla/context"
+  "fmt"
+  "net/http"
+
+  "github.com/auth0/go-jwt-middleware"
+  "github.com/dgrijalva/jwt-go"
+  "github.com/gorilla/context"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    user := context.Get(r, "user")
-    w.Write([]byte("hello world. This is an authenticated request"))
+  user := context.Get(r, "user")
+  fmt.Fprintf(w, "This is an authenticated request")
+  fmt.Fprintf(w, "Claim content:\n")
+  for k, v := range user.(*jwt.Token).Claims {
+    fmt.Fprintf(w, "%s :\t%#v\n", k, v)
+  }
 })
 
 func main() {
-    jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-      ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-        return []byte("My Secret Key"), nil
-      },
-    })
+  jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
+    ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+      return []byte("My Secret"), nil
+    },
+  })
 
-    app := jwtMiddleware.Handler(myHandler)
-    http.ListenAndServe("0.0.0.0:3000", app)
+  app := jwtMiddleware.Handler(myHandler)
+  http.ListenAndServe("0.0.0.0:3000", app)
 }
 ````
 
@@ -53,36 +60,40 @@ You can also use it with Negroni as follows:
 package main
 
 import (
-    "net/http"
-    "github.com/auth0/go-jwt-middleware"
-    "github.com/gorilla/context"
+  "fmt"
+  "net/http"
+
+  "github.com/auth0/go-jwt-middleware"
+  "github.com/codegangsta/negroni"
+  "github.com/dgrijalva/jwt-go"
+  "github.com/gorilla/context"
+  "github.com/gorilla/mux"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    user := context.Get(r, "user")
-    w.Write([]byte("hello world. This is an authenticated request"))
+  user := context.Get(r, "user")
+  fmt.Fprintf(w, "This is an authenticated request")
+  fmt.Fprintf(w, "Claim content:\n")
+  for k, v := range user.(*jwt.Token).Claims {
+    fmt.Fprintf(w, "%s :\t%#v\n", k, v)
+  }
 })
 
 func main() {
-    r := mux.NewRouter()
+  r := mux.NewRouter()
 
-    jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-      ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-        decoded, err := base64.URLEncoding.DecodeString(os.Getenv("AUTH0_CLIENT_SECRET"))
-        if err != nil {
-          return nil, err
-        }
-        return decoded, nil
-      },
-    })
+  jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
+    ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+      return []byte("My Secret"), nil
+    },
+  })
 
-    r.HandleFunc("/ping", PingHandler)
-    r.Handle("/secured/ping", negroni.New(
-      negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
-      negroni.Wrap(http.HandlerFunc(myHandler)),
-    ))
-    http.Handle("/", r)
-    http.ListenAndServe(":3001", nil)
+  r.Handle("/ping", negroni.New(
+    negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
+    negroni.Wrap(myHandler),
+  ))
+  http.Handle("/", r)
+  http.ListenAndServe(":3001", nil)
 }
 ````
 
@@ -90,11 +101,11 @@ func main() {
 
 ````go
 type Options struct {
-  // The function that will return the Key to validate the JWT. 
+  // The function that will return the Key to validate the JWT.
   // It can be either a shared secret or a public key.
   // Default value: nil
   ValidationKeyGetter jwt.Keyfunc
-  // The name of the property in the request where the user information 
+  // The name of the property in the request where the user information
   // from the JWT will be stored.
   // Default value: "user"
   UserProperty string
@@ -141,8 +152,8 @@ other ways, e.g.,
 
 ```go
 jwtmiddleware.New(jwtmiddleware.Options{
-	Extractor: jwtmiddleware.FromFirst(jwtmiddleware.FromAuthHeader,
-	                                   jwtmiddleware.FromParameter("auth_code")),
+  Extractor: jwtmiddleware.FromFirst(jwtmiddleware.FromAuthHeader,
+                                     jwtmiddleware.FromParameter("auth_code")),
 })
 ```
 
