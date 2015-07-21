@@ -121,6 +121,9 @@ type Options struct {
   // Debug flag turns on debugging output
   // Default: false  
   Debug bool
+  // When set, all requests with the OPTIONS method will use authentication
+  // Default: false
+  EnableAuthOnOptions bool
 }
 ````
 

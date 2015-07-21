@@ -41,9 +41,9 @@ type Options struct {
 	// Debug flag turns on debugging output
 	// Default: false
 	Debug bool
-	// When set, all requests with the OPTIONS method will bypass auth
+	// When set, all requests with the OPTIONS method will use authentication
 	// Default: false
-	DisableAuthOnOptions bool
+	EnableAuthOnOptions bool
 }
 
 type JWTMiddleware struct {
@@ -155,7 +155,7 @@ func FromFirst(extractors ...TokenExtractor) TokenExtractor {
 }
 
 func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
-	if m.Options.DisableAuthOnOptions{
+	if !m.Options.EnableAuthOnOptions{
 		if r.Method == "OPTIONS"{
 			return nil
 		}
