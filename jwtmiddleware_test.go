@@ -1,4 +1,4 @@
-package jwtmiddleware
+package jwtmiddleware_test
 
 import (
 	"encoding/json"
