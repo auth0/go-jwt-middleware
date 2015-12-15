@@ -22,6 +22,7 @@ func StartServer() {
 		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
 			return []byte("My Secret"), nil
 		},
+		SigningMethod: jwt.SigningMethodHS256,
 	})
 
 	r.HandleFunc("/ping", PingHandler)
