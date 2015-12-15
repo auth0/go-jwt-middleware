@@ -1,6 +1,7 @@
 package jwtmiddleware
 
 import (
+	"errors"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/context"
@@ -44,6 +45,11 @@ type Options struct {
 	// When set, all requests with the OPTIONS method will use authentication
 	// Default: false
 	EnableAuthOnOptions bool
+	// When set, the middelware verifies that tokens are signed with the specific signing algorithm
+	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
+	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
+	// Default: nil
+	SigningMethod jwt.SigningMethod
 }
 
 type JWTMiddleware struct {
@@ -155,12 +161,12 @@ func FromFirst(extractors ...TokenExtractor) TokenExtractor {
 }
 
 func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
-	if !m.Options.EnableAuthOnOptions{
-		if r.Method == "OPTIONS"{
+	if !m.Options.EnableAuthOnOptions {
+		if r.Method == "OPTIONS" {
 			return nil
 		}
 	}
-	
+
 	// Use the specified token extractor to extract a token from the request
 	token, err := m.Options.Extractor(r)
 
@@ -201,6 +207,15 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		m.logf("Error parsing token: %v", err)
 		m.Options.ErrorHandler(w, r, err.Error())
 		return fmt.Errorf("Error parsing token: %v", err)
+	}
+
+	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
+		message := fmt.Sprintf("Expected %s signing method but token specified %s",
+			m.Options.SigningMethod.Alg(),
+			parsedToken.Header["alg"])
+		m.logf("Error validating token algorithm: %s", message)
+		m.Options.ErrorHandler(w, r, errors.New(message).Error())
+		return fmt.Errorf("Error validating token algorithm: %s", message)
 	}
 
 	// Check if the parsed token is valid...

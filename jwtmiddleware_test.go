@@ -3,17 +3,16 @@ package jwtmiddleware
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-
-	"github.com/auth0/go-jwt-middleware"
 	"github.com/codegangsta/negroni"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/context"
 	"github.com/gorilla/mux"
 	. "github.com/smartystreets/goconvey/convey"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
 )
 
 // defaultAuthorizationHeaderName is the default header name where the Auth
@@ -54,11 +53,13 @@ func TestAuthenticatedRequest(t *testing.T) {
 	}
 	Convey("Simple unauthenticated request", t, func() {
 		Convey("Authenticated GET to / path should return a 200 reponse", func() {
-			w := makeAuthenticatedRequest("GET", "/", map[string]interface{}{"foo": "bar"})
+			w := makeAuthenticatedRequest("GET", "/", map[string]interface{}{"foo": "bar"}, nil)
 			So(w.Code, ShouldEqual, http.StatusOK)
 		})
-		Convey("Authenticated GET to /protected path should return a 200 reponse", func() {
-			w := makeAuthenticatedRequest("GET", "/protected", map[string]interface{}{"foo": "bar"})
+		Convey("Authenticated GET to /protected path should return a 200 reponse if expected algorithm is not specified", func() {
+			var expectedAlgorithm jwt.SigningMethod
+			expectedAlgorithm = nil
+			w := makeAuthenticatedRequest("GET", "/protected", map[string]interface{}{"foo": "bar"}, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusOK)
 			responseBytes, err := ioutil.ReadAll(w.Body)
 			if err != nil {
@@ -68,14 +69,38 @@ func TestAuthenticatedRequest(t *testing.T) {
 			// check that the encoded data in the jwt was properly returned as json
 			So(responseString, ShouldEqual, `{"text":"bar"}`)
 		})
+		Convey("Authenticated GET to /protected path should return a 200 reponse if expected algorithm is correct", func() {
+			expectedAlgorithm := jwt.SigningMethodHS256
+			w := makeAuthenticatedRequest("GET", "/protected", map[string]interface{}{"foo": "bar"}, expectedAlgorithm)
+			So(w.Code, ShouldEqual, http.StatusOK)
+			responseBytes, err := ioutil.ReadAll(w.Body)
+			if err != nil {
+				panic(err)
+			}
+			responseString := string(responseBytes)
+			// check that the encoded data in the jwt was properly returned as json
+			So(responseString, ShouldEqual, `{"text":"bar"}`)
+		})
+		Convey("Authenticated GET to /protected path should return a 401 reponse if algorithm is not expected one", func() {
+			expectedAlgorithm := jwt.SigningMethodRS256
+			w := makeAuthenticatedRequest("GET", "/protected", map[string]interface{}{"foo": "bar"}, expectedAlgorithm)
+			So(w.Code, ShouldEqual, http.StatusUnauthorized)
+			responseBytes, err := ioutil.ReadAll(w.Body)
+			if err != nil {
+				panic(err)
+			}
+			responseString := string(responseBytes)
+			// check that the encoded data in the jwt was properly returned as json
+			So(strings.TrimSpace(responseString), ShouldEqual, "Expected RS256 signing method but token specified HS256")
+		})
 	})
 }
 
 func makeUnauthenticatedRequest(method string, url string) *httptest.ResponseRecorder {
-	return makeAuthenticatedRequest(method, url, nil)
+	return makeAuthenticatedRequest(method, url, nil, nil)
 }
 
-func makeAuthenticatedRequest(method string, url string, c map[string]interface{}) *httptest.ResponseRecorder {
+func makeAuthenticatedRequest(method string, url string, c map[string]interface{}, expectedSignatureAlgorithm jwt.SigningMethod) *httptest.ResponseRecorder {
 	r, _ := http.NewRequest(method, url, nil)
 	if c != nil {
 		token := jwt.New(jwt.SigningMethodHS256)
@@ -88,12 +113,12 @@ func makeAuthenticatedRequest(method string, url string, c map[string]interface{
 		r.Header.Set(defaultAuthorizationHeaderName, fmt.Sprintf("bearer %v", s))
 	}
 	w := httptest.NewRecorder()
-	n := createNegroniMiddleware()
+	n := createNegroniMiddleware(expectedSignatureAlgorithm)
 	n.ServeHTTP(w, r)
 	return w
 }
 
-func createNegroniMiddleware() *negroni.Negroni {
+func createNegroniMiddleware(expectedSignatureAlgorithm jwt.SigningMethod) *negroni.Negroni {
 	// create a gorilla mux router for public requests
 	publicRouter := mux.NewRouter().StrictSlash(true)
 	publicRouter.Methods("GET").
@@ -115,7 +140,7 @@ func createNegroniMiddleware() *negroni.Negroni {
 	// negroni handler for api request
 	negProtected := negroni.New()
 	//add the JWT negroni handler
-	negProtected.Use(negroni.HandlerFunc(JWT().HandlerWithNext))
+	negProtected.Use(negroni.HandlerFunc(JWT(expectedSignatureAlgorithm).HandlerWithNext))
 	negProtected.UseHandler(protectedRouter)
 
 	//Create the main router
@@ -137,8 +162,8 @@ func createNegroniMiddleware() *negroni.Negroni {
 }
 
 // JWT creates the middleware that parses a JWT encoded token
-func JWT() *jwtmiddleware.JWTMiddleware {
-	return jwtmiddleware.New(jwtmiddleware.Options{
+func JWT(expectedSignatureAlgorithm jwt.SigningMethod) *JWTMiddleware {
+	return New(Options{
 		Debug:               false,
 		CredentialsOptional: false,
 		UserProperty:        userPropertyName,
@@ -152,6 +177,7 @@ func JWT() *jwtmiddleware.JWTMiddleware {
 			}
 			return privateKey, nil
 		},
+		SigningMethod: expectedSignatureAlgorithm,
 	})
 }
 
