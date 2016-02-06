@@ -20,6 +20,11 @@ type errorHandler func(w http.ResponseWriter, r *http.Request, err string)
 // be treated as an error.  An empty string should be returned in that case.
 type TokenExtractor func(r *http.Request) (string, error)
 
+// RevokedChecker is a function that takes a parsed token as input and returns
+// a boolean which states if the token is valid. An error should only be returned
+// if an attempt to validate the token failed.
+type RevokedChecker func(t *jwt.Token) (bool, error)
+
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
 	// The function that will return the Key to validate the JWT.
@@ -39,6 +44,9 @@ type Options struct {
 	// A function that extracts the token from the request
 	// Default: FromAuthHeader (i.e., from Authorization header as bearer token)
 	Extractor TokenExtractor
+	// A function that checks if the token was revoked.
+	// Default value: nil
+	CheckRevoked RevokedChecker
 	// Debug flag turns on debugging output
 	// Default: false
 	Debug bool
@@ -230,6 +238,23 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	// If we get here, everything worked and we can set the
 	// user property in context.
 	context.Set(r, m.Options.UserProperty, parsedToken)
+
+	if m.Options.CheckRevoked != nil {
+		revoked, err := m.Options.CheckRevoked(parsedToken)
+		if revoked {
+			errorMsg := "Token was revoked"
+			m.Options.ErrorHandler(w, r, errorMsg)
+			m.logf(errorMsg)
+			return fmt.Errorf(errorMsg)
+		}
+
+		if err != nil {
+			errorMsg := fmt.Sprintf("Error checking revocation: %s", err.Error())
+			m.Options.ErrorHandler(w, r, err.Error())
+			m.logf(errorMsg)
+			return fmt.Errorf(errorMsg)
+		}
+	}
 
 	return nil
 }
