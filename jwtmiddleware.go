@@ -241,16 +241,17 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	if m.Options.CheckRevoked != nil {
 		revoked, err := m.Options.CheckRevoked(parsedToken)
-		if revoked {
-			errorMsg := "Token was revoked"
-			m.Options.ErrorHandler(w, r, errorMsg)
-			m.logf(errorMsg)
-			return fmt.Errorf(errorMsg)
-		}
 
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error checking revocation: %s", err.Error())
 			m.Options.ErrorHandler(w, r, err.Error())
+			m.logf(errorMsg)
+			return fmt.Errorf(errorMsg)
+		}
+
+		if revoked {
+			errorMsg := "Token was revoked"
+			m.Options.ErrorHandler(w, r, errorMsg)
 			m.logf(errorMsg)
 			return fmt.Errorf(errorMsg)
 		}
