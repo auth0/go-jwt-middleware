@@ -126,6 +126,9 @@ type Options struct {
   // A function that extracts the token from the request
   // Default: FromAuthHeader (i.e., from Authorization header as bearer token)
   Extractor TokenExtractor
+  // A function that checks if the token was revoked.
+  // Default value: nil
+  CheckRevoked RevokedChecker
   // Debug flag turns on debugging output
   // Default: false  
   Debug bool
@@ -172,6 +175,21 @@ jwtmiddleware.New(jwtmiddleware.Options{
                                      jwtmiddleware.FromParameter("auth_code")),
 })
 ```
+
+### Check Revoked
+
+The default value for the `CheckRevoked` option is `nil`, but sometimes it is necessary to check
+wether a token is revoked or not, e.g.,
+
+```go
+jwtmiddleware.New(jwtmiddleware.Options{
+  CheckRevoked: func (token *jwt.Token) (bool, error) {
+    isRevoked := someFunc(token)
+    return isRevoked, nil
+  },
+})
+```
+
 
 ## Examples
 
