@@ -46,10 +46,6 @@ func TestUnauthenticatedRequest(t *testing.T) {
 	})
 }
 
-// TestCustomContextSetter will test setting a custom context setter
-func TestCustomContextSetter(t *testing.T) {
-}
-
 // TestUnauthenticatedRequest will perform requests with no Authorization header
 func TestAuthenticatedRequest(t *testing.T) {
 	var e error
