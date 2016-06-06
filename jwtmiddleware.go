@@ -3,11 +3,12 @@ package jwtmiddleware
 import (
 	"errors"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/gorilla/context"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/context"
 )
 
 // A function called whenever an error is encountered
@@ -19,6 +20,9 @@ type errorHandler func(w http.ResponseWriter, r *http.Request, err string)
 // formed.  In the case where a token is simply not present, this should not
 // be treated as an error.  An empty string should be returned in that case.
 type TokenExtractor func(r *http.Request) (string, error)
+
+// ContextSetter allows for customized context setting
+type ContextSetter func(r *http.Request, userProperty string, token *jwt.Token)
 
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
@@ -50,14 +54,24 @@ type Options struct {
 	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
 	SigningMethod jwt.SigningMethod
+
+	// Allows for context setting customization
+	// Default: DefaultContextSetter
+	ContextSetter ContextSetter
 }
 
 type JWTMiddleware struct {
 	Options Options
 }
 
+// OnError is the default error handler
 func OnError(w http.ResponseWriter, r *http.Request, err string) {
 	http.Error(w, err, http.StatusUnauthorized)
+}
+
+// DefaultContextSetter is the default context handler and uses gorilla/context
+func DefaultContextSetter(r *http.Request, userProperty string, token *jwt.Token) {
+	context.Set(r, userProperty, token)
 }
 
 // New constructs a new Secure instance with supplied options.
@@ -82,6 +96,10 @@ func New(options ...Options) *JWTMiddleware {
 		opts.Extractor = FromAuthHeader
 	}
 
+	if opts.ContextSetter == nil {
+		opts.ContextSetter = DefaultContextSetter
+	}
+
 	return &JWTMiddleware{
 		Options: opts,
 	}
@@ -93,7 +111,7 @@ func (m *JWTMiddleware) logf(format string, args ...interface{}) {
 	}
 }
 
-// Special implementation for Negroni, but could be used elsewhere.
+// HandlerWithNext is a special implementation for Negroni, but could be used elsewhere.
 func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	err := m.CheckJWT(w, r)
 
@@ -103,6 +121,7 @@ func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// Handler is the default net/http middleware implementation
 func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let secure process the request. If it returns an error,
@@ -229,7 +248,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	// If we get here, everything worked and we can set the
 	// user property in context.
-	context.Set(r, m.Options.UserProperty, parsedToken)
+	m.Options.ContextSetter(r, m.Options.UserProperty, parsedToken)
 
 	return nil
 }
