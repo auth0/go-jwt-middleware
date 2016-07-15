@@ -114,6 +114,7 @@ func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 			return
 		}
 
+		defer context.Clear(r)
 		h.ServeHTTP(w, r)
 	})
 }
