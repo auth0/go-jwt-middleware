@@ -104,7 +104,7 @@ func makeAuthenticatedRequest(method string, url string, c map[string]interface{
 	r, _ := http.NewRequest(method, url, nil)
 	if c != nil {
 		token := jwt.New(jwt.SigningMethodHS256)
-		token.Claims = c
+		token.Claims = jwt.MapClaims(c)
 		// private key generated with http://kjur.github.io/jsjws/tool_jwt.html
 		s, e := token.SignedString(privateKey)
 		if e != nil {
@@ -199,7 +199,7 @@ func protectedHandler(w http.ResponseWriter, r *http.Request) {
 	// retrieve the token from the context (Gorilla context lib)
 	u := context.Get(r, userPropertyName)
 	user := u.(*jwt.Token)
-	respondJson(user.Claims["foo"].(string), w)
+	respondJson(user.Claims.(jwt.MapClaims)["foo"].(string), w)
 }
 
 // Response quick n' dirty Response struct to be encoded as json
