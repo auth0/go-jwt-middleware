@@ -200,7 +200,7 @@ If you have found a bug or if you have a feature request, please report them at 
 
 ## Author
 
-[Auth0](auth0.com)
+[Auth0](http://auth0.com)
 
 ## License
 
