@@ -3,11 +3,11 @@ package jwtmiddleware
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/urfave/negroni"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/context"
 	"github.com/gorilla/mux"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/urfave/negroni"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
