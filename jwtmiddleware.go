@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/dgrijalva/jwt-go"
 )
 
 // A function called whenever an error is encountered
@@ -19,6 +20,9 @@ type errorHandler func(w http.ResponseWriter, r *http.Request, err string)
 // formed.  In the case where a token is simply not present, this should not
 // be treated as an error.  An empty string should be returned in that case.
 type TokenExtractor func(r *http.Request) (string, error)
+
+// ContextSetter allows for customized context setting
+type ContextSetter func(r *http.Request, userProperty string, token *jwt.Token)
 
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
@@ -50,6 +54,9 @@ type Options struct {
 	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
 	SigningMethod jwt.SigningMethod
+	// Allows for context setting customization
+	// Default: DefaultContextSetter
+	ContextSetter ContextSetter
 }
 
 type JWTMiddleware struct {
@@ -58,6 +65,16 @@ type JWTMiddleware struct {
 
 func OnError(w http.ResponseWriter, r *http.Request, err string) {
 	http.Error(w, err, http.StatusUnauthorized)
+}
+
+// DefaultContextSetter is the default context handler and uses gorilla/context
+func DefaultContextSetter(r *http.Request, userProperty string, parsedToken *jwt.Token) {
+	// If we get here, everything worked and we can set the
+	// user property in context.
+	newCtx := context.WithValue(r.Context(), userProperty, parsedToken)
+	newRequest := r.WithContext(newCtx)
+	// Update the current request with the new context information.
+	*r = *newRequest
 }
 
 // New constructs a new Secure instance with supplied options.
@@ -80,6 +97,10 @@ func New(options ...Options) *JWTMiddleware {
 
 	if opts.Extractor == nil {
 		opts.Extractor = FromAuthHeader
+	}
+
+	if opts.ContextSetter == nil {
+		opts.ContextSetter = DefaultContextSetter
 	}
 
 	return &JWTMiddleware{
@@ -227,10 +248,6 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	m.logf("JWT: %v", parsedToken)
 
-	// If we get here, everything worked and we can set the
-	// user property in context.
-	newRequest := r.WithContext(context.WithValue(r.Context(), m.Options.UserProperty, parsedToken))
-	// Update the current request with the new context information.
-	*r = *newRequest
+	m.Options.ContextSetter(r, m.Options.UserProperty, parsedToken)
 	return nil
 }
