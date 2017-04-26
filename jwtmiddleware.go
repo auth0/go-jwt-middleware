@@ -24,6 +24,9 @@ type TokenExtractor func(r *http.Request) (string, error)
 // ContextSetter allows for customized context setting
 type ContextSetter func(r *http.Request, userProperty string, token *jwt.Token)
 
+// ClaimsGenerator creates customer implementation of jwt.Claims
+type ClaimsGenerator func() jwt.Claims
+
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
 	// The function that will return the Key to validate the JWT.
@@ -57,6 +60,10 @@ type Options struct {
 	// Allows for context setting customization
 	// Default: DefaultContextSetter
 	ContextSetter ContextSetter
+	// When set, it will be called to create instance of `jwt.Claims` cumstomer implementation type.
+	// This allows user to use their own user claim content types instead of the default `jwt.MapClaims`
+	// Default: MapClaimsGenerator
+	ClaimsGenerator ClaimsGenerator
 }
 
 type JWTMiddleware struct {
@@ -75,6 +82,11 @@ func DefaultContextSetter(r *http.Request, userProperty string, parsedToken *jwt
 	newRequest := r.WithContext(newCtx)
 	// Update the current request with the new context information.
 	*r = *newRequest
+}
+
+// MapClaimsGenerator a simple function returns a new instance of `jwt.MapClaims`
+func MapClaimsGenerator() jwt.Claims {
+	return jwt.MapClaims{}
 }
 
 // New constructs a new Secure instance with supplied options.
@@ -101,6 +113,10 @@ func New(options ...Options) *JWTMiddleware {
 
 	if opts.ContextSetter == nil {
 		opts.ContextSetter = DefaultContextSetter
+	}
+
+	if opts.ClaimsGenerator == nil {
+		opts.ClaimsGenerator = MapClaimsGenerator
 	}
 
 	return &JWTMiddleware{
@@ -221,7 +237,8 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(token, m.Options.ValidationKeyGetter)
+	claims := m.Options.ClaimsGenerator()
+	parsedToken, err := jwt.ParseWithClaims(token, claims, m.Options.ValidationKeyGetter)
 
 	// Check if there was an error in parsing...
 	if err != nil {
