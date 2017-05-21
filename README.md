@@ -162,6 +162,18 @@ jwtmiddleware.New(jwtmiddleware.Options{
 In this case, the `FromParameter` function will look for a JWT in the
 `auth_code` query parameter.
 
+To extract the token from a json string field, you can use the
+`FromJSON` function, e.g.,
+
+```go
+jwtmiddleware.New(jwtmiddleware.Options{
+  Extractor: jwtmiddleware.FromJSON("auth_code"),
+})
+```
+
+In this case, the `FromJSON` function will look for a JWT in the
+`auth_code` field.
+
 Or, if you want to allow both, you can use the `FromFirst` function to
 try and extract the token first in one way and then in one or more
 other ways, e.g.,
@@ -169,7 +181,8 @@ other ways, e.g.,
 ```go
 jwtmiddleware.New(jwtmiddleware.Options{
   Extractor: jwtmiddleware.FromFirst(jwtmiddleware.FromAuthHeader,
-                                     jwtmiddleware.FromParameter("auth_code")),
+                                     jwtmiddleware.FromParameter("auth_code"),
+                                     jwtmiddleware.FromJSON("auth_code")),
 })
 ```
 
