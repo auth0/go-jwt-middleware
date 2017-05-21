@@ -8,6 +8,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"encoding/json"
+	"io/ioutil"
+	"bytes"
 )
 
 // A function called whenever an error is encountered
@@ -140,6 +143,39 @@ func FromAuthHeader(r *http.Request) (string, error) {
 func FromParameter(param string) TokenExtractor {
 	return func(r *http.Request) (string, error) {
 		return r.URL.Query().Get(param), nil
+	}
+}
+
+// FromJSON returns a function that extracts the token from the specified
+// json field
+func FromJSON(param string) TokenExtractor {
+	return func(r *http.Request) (string, error) {
+		if r.Body == nil {
+			return "", fmt.Errorf("Request body is nil")
+		}
+
+		buf, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return "", err
+		}
+		nb := ioutil.NopCloser(bytes.NewBuffer(buf))
+		r.Body = nb
+
+		pm := map[string]interface{}{}
+		err = json.Unmarshal(buf, &pm)
+		if err != nil {
+			return "", err
+		}
+
+		if _, ok := pm[param]; !ok {
+			return "", fmt.Errorf("No json token field found")
+		}
+
+		if s, ok := pm[param].(string); ok{
+			return s, nil
+		}
+
+		return "", fmt.Errorf("Json token value is not a string")
 	}
 }
 
