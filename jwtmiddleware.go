@@ -50,6 +50,9 @@ type Options struct {
 	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
 	SigningMethod jwt.SigningMethod
+	// type of claims
+	// Default: &jwt.StandardClaims{}
+	Claims jwt.Claims
 }
 
 type JWTMiddleware struct {
@@ -200,7 +203,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(token, m.Options.ValidationKeyGetter)
+	parsedToken, err := jwt.ParseWithClaims(token, m.Options.Claims, m.Options.ValidationKeyGetter)
 
 	// Check if there was an error in parsing...
 	if err != nil {
@@ -225,7 +228,8 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return errors.New("Token is invalid")
 	}
 
-	m.logf("JWT: %v", parsedToken)
+	m.logf("JWT: %+v", parsedToken)
+	m.logf("Claims: %+v", parsedToken.Claims)
 
 	// If we get here, everything worked and we can set the
 	// user property in context.
