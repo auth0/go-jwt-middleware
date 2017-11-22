@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/dgrijalva/jwt-go"
 )
 
 // A function called whenever an error is encountered
@@ -26,6 +27,8 @@ type Options struct {
 	// It can be either a shared secret or a public key.
 	// Default value: nil
 	ValidationKeyGetter jwt.Keyfunc
+	// Ignore token expiration
+	IgnoreExpiration bool
 	// The name of the property in the request where the user information
 	// from the JWT will be stored.
 	// Default value: "user"
@@ -204,9 +207,18 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	// Check if there was an error in parsing...
 	if err != nil {
-		m.logf("Error parsing token: %v", err)
-		m.Options.ErrorHandler(w, r, err.Error())
-		return fmt.Errorf("Error parsing token: %v", err)
+		onlyExpirationError := false
+		if vErr, ok := err.(*jwt.ValidationError); ok {
+			onlyExpirationError = vErr.Errors^jwt.ValidationErrorExpired == 0
+		}
+
+		if !onlyExpirationError || (onlyExpirationError && !m.Options.IgnoreExpiration) {
+			m.logf("Error parsing token: %v", err)
+			m.Options.ErrorHandler(w, r, err.Error())
+			return fmt.Errorf("Error parsing token: %v", err)
+		} else {
+			parsedToken.Valid = true
+		}
 	}
 
 	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
