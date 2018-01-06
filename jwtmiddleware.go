@@ -20,6 +20,8 @@ type errorHandler func(w http.ResponseWriter, r *http.Request, err string)
 // be treated as an error.  An empty string should be returned in that case.
 type TokenExtractor func(r *http.Request) (string, error)
 
+type claimsFactory func() jwt.Claims
+
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
 	// The function that will return the Key to validate the JWT.
@@ -50,6 +52,8 @@ type Options struct {
 	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
 	SigningMethod jwt.SigningMethod
+
+	CustomClaimsFactory claimsFactory
 }
 
 type JWTMiddleware struct {
@@ -200,7 +204,13 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(token, m.Options.ValidationKeyGetter)
+	var parsedToken *jwt.Token
+	if m.Options.CustomClaimsFactory != nil {
+		parsedToken, err = jwt.ParseWithClaims(
+			token, m.Options.CustomClaimsFactory(), m.Options.ValidationKeyGetter)
+	} else {
+		parsedToken, err = jwt.Parse(token, m.Options.ValidationKeyGetter)
+	}
 
 	// Check if there was an error in parsing...
 	if err != nil {
