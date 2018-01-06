@@ -53,6 +53,9 @@ type Options struct {
 	// Default: nil
 	SigningMethod jwt.SigningMethod
 
+	// A function that creates custom Claims objects
+	// and passing to jwt.ParseWithClaims
+	// Default: nil
 	CustomClaimsFactory claimsFactory
 }
 
