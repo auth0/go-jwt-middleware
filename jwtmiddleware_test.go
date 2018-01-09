@@ -55,17 +55,17 @@ func TestAuthenticatedRequest(t *testing.T) {
 		panic(e)
 	}
 	Convey("Simple unauthenticated request", t, func() {
-		claim := CustomClaims{
+		claims := CustomClaims{
 			Foo: "bar",
 		}
 		Convey("Authenticated GET to / path should return a 200 reponse", func() {
-			w := makeAuthenticatedRequest("GET", "/", claim, nil)
+			w := makeAuthenticatedRequest("GET", "/", claims, nil)
 			So(w.Code, ShouldEqual, http.StatusOK)
 		})
 		Convey("Authenticated GET to /protected path should return a 200 reponse if expected algorithm is not specified", func() {
 			var expectedAlgorithm jwt.SigningMethod
 			expectedAlgorithm = nil
-			w := makeAuthenticatedRequest("GET", "/protected", claim, expectedAlgorithm)
+			w := makeAuthenticatedRequest("GET", "/protected", claims, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusOK)
 			responseBytes, err := ioutil.ReadAll(w.Body)
 			if err != nil {
@@ -77,7 +77,7 @@ func TestAuthenticatedRequest(t *testing.T) {
 		})
 		Convey("Authenticated GET to /protected path should return a 200 reponse if expected algorithm is correct", func() {
 			expectedAlgorithm := jwt.SigningMethodHS256
-			w := makeAuthenticatedRequest("GET", "/protected", claim, expectedAlgorithm)
+			w := makeAuthenticatedRequest("GET", "/protected", claims, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusOK)
 			responseBytes, err := ioutil.ReadAll(w.Body)
 			if err != nil {
@@ -89,7 +89,7 @@ func TestAuthenticatedRequest(t *testing.T) {
 		})
 		Convey("Authenticated GET to /protected path should return a 401 reponse if algorithm is not expected one", func() {
 			expectedAlgorithm := jwt.SigningMethodRS256
-			w := makeAuthenticatedRequest("GET", "/protected", claim, expectedAlgorithm)
+			w := makeAuthenticatedRequest("GET", "/protected", claims, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusUnauthorized)
 			responseBytes, err := ioutil.ReadAll(w.Body)
 			if err != nil {
@@ -167,7 +167,7 @@ func JWT(expectedSignatureAlgorithm jwt.SigningMethod) *JWTMiddleware {
 			return privateKey, nil
 		},
 		SigningMethod: expectedSignatureAlgorithm,
-		CustomClaimsFactory: func () jwt.Claims {
+		CustomClaimsFactory: func() jwt.Claims {
 			return &CustomClaims{}
 		},
 	})
