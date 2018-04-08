@@ -36,7 +36,8 @@ var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
   user := context.Get(r, "user")
   fmt.Fprintf(w, "This is an authenticated request")
   fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims {
+  claims := user.(*jwt.Token).Claims.(jwt.MapClaims)
+  for k, v := range claims {
     fmt.Fprintf(w, "%s :\t%#v\n", k, v)
   }
 })
@@ -78,7 +79,8 @@ var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
   user := r.Context().Value("user");
   fmt.Fprintf(w, "This is an authenticated request")
   fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims {
+  claims := user.(*jwt.Token).Claims.(jwt.MapClaims)
+  for k, v := range claims {
     fmt.Fprintf(w, "%s :\t%#v\n", k, v)
   }
 })
