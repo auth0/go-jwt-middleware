@@ -199,7 +199,7 @@ func protectedHandler(w http.ResponseWriter, r *http.Request) {
 	// retrieve the token from the context (Gorilla context lib)
 	u := context.Get(r, userPropertyName)
 	user := u.(*jwt.Token)
-	respondJson(user.Claims["foo"].(string), w)
+	respondJSON(user.Claims["foo"].(string), w)
 }
 
 // Response quick n' dirty Response struct to be encoded as json
@@ -207,8 +207,8 @@ type Response struct {
 	Text string `json:"text"`
 }
 
-// respondJson will take an string to write through the writer as json
-func respondJson(text string, w http.ResponseWriter) {
+// respondJSON will take an string to write through the writer as json
+func respondJSON(text string, w http.ResponseWriter) {
 	response := Response{text}
 
 	jsonResponse, err := json.Marshal(response)

@@ -34,7 +34,7 @@ type Response struct {
 	Text string `json:"text"`
 }
 
-func respondJson(text string, w http.ResponseWriter) {
+func respondJSON(text string, w http.ResponseWriter) {
 	response := Response{text}
 
 	jsonResponse, err := json.Marshal(response)
@@ -48,9 +48,9 @@ func respondJson(text string, w http.ResponseWriter) {
 }
 
 func PingHandler(w http.ResponseWriter, r *http.Request) {
-	respondJson("All good. You don't need to be authenticated to call this", w)
+	respondJSON("All good. You don't need to be authenticated to call this", w)
 }
 
 func SecuredPingHandler(w http.ResponseWriter, r *http.Request) {
-	respondJson("All good. You only get this message if you're authenticated", w)
+	respondJSON("All good. You only get this message if you're authenticated", w)
 }
