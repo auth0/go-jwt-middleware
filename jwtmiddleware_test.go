@@ -28,7 +28,7 @@ const userPropertyName = "custom-user-property"
 
 // the bytes read from the keys/sample-key file
 // private key generated with http://kjur.github.io/jsjws/tool_jwt.html
-var privateKey []byte = nil
+var privateKey []byte
 
 // TestUnauthenticatedRequest will perform requests with no Authorization header
 func TestUnauthenticatedRequest(t *testing.T) {
