@@ -33,11 +33,11 @@ var privateKey []byte = nil
 // TestUnauthenticatedRequest will perform requests with no Authorization header
 func TestUnauthenticatedRequest(t *testing.T) {
 	Convey("Simple unauthenticated request", t, func() {
-		Convey("Unauthenticated GET to / path should return a 200 reponse", func() {
+		Convey("Unauthenticated GET to / path should return a 200 response", func() {
 			w := makeUnauthenticatedRequest("GET", "/")
 			So(w.Code, ShouldEqual, http.StatusOK)
 		})
-		Convey("Unauthenticated GET to /protected path should return a 401 reponse", func() {
+		Convey("Unauthenticated GET to /protected path should return a 401 response", func() {
 			w := makeUnauthenticatedRequest("GET", "/protected")
 			So(w.Code, ShouldEqual, http.StatusUnauthorized)
 		})
@@ -52,11 +52,11 @@ func TestAuthenticatedRequest(t *testing.T) {
 		panic(e)
 	}
 	Convey("Simple unauthenticated request", t, func() {
-		Convey("Authenticated GET to / path should return a 200 reponse", func() {
+		Convey("Authenticated GET to / path should return a 200 response", func() {
 			w := makeAuthenticatedRequest("GET", "/", map[string]interface{}{"foo": "bar"}, nil)
 			So(w.Code, ShouldEqual, http.StatusOK)
 		})
-		Convey("Authenticated GET to /protected path should return a 200 reponse if expected algorithm is not specified", func() {
+		Convey("Authenticated GET to /protected path should return a 200 response if expected algorithm is not specified", func() {
 			var expectedAlgorithm jwt.SigningMethod
 			expectedAlgorithm = nil
 			w := makeAuthenticatedRequest("GET", "/protected", map[string]interface{}{"foo": "bar"}, expectedAlgorithm)
@@ -69,7 +69,7 @@ func TestAuthenticatedRequest(t *testing.T) {
 			// check that the encoded data in the jwt was properly returned as json
 			So(responseString, ShouldEqual, `{"text":"bar"}`)
 		})
-		Convey("Authenticated GET to /protected path should return a 200 reponse if expected algorithm is correct", func() {
+		Convey("Authenticated GET to /protected path should return a 200 response if expected algorithm is correct", func() {
 			expectedAlgorithm := jwt.SigningMethodHS256
 			w := makeAuthenticatedRequest("GET", "/protected", map[string]interface{}{"foo": "bar"}, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusOK)
@@ -81,7 +81,7 @@ func TestAuthenticatedRequest(t *testing.T) {
 			// check that the encoded data in the jwt was properly returned as json
 			So(responseString, ShouldEqual, `{"text":"bar"}`)
 		})
-		Convey("Authenticated GET to /protected path should return a 401 reponse if algorithm is not expected one", func() {
+		Convey("Authenticated GET to /protected path should return a 401 response if algorithm is not expected one", func() {
 			expectedAlgorithm := jwt.SigningMethodRS256
 			w := makeAuthenticatedRequest("GET", "/protected", map[string]interface{}{"foo": "bar"}, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusUnauthorized)
