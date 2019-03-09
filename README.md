@@ -29,14 +29,14 @@ import (
 
   "github.com/auth0/go-jwt-middleware"
   "github.com/dgrijalva/jwt-go"
-  "github.com/gorilla/context"
+  "context"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-  user := context.Get(r, "user")
+  user := r.Context().Value("user")
   fmt.Fprintf(w, "This is an authenticated request")
   fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims {
+  for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
     fmt.Fprintf(w, "%s :\t%#v\n", k, v)
   }
 })
@@ -78,7 +78,7 @@ var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
   user := r.Context().Value("user");
   fmt.Fprintf(w, "This is an authenticated request")
   fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims {
+  for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
     fmt.Fprintf(w, "%s :\t%#v\n", k, v)
   }
 })
