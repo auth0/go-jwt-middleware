@@ -128,8 +128,9 @@ func FromAuthHeader(r *http.Request) (string, error) {
 
 	// TODO: Make this a bit more robust, parsing-wise
 	authHeaderParts := strings.Split(authHeader, " ")
-	if len(authHeaderParts) != 2 || strings.ToLower(authHeaderParts[0]) != "bearer" {
-		return "", errors.New("Authorization header format must be Bearer {token}")
+	jwtType := strings.ToLower(authHeaderParts[0])
+	if len(authHeaderParts) != 2 || (jwtType != "bearer" && jwtType != "jwt") {
+		return "", errors.New("Authorization header format must be Bearer or JWT {token}")
 	}
 
 	return authHeaderParts[1], nil
