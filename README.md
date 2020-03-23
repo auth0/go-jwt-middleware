@@ -113,7 +113,7 @@ type Options struct {
   // It can be either a shared secret or a public key.
   // Default value: nil
   ValidationKeyGetter jwt.Keyfunc
-  // The name of the property in the request where the user information
+  // The key for the value stored in the request's context where the user information
   // from the JWT will be stored.
   // Default value: "user"
   UserProperty string

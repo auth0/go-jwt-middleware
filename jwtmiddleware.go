@@ -26,10 +26,10 @@ type Options struct {
 	// It can be either a shared secret or a public key.
 	// Default value: nil
 	ValidationKeyGetter jwt.Keyfunc
-	// The name of the property in the request where the user information
+	// The key for the value stored in the request's context where the user information
 	// from the JWT will be stored.
 	// Default value: "user"
-	UserProperty string
+	UserProperty interface{}
 	// The function that will be called when there's an error validating the token
 	// Default value:
 	ErrorHandler errorHandler
@@ -70,7 +70,7 @@ func New(options ...Options) *JWTMiddleware {
 		opts = options[0]
 	}
 
-	if opts.UserProperty == "" {
+	if opts.UserProperty == nil {
 		opts.UserProperty = "user"
 	}
 
