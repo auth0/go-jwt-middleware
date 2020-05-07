@@ -3,15 +3,16 @@ package jwtmiddleware
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/gorilla/mux"
-	. "github.com/smartystreets/goconvey/convey"
-	"github.com/urfave/negroni"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
+	. "github.com/smartystreets/goconvey/convey"
+	"github.com/urfave/negroni"
 )
 
 // defaultAuthorizationHeaderName is the default header name where the Auth
