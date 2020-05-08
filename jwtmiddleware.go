@@ -32,7 +32,7 @@ type Options struct {
 	// Default value: "user"
 	UserProperty string
 	// The function that will be called when there's an error validating the token
-	// Default value:
+	// Default value: OnError
 	ErrorHandler errorHandler
 	// A boolean indicating if the credentials are required or not
 	// Default value: false
