@@ -181,7 +181,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	// If an error occurs, call the error handler and return an error
 	if err != nil {
 		m.Options.ErrorHandler(w, r, err.Error())
-		return fmt.Errorf("Error extracting token: %v", err)
+		return fmt.Errorf("Error extracting token: %w", err)
 	}
 
 	// If the token is empty...
@@ -207,7 +207,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		m.logf("Error parsing token: %v", err)
 		m.Options.ErrorHandler(w, r, err.Error())
-		return fmt.Errorf("Error parsing token: %v", err)
+		return fmt.Errorf("Error parsing token: %w", err)
 	}
 
 	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
