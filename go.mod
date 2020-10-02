@@ -1,4 +1,4 @@
-module github.com/Zattix/go-jwt-middleware
+module github.com/Hikely/go-jwt-middleware
 
 go 1.17
 
