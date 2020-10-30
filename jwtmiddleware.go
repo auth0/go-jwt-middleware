@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/dgrijalva/jwt-go"
@@ -51,6 +52,9 @@ type Options struct {
 	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
 	SigningMethod jwt.SigningMethod
+	// Claims are extendable claims data defining token content.
+	// Optional. Default value jwt.MapClaims
+	Claims jwt.Claims
 }
 
 type JWTMiddleware struct {
@@ -81,6 +85,10 @@ func New(options ...Options) *JWTMiddleware {
 
 	if opts.Extractor == nil {
 		opts.Extractor = FromAuthHeader
+	}
+
+	if opts.Claims == nil {
+		opts.Claims = jwt.MapClaims{}
 	}
 
 	return &JWTMiddleware{
@@ -201,7 +209,15 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(token, m.Options.ValidationKeyGetter)
+	// Copy from https://github.com/labstack/echo/blob/master/middleware/jwt.go#L193-L201
+	parsedToken := new(jwt.Token)
+	if _, ok := m.Options.Claims.(jwt.MapClaims); ok {
+		parsedToken, err = jwt.Parse(token, m.Options.ValidationKeyGetter)
+	} else {
+		t := reflect.ValueOf(m.Options.Claims).Type().Elem()
+		claims := reflect.New(t).Interface().(jwt.Claims)
+		parsedToken, err = jwt.ParseWithClaims(token, claims, m.Options.ValidationKeyGetter)
+	}
 
 	// Check if there was an error in parsing...
 	if err != nil {
