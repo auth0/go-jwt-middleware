@@ -34,12 +34,12 @@ type Options struct {
 	// The function that will be called when there's an error validating the token
 	// Default value:
 	ErrorHandler errorHandler
-	// A boolean indicating if the credentials are required or not
-	// Default value: false
-	CredentialsOptional bool
 	// A function that extracts the token from the request
 	// Default: FromAuthHeader (i.e., from Authorization header as bearer token)
 	Extractor TokenExtractor
+	// A boolean indicating if the credentials are required or not
+	// Default value: false
+	CredentialsOptional bool
 	// Debug flag turns on debugging output
 	// Default: false
 	Debug bool
