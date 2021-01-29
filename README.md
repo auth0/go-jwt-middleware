@@ -1,5 +1,8 @@
 # GO JWT Middleware
 
+**WARNING**
+This `v2` branch is not production ready - use at your own risk.
+
 **NOTE:** We released this version using a fork of jwt-go in order to address a security vulnerability. Due to jwt-go not being actively maintained we will be looking to switch to a more actively maintained package in the near future.
 
 A middleware that will check that a [JWT](http://jwt.io/) is sent on the `Authorization` header and will then set the content of the JWT into the `user` variable of the request.
