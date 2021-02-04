@@ -5,8 +5,9 @@ import (
 	"net/http"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware"
-	"github.com/form3tech-oss/jwt-go"
 	"github.com/gorilla/mux"
+	"github.com/lestrrat-go/jwx/jwa"
+	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/urfave/negroni"
 )
 
@@ -20,10 +21,13 @@ func StartServer() {
 	r := mux.NewRouter()
 
 	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-			return []byte("My Secret"), nil
+		Key: "your-256-bit-secret",
+		ValidationOptions: []jwt.ValidateOption{
+			jwt.WithAudience("example.com"),
+			jwt.WithIssuer("auth.example.com"),
+			jwt.WithClaimValue("custom", "claim"),
 		},
-		SigningMethod: jwt.SigningMethodHS256,
+		SigningMethod: jwa.HS256,
 	})
 
 	r.HandleFunc("/ping", PingHandler)

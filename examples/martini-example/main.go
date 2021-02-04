@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware"
-	"github.com/form3tech-oss/jwt-go"
 	"github.com/go-martini/martini"
+	"github.com/lestrrat-go/jwx/jwa"
 )
 
 func main() {
@@ -19,10 +20,8 @@ func StartServer() {
 	m := martini.Classic()
 
 	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-			return []byte("My Secret"), nil
-		},
-		SigningMethod: jwt.SigningMethodHS256,
+		Key:           "your-256-bit-secret",
+		SigningMethod: jwa.HS256,
 	})
 
 	m.Get("/ping", PingHandler)
@@ -53,5 +52,8 @@ func PingHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func SecuredPingHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO(jayhelton) the martini example doesnt seem to pass along the middleware on this branch, it receives and <invalid Value> message and skips the handler
+	tokenStr := r.Context().Value("user")
+	log.Println(tokenStr)
 	respondJSON("All good. You only get this message if you're authenticated", w)
 }

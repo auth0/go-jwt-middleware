@@ -8,7 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/lestrrat-go/jwx/jwa"
+	"github.com/lestrrat-go/jwx/jwt"
 )
 
 // A function called whenever an error is encountered
@@ -23,10 +24,10 @@ type TokenExtractor func(r *http.Request) (string, error)
 
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
-	// The function that will return the Key to validate the JWT.
-	// It can be either a shared secret or a public key.
-	// Default value: nil
-	ValidationKeyGetter jwt.Keyfunc
+	// TODO(jayhelton) add comment
+	ValidationOptions []jwt.ValidateOption
+	// TODO(jayhelton) add comment
+	Key string
 	// The name of the property in the request where the user information
 	// from the JWT will be stored.
 	// Default value: "user"
@@ -50,7 +51,7 @@ type Options struct {
 	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
 	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
-	SigningMethod jwt.SigningMethod
+	SigningMethod jwa.SignatureAlgorithm
 }
 
 type JWTMiddleware struct {
@@ -201,7 +202,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(token, m.Options.ValidationKeyGetter)
+	parsedToken, err := jwt.ParseString(token, jwt.WithVerify(m.Options.SigningMethod, []byte(m.Options.Key)))
 
 	// Check if there was an error in parsing...
 	if err != nil {
@@ -209,18 +210,20 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		m.Options.ErrorHandler(w, r, err.Error())
 		return fmt.Errorf("Error parsing token: %w", err)
 	}
+	// TODO(jayhelton) we need a way to validate the header of the parsed token
+	// if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
+	// 	message := fmt.Sprintf("Expected %s signing method but token specified %s",
+	// 		m.Options.SigningMethod.Alg(),
+	// 		parsedToken.Header["alg"])
+	// 	m.logf("Error validating token algorithm: %s", message)
+	// 	m.Options.ErrorHandler(w, r, errors.New(message).Error())
+	// 	return fmt.Errorf("Error validating token algorithm: %s", message)
+	// }
 
-	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
-		message := fmt.Sprintf("Expected %s signing method but token specified %s",
-			m.Options.SigningMethod.Alg(),
-			parsedToken.Header["alg"])
-		m.logf("Error validating token algorithm: %s", message)
-		m.Options.ErrorHandler(w, r, errors.New(message).Error())
-		return fmt.Errorf("Error validating token algorithm: %s", message)
-	}
+	err = jwt.Validate(parsedToken, m.Options.ValidationOptions...)
 
 	// Check if the parsed token is valid...
-	if !parsedToken.Valid {
+	if err != nil {
 		m.logf("Token is invalid")
 		m.Options.ErrorHandler(w, r, "The token isn't valid")
 		return errors.New("Token is invalid")
