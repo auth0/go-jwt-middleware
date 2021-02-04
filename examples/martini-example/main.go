@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware"
@@ -53,7 +52,5 @@ func PingHandler(w http.ResponseWriter, r *http.Request) {
 
 func SecuredPingHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO(jayhelton) the martini example doesnt seem to pass along the middleware on this branch, it receives and <invalid Value> message and skips the handler
-	tokenStr := r.Context().Value("user")
-	log.Println(tokenStr)
 	respondJSON("All good. You only get this message if you're authenticated", w)
 }
