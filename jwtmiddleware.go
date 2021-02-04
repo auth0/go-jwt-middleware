@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lestrrat-go/jwx/jwa"
+	"github.com/lestrrat-go/jwx/jws"
 	"github.com/lestrrat-go/jwx/jwt"
 )
 
@@ -203,6 +204,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	// Now parse the token
 	parsedToken, err := jwt.ParseString(token, jwt.WithVerify(m.Options.SigningMethod, []byte(m.Options.Key)))
+	msg, err := jws.ParseString(token)
 
 	// Check if there was an error in parsing...
 	if err != nil {
@@ -210,15 +212,26 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		m.Options.ErrorHandler(w, r, err.Error())
 		return fmt.Errorf("Error parsing token: %w", err)
 	}
-	// TODO(jayhelton) we need a way to validate the header of the parsed token
-	// if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
-	// 	message := fmt.Sprintf("Expected %s signing method but token specified %s",
-	// 		m.Options.SigningMethod.Alg(),
-	// 		parsedToken.Header["alg"])
-	// 	m.logf("Error validating token algorithm: %s", message)
-	// 	m.Options.ErrorHandler(w, r, errors.New(message).Error())
-	// 	return fmt.Errorf("Error validating token algorithm: %s", message)
-	// }
+
+	// Validate the algorithm on the header
+	signatures := msg.Signatures()
+
+	if len(signatures) == 0 {
+		m.logf("No signatures where found with the token")
+		m.Options.ErrorHandler(w, r, "No signatures where found with the token")
+		return errors.New("No signatures where found with the token")
+	}
+
+	algorithm := signatures[0].ProtectedHeaders().Algorithm()
+
+	if m.Options.SigningMethod != algorithm {
+		message := fmt.Sprintf("Expected %s signing method but token specified %s",
+			m.Options.SigningMethod.String(),
+			algorithm)
+		m.logf("Error validating token algorithm: %s", message)
+		m.Options.ErrorHandler(w, r, errors.New(message).Error())
+		return fmt.Errorf("Error validating token algorithm: %s", message)
+	}
 
 	err = jwt.Validate(parsedToken, m.Options.ValidationOptions...)
 
