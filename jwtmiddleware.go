@@ -204,13 +204,21 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	// Now parse the token
 	parsedToken, err := jwt.ParseString(token, jwt.WithVerify(m.Options.SigningMethod, []byte(m.Options.Key)))
-	msg, err := jws.ParseString(token)
 
 	// Check if there was an error in parsing...
 	if err != nil {
 		m.logf("Error parsing token: %v", err)
 		m.Options.ErrorHandler(w, r, err.Error())
 		return fmt.Errorf("Error parsing token: %w", err)
+	}
+
+	msg, err := jws.ParseString(token)
+
+	// Check if there was an error in parsing message...
+	if err != nil {
+		m.logf("Error parsing message: %v", err)
+		m.Options.ErrorHandler(w, r, err.Error())
+		return fmt.Errorf("Error parsing message: %w", err)
 	}
 
 	// Validate the algorithm on the header
