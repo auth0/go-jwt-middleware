@@ -22,10 +22,19 @@ func StartServer() {
 
 	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
 		Key: "your-256-bit-secret",
-		ValidationOptions: []jwt.ValidateOption{
-			jwt.WithAudience("example.com"),
-			jwt.WithIssuer("auth.example.com"),
-			jwt.WithClaimValue("custom", "claim"),
+		ValidatorFunc: func(parsedToken jwt.Token) bool {
+			// Token validation is easy if you leverage jwx package, otherwise you can manually
+			// check the contents of the token object
+			// Todo(jayhelton) add manual parse exampls
+			err := jwt.Validate(parsedToken, jwt.WithAudience("example.com"),
+				jwt.WithIssuer("auth.example.com"),
+				jwt.WithClaimValue("custom", "claim"))
+
+			// Check if the parsed token is valid...
+			if err != nil {
+				return false
+			}
+			return true
 		},
 		SigningMethod: jwa.HS256,
 	})

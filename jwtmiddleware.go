@@ -23,10 +23,12 @@ type errorHandler func(w http.ResponseWriter, r *http.Request, err string)
 // be treated as an error.  An empty string should be returned in that case.
 type TokenExtractor func(r *http.Request) (string, error)
 
+type ValidatorFunc func(parsedToken jwt.Token) bool
+
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
 	// TODO(jayhelton) add comment
-	ValidationOptions []jwt.ValidateOption
+	ValidatorFunc ValidatorFunc
 	// TODO(jayhelton) add comment
 	Key string
 	// The name of the property in the request where the user information
@@ -202,7 +204,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf(errorMsg)
 	}
 
-	// Now parse the token
+	// Now parse the token and verify signature
 	parsedToken, err := jwt.ParseString(token, jwt.WithVerify(m.Options.SigningMethod, []byte(m.Options.Key)))
 
 	// Check if there was an error in parsing...
@@ -241,10 +243,10 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("Error validating token algorithm: %s", message)
 	}
 
-	err = jwt.Validate(parsedToken, m.Options.ValidationOptions...)
+	valid := m.Options.ValidatorFunc(parsedToken)
 
 	// Check if the parsed token is valid...
-	if err != nil {
+	if !valid {
 		m.logf("Token is invalid")
 		m.Options.ErrorHandler(w, r, "The token isn't valid")
 		return errors.New("Token is invalid")
