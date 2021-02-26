@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-
-	"github.com/form3tech-oss/jwt-go"
 )
 
 // A function called whenever an error is encountered
@@ -21,18 +19,24 @@ type errorHandler func(w http.ResponseWriter, r *http.Request, err string)
 // be treated as an error.  An empty string should be returned in that case.
 type TokenExtractor func(r *http.Request) (string, error)
 
+// ValidateToken takes in a string JWT and handles making sure it is valid and
+// returning the valid token. If it is not valid it will return nil and an
+// error message describing why validation failed.
+// Inside of ValidateToken is where things like key and alg checking can
+// happen. In the default implementation we can add safe defaults for those.
+type ValidateToken func(string) (interface{}, error)
+
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
-	// The function that will return the Key to validate the JWT.
-	// It can be either a shared secret or a public key.
-	// Default value: nil
-	ValidationKeyGetter jwt.Keyfunc
+	// Validate handles validating a token.
+	Validate ValidateToken
 	// The name of the property in the request where the user information
 	// from the JWT will be stored.
 	// Default value: "user"
 	UserProperty string
-	// The function that will be called when there's an error validating the token
-	// Default value:
+	// The function that will be called when there are errors in the
+	// middleware.
+	// Default value: OnError
 	ErrorHandler errorHandler
 	// A boolean indicating if the credentials are required or not
 	// Default value: false
@@ -46,11 +50,6 @@ type Options struct {
 	// When set, all requests with the OPTIONS method will use authentication
 	// Default: false
 	EnableAuthOnOptions bool
-	// When set, the middelware verifies that tokens are signed with the specific signing algorithm
-	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-	// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-	// Default: nil
-	SigningMethod jwt.SigningMethod
 }
 
 type JWTMiddleware struct {
@@ -200,37 +199,19 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf(errorMsg)
 	}
 
-	// Now parse the token
-	parsedToken, err := jwt.Parse(token, m.Options.ValidationKeyGetter)
+	validToken, err := m.Options.Validate(token)
 
-	// Check if there was an error in parsing...
 	if err != nil {
-		m.logf("Error parsing token: %v", err)
-		m.Options.ErrorHandler(w, r, err.Error())
-		return fmt.Errorf("Error parsing token: %w", err)
-	}
-
-	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
-		message := fmt.Sprintf("Expected %s signing method but token specified %s",
-			m.Options.SigningMethod.Alg(),
-			parsedToken.Header["alg"])
-		m.logf("Error validating token algorithm: %s", message)
-		m.Options.ErrorHandler(w, r, errors.New(message).Error())
-		return fmt.Errorf("Error validating token algorithm: %s", message)
-	}
-
-	// Check if the parsed token is valid...
-	if !parsedToken.Valid {
 		m.logf("Token is invalid")
 		m.Options.ErrorHandler(w, r, "The token isn't valid")
-		return errors.New("Token is invalid")
+		return err
 	}
 
-	m.logf("JWT: %v", parsedToken)
+	m.logf("JWT: %v", validToken)
 
 	// If we get here, everything worked and we can set the
 	// user property in context.
-	newRequest := r.WithContext(context.WithValue(r.Context(), m.Options.UserProperty, parsedToken))
+	newRequest := r.WithContext(context.WithValue(r.Context(), m.Options.UserProperty, validToken))
 	// Update the current request with the new context information.
 	*r = *newRequest
 	return nil
