@@ -26,7 +26,9 @@ func StartServer() {
 	})
 
 	m.Get("/ping", PingHandler)
-	m.Get("/secured/ping", jwtMiddleware.CheckJWT, SecuredPingHandler)
+	m.Get("/secured/ping", func(w http.ResponseWriter, r *http.Request) {
+		jwtMiddleware.CheckJWT(w, r)
+	}, SecuredPingHandler)
 
 	m.Run()
 }
