@@ -8,38 +8,70 @@ import (
 	"gopkg.in/square/go-jose.v2/jwt"
 )
 
+// CustomClaims defines any custom data / claims wanted. The validator will
+// call the Validate function which is where custom validation logic can be
+// defined.
 type CustomClaims interface {
 	Validate() error
 }
 
+// UserContext is the struct that will be inserted into the context for the
+// user. CustomClaims will be nil unless WithCustomClaims we passed to New.
+type UserContext struct {
+	CustomClaims CustomClaims
+	Claims       jwt.Claims
+}
+
+// Option is how options for the validator are setup.
 type Option func(*Validator)
 
+// WithAllowedClockSkew is an option which sets up the allowed clock skew for
+// the token. Note that in order to use this the expected claims Time field
+// MUST not be time.IsZero(). If this option is not used clock skew is not
+// allowed.
 func WithAllowedClockSkew(skew time.Duration) Option {
 	return func(v *Validator) {
 		v.allowedClockSkew = skew
 	}
 }
 
+// WithCustomClaims sets up a function that returns the object CustomClaims are
+// unmarshalled into and the object which Validate is called on for custom
+// validation. If this option is not used the validator will do nothing for
+// custom claims.
 func WithCustomClaims(f func() CustomClaims) Option {
 	return func(v *Validator) {
 		v.customClaims = f
 	}
 }
 
+// WithExpectedClaims sets up a function that returns the object used to
+// validate claims. If this option is not used a default jwt.Expected object is
+// used which only validates token time.
+func WithExpectedClaims(f func() jwt.Expected) Option {
+	return func(v *Validator) {
+		v.expectedClaims = f
+	}
+}
+
+// New sets up a new Validator. With the required keyFunc and
+// signatureAlgorithm as well as options.
 func New(keyFunc func() (interface{}, error),
 	signatureAlgorithm jose.SignatureAlgorithm,
-	expectedClaims func() jwt.Expected,
 	opts ...Option) *Validator {
 
-	// TODO(joncarl): error on nil keyFunc and expectedClaims as we want to
-	// require them
+	// TODO(joncarl): error on nil keyFunc as we want to require it
 
 	v := &Validator{
 		allowedClockSkew:   0,
 		keyFunc:            keyFunc,
 		signatureAlgorithm: signatureAlgorithm,
 		customClaims:       nil,
-		expectedClaims:     expectedClaims,
+		expectedClaims: func() jwt.Expected {
+			return jwt.Expected{
+				Time: time.Now(),
+			}
+		},
 	}
 
 	for _, opt := range opts {
@@ -53,9 +85,9 @@ type Validator struct {
 	// required options
 	keyFunc            func() (interface{}, error)
 	signatureAlgorithm jose.SignatureAlgorithm
-	expectedClaims     func() jwt.Expected
 
-	// optional options
+	// optional options which we will default if not specified
+	expectedClaims   func() jwt.Expected
 	allowedClockSkew time.Duration
 	customClaims     func() CustomClaims
 }
@@ -89,15 +121,20 @@ func (v *Validator) ValidateToken(token string) (interface{}, error) {
 		return nil, fmt.Errorf("could not get token claims: %w", err)
 	}
 
-	if err = claimDest[0].(*jwt.Claims).ValidateWithLeeway(v.expectedClaims(), v.allowedClockSkew); err != nil {
+	userCtx := &UserContext{
+		Claims: *claimDest[0].(*jwt.Claims),
+	}
+
+	if err = userCtx.Claims.ValidateWithLeeway(v.expectedClaims(), v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 
 	if v.customClaims != nil {
-		if err = claimDest[1].(CustomClaims).Validate(); err != nil {
+		userCtx.CustomClaims = claimDest[1].(CustomClaims)
+		if err = userCtx.CustomClaims.Validate(); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}
 	}
 
-	return tok, nil
+	return userCtx, nil
 }

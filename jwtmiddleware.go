@@ -62,6 +62,7 @@ type TokenExtractor func(r *http.Request) (string, error)
 // error message describing why validation failed.
 // Inside of ValidateToken is where things like key and alg checking can
 // happen. In the default implementation we can add safe defaults for those.
+// TODO: should take context?
 type ValidateToken func(string) (interface{}, error)
 
 type JWTMiddleware struct {
