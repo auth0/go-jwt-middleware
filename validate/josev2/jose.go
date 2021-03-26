@@ -1,4 +1,4 @@
-package jose_v2
+package josev2
 
 import (
 	"fmt"

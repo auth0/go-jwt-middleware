@@ -1,5 +1,5 @@
 /*
-Package jose_v2 contains an implementation of jwtmiddleware.ValidateToken using
+Package josev2 contains an implementation of jwtmiddleware.ValidateToken using
 the Square go-jose package version 2.
 
 The implementation handles some nuances around JWTs and supports:
@@ -16,4 +16,4 @@ gopkg.in/square/go-jose.v2/jwt package.
 Note that while the jose package does support multi-recipient JWTs, this
 package does not support them.
 */
-package jose_v2
+package josev2
