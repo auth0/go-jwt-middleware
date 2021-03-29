@@ -48,7 +48,7 @@ type Options struct {
 	EnableAuthOnOptions bool
 	// When set, the middelware verifies that tokens are signed with the specific signing algorithm
 	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
+	// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
 	SigningMethod jwt.SigningMethod
 }
