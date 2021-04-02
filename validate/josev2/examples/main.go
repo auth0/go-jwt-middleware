@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ type CustomClaimsExample struct {
 }
 
 // Validate does nothing for this example
-func (c *CustomClaimsExample) Validate() error {
+func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 	if c.ShouldReject {
 		return errors.New("should reject was set to true")
 	}
@@ -41,7 +42,7 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 })
 
 func main() {
-	keyFunc := func() (interface{}, error) {
+	keyFunc := func(ctx context.Context) (interface{}, error) {
 		// our token must be signed using this data
 		return []byte("secret"), nil
 	}
@@ -60,13 +61,18 @@ func main() {
 	}
 
 	// setup the josev2 validator
-	validator := josev2.New(
+	validator, err := josev2.New(
 		keyFunc,
 		jose.HS256,
 		josev2.WithExpectedClaims(expectedClaims),
 		josev2.WithCustomClaims(customClaims),
 		josev2.WithAllowedClockSkew(30*time.Second),
 	)
+
+	if err != nil {
+		// we'll panic in order to fail fast
+		panic(err)
+	}
 
 	// setup the middleware
 	m := jwtmiddleware.New(jwtmiddleware.Options{

@@ -1,6 +1,8 @@
 package josev2
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,11 +14,11 @@ import (
 // call the Validate function which is where custom validation logic can be
 // defined.
 type CustomClaims interface {
-	Validate() error
+	Validate(context.Context) error
 }
 
 // UserContext is the struct that will be inserted into the context for the
-// user. CustomClaims will be nil unless WithCustomClaims we passed to New.
+// user. CustomClaims will be nil unless WithCustomClaims is passed to New.
 type UserContext struct {
 	CustomClaims CustomClaims
 	Claims       jwt.Claims
@@ -56,11 +58,13 @@ func WithExpectedClaims(f func() jwt.Expected) Option {
 
 // New sets up a new Validator. With the required keyFunc and
 // signatureAlgorithm as well as options.
-func New(keyFunc func() (interface{}, error),
+func New(keyFunc func(context.Context) (interface{}, error),
 	signatureAlgorithm jose.SignatureAlgorithm,
-	opts ...Option) *Validator {
+	opts ...Option) (*Validator, error) {
 
-	// TODO(joncarl): error on nil keyFunc as we want to require it
+	if keyFunc == nil {
+		return nil, errors.New("keyFunc is required but was nil")
+	}
 
 	v := &Validator{
 		allowedClockSkew:   0,
@@ -78,12 +82,12 @@ func New(keyFunc func() (interface{}, error),
 		opt(v)
 	}
 
-	return v
+	return v, nil
 }
 
 type Validator struct {
 	// required options
-	keyFunc            func() (interface{}, error)
+	keyFunc            func(context.Context) (interface{}, error)
 	signatureAlgorithm jose.SignatureAlgorithm
 
 	// optional options which we will default if not specified
@@ -93,7 +97,7 @@ type Validator struct {
 }
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
-func (v *Validator) ValidateToken(token string) (interface{}, error) {
+func (v *Validator) ValidateToken(ctx context.Context, token string) (interface{}, error) {
 	tok, err := jwt.ParseSigned(token)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)
@@ -107,7 +111,7 @@ func (v *Validator) ValidateToken(token string) (interface{}, error) {
 		return nil, fmt.Errorf("expected %q signin algorithm but token specified %q", signatureAlgorithm, tok.Headers[0].Algorithm)
 	}
 
-	key, err := v.keyFunc()
+	key, err := v.keyFunc(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
 	}
@@ -131,7 +135,7 @@ func (v *Validator) ValidateToken(token string) (interface{}, error) {
 
 	if v.customClaims != nil {
 		userCtx.CustomClaims = claimDest[1].(CustomClaims)
-		if err = userCtx.CustomClaims.Validate(); err != nil {
+		if err = userCtx.CustomClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}
 	}

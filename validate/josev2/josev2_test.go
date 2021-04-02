@@ -1,6 +1,7 @@
 package josev2
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -14,7 +15,7 @@ type testingCustomClaims struct {
 	ReturnError error
 }
 
-func (tcc *testingCustomClaims) Validate() error {
+func (tcc *testingCustomClaims) Validate(ctx context.Context) error {
 	return tcc.ReturnError
 }
 
@@ -88,12 +89,12 @@ func Test_Validate(t *testing.T) {
 				customClaimsFunc = func() CustomClaims { return testCase.customClaims }
 			}
 
-			v := New(func() (interface{}, error) { return []byte("secret"), testCase.keyFuncReturnError },
+			v, _ := New(func(ctx context.Context) (interface{}, error) { return []byte("secret"), testCase.keyFuncReturnError },
 				testCase.signatureAlgorithm,
 				WithExpectedClaims(func() jwt.Expected { return testCase.expectedClaims }),
 				WithCustomClaims(customClaimsFunc),
 			)
-			actualContext, err := v.ValidateToken(testCase.token)
+			actualContext, err := v.ValidateToken(context.Background(), testCase.token)
 			if !equalErrors(err, testCase.expectedError) {
 				t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", testCase.expectedError, err)
 			}
@@ -109,4 +110,47 @@ func Test_Validate(t *testing.T) {
 
 		})
 	}
+}
+
+func Test_New(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		keyFunc := func(ctx context.Context) (interface{}, error) { return nil, nil }
+		customClaims := func() CustomClaims { return nil }
+
+		v, err := New(keyFunc, jose.HS256, WithCustomClaims(customClaims))
+
+		if !equalErrors(err, "") {
+			t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", "", err)
+		}
+
+		if v.allowedClockSkew != 0 {
+			t.Logf("expected allowedClockSkew to be 0 but it was %d", v.allowedClockSkew)
+			t.Fail()
+		}
+
+		if v.keyFunc == nil {
+			t.Log("keyFunc was nil when it should not have been")
+			t.Fail()
+		}
+
+		if v.signatureAlgorithm != jose.HS256 {
+			t.Logf("signatureAlgorithm was %q when it should have been %q", v.signatureAlgorithm, jose.HS256)
+			t.Fail()
+		}
+
+		if v.customClaims == nil {
+			t.Log("customClaims was nil when it should not have been")
+			t.Fail()
+		}
+	})
+
+	t.Run("error on no keyFunc", func(t *testing.T) {
+		_, err := New(nil, jose.HS256)
+
+		expectedErr := "keyFunc is required but was nil"
+		if !equalErrors(err, expectedErr) {
+			t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", expectedErr, err)
+		}
+	})
+
 }
