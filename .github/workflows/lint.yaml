@@ -1,9 +1,12 @@
 name: golangci-lint
 on:
   push:
-    branches: [master]
+    branches:
+      - '*'
   pull_request:
-    branches: ['*']
+    type: [created]
+    branches:
+      - '*'
 jobs:
   golangci:
     name: lint

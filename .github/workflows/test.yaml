@@ -1,8 +1,11 @@
 on:
   push:
-    branches: [master]
+    branches:
+      - '*'
   pull_request:
-    branches: ['*']
+    type: [created]
+    branches:
+      - '*'
 name: test
 jobs:
   test:
