@@ -1,0 +1,3 @@
+
+test:
+	go test -cover -covermode=atomic -coverprofile=coverage.out ./...
