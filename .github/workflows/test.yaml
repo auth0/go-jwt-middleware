@@ -1,12 +1,12 @@
+name: test
 on:
   push:
     branches:
-      - '*'
+      - 'master'
   pull_request:
-    type: [created]
+    type: [created, synchronize, reopened]
     branches:
       - '*'
-name: test
 jobs:
   test:
     strategy:

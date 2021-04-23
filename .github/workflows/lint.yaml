@@ -2,9 +2,9 @@ name: golangci-lint
 on:
   push:
     branches:
-      - '*'
+      - 'master'
   pull_request:
-    type: [created]
+    type: [created, synchronize, reopened]
     branches:
       - '*'
 jobs:
