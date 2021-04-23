@@ -87,6 +87,13 @@ func New(keyFunc func(context.Context) (interface{}, error),
 
 type Validator struct {
 	// required options
+
+	// in the past keyFunc might take in a token as a parameter in order to
+	// allow the function provider to return a key based on a header kid.
+	// With josev2 `jose.JSONWebKeySet` is supported as a return type of
+	// this function which hands off the heavy lifting of determining which
+	// key to used based on the header `kid` to the josev2 library.
+	// TODO(joncarl): provide an example of using a kid
 	keyFunc            func(context.Context) (interface{}, error)
 	signatureAlgorithm jose.SignatureAlgorithm
 
