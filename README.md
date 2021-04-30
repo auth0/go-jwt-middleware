@@ -26,36 +26,35 @@ You can use `jwtmiddleware` with default `net/http` as follows.
 package main
 
 import (
-  "fmt"
-  "net/http"
+	"fmt"
+	"net/http"
 
-  "github.com/auth0/go-jwt-middleware"
-  "github.com/form3tech-oss/jwt-go"
-  "context"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware"
+	"github.com/form3tech-oss/jwt-go"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-  user := r.Context().Value("user")
-  fmt.Fprintf(w, "This is an authenticated request")
-  fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
-    fmt.Fprintf(w, "%s :\t%#v\n", k, v)
-  }
+	user := r.Context().Value("user")
+	fmt.Fprintf(w, "This is an authenticated request")
+	fmt.Fprintf(w, "Claim content:\n")
+	for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
+		fmt.Fprintf(w, "%s :\t%#v\n", k, v)
+	}
 })
 
 func main() {
-  jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-    ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-      return []byte("My Secret"), nil
-    },
-    // When set, the middleware verifies that tokens are signed with the specific signing algorithm
-    // If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-    // Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-    SigningMethod: jwt.SigningMethodHS256,
-  })
+	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
+		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+			return []byte("My Secret"), nil
+		},
+		// When set, the middleware verifies that tokens are signed with the specific signing algorithm
+		// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
+		// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
+		SigningMethod: jwt.SigningMethodHS256,
+	})
 
-  app := jwtMiddleware.Handler(myHandler)
-  http.ListenAndServe("0.0.0.0:3000", app)
+	app := jwtMiddleware.Handler(myHandler)
+	http.ListenAndServe("0.0.0.0:3000", app)
 }
 ````
 
@@ -66,79 +65,97 @@ You can also use it with Negroni as follows:
 package main
 
 import (
-  "context"
-  "fmt"
-  "net/http"
+	"encoding/json"
+	"net/http"
 
-  "github.com/auth0/go-jwt-middleware"
-  "github.com/urfave/negroni"
-  "github.com/form3tech-oss/jwt-go"
-  "github.com/gorilla/mux"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware"
+	"github.com/form3tech-oss/jwt-go"
+	"github.com/gorilla/mux"
+	"github.com/urfave/negroni"
 )
 
-var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-  user := r.Context().Value("user");
-  fmt.Fprintf(w, "This is an authenticated request")
-  fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
-    fmt.Fprintf(w, "%s :\t%#v\n", k, v)
-  }
-})
-
 func main() {
-  r := mux.NewRouter()
+	StartServer()
+}
 
-  jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-    ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-      return []byte("My Secret"), nil
-    },
-    // When set, the middleware verifies that tokens are signed with the specific signing algorithm
-    // If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-    // Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-    SigningMethod: jwt.SigningMethodHS256,
-  })
+func StartServer() {
+	r := mux.NewRouter()
 
-  r.Handle("/ping", negroni.New(
-    negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
-    negroni.Wrap(myHandler),
-  ))
-  http.Handle("/", r)
-  http.ListenAndServe(":3001", nil)
+	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
+		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+			return []byte("My Secret"), nil
+		},
+		SigningMethod: jwt.SigningMethodHS256,
+	})
+
+	r.HandleFunc("/ping", PingHandler)
+	r.Handle("/secured/ping", negroni.New(
+		negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
+		negroni.Wrap(http.HandlerFunc(SecuredPingHandler)),
+	))
+	http.Handle("/", r)
+	http.ListenAndServe(":3001", nil)
+}
+
+type Response struct {
+	Text string `json:"text"`
+}
+
+func respondJSON(text string, w http.ResponseWriter) {
+	response := Response{text}
+
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonResponse)
+}
+
+func PingHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON("All good. You don't need to be authenticated to call this", w)
+}
+
+func SecuredPingHandler(w http.ResponseWriter, r *http.Request) {
+	respondJSON("All good. You only get this message if you're authenticated", w)
 }
 ````
 
 ## Options
 
 ````go
+// Options is a struct for specifying configuration options for the middleware.
 type Options struct {
-  // The function that will return the Key to validate the JWT.
-  // It can be either a shared secret or a public key.
-  // Default value: nil
-  ValidationKeyGetter jwt.Keyfunc
-  // The name of the property in the request where the user information
-  // from the JWT will be stored.
-  // Default value: "user"
-  UserProperty string
-  // The function that will be called when there's an error validating the token
-  // Default value: https://github.com/auth0/go-jwt-middleware/blob/master/jwtmiddleware.go#L35
-  ErrorHandler errorHandler
-  // A boolean indicating if the credentials are required or not
-  // Default value: false
-  CredentialsOptional bool
-  // A function that extracts the token from the request
-  // Default: FromAuthHeader (i.e., from Authorization header as bearer token)
-  Extractor TokenExtractor
-  // Debug flag turns on debugging output
-  // Default: false  
-  Debug bool
-  // When set, all requests with the OPTIONS method will use authentication
-  // Default: false
-  EnableAuthOnOptions bool,
-  // When set, the middelware verifies that tokens are signed with the specific signing algorithm
-  // If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-  // Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-  // Default: nil
-  SigningMethod jwt.SigningMethod
+	// The function that will return the Key to validate the JWT.
+	// It can be either a shared secret or a public key.
+	// Default value: nil
+	ValidationKeyGetter jwt.Keyfunc
+	// The name of the property in the request where the user information
+	// from the JWT will be stored.
+	// Default value: "user"
+	UserProperty string
+	// The function that will be called when there's an error validating the token
+	// Default value:
+	ErrorHandler errorHandler
+	// A boolean indicating if the credentials are required or not
+	// Default value: false
+	CredentialsOptional bool
+	// A function that extracts the token from the request
+	// Default: FromAuthHeader (i.e., from Authorization header as bearer token)
+	Extractor TokenExtractor
+	// Debug flag turns on debugging output
+	// Default: false
+	Debug bool
+	// When set, all requests with the OPTIONS method will use authentication
+	// Default: false
+	EnableAuthOnOptions bool
+	// When set, the middelware verifies that tokens are signed with the specific signing algorithm
+	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
+	// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
+	// Default: nil
+	SigningMethod jwt.SigningMethod
 }
 ````
 
