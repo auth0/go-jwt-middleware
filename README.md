@@ -29,7 +29,7 @@ import (
 	"fmt"
 	"net/http"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware"
+	"github.com/auth0/go-jwt-middleware"
 	"github.com/form3tech-oss/jwt-go"
 )
 
@@ -68,16 +68,14 @@ import (
 	"encoding/json"
 	"net/http"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware"
+	"github.com/auth0/go-jwt-middleware"
 	"github.com/form3tech-oss/jwt-go"
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
 )
 
 func main() {
-
 	StartServer()
-
 }
 
 func StartServer() {
