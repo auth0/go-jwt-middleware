@@ -8,6 +8,26 @@ import (
 	"github.com/form3tech-oss/jwt-go"
 )
 
+// TODO: replace this with default validate token func once it is merged in
+func REPLACE_ValidateToken(token string) (interface{}, error) {
+	// Now parse the token
+	parsedToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+		return []byte("My Secret"), nil
+	})
+
+	// Check if there was an error in parsing...
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the parsed token is valid...
+	if !parsedToken.Valid {
+		return nil, jwtmiddleware.ErrJWTInvalid
+	}
+
+	return parsedToken, nil
+}
+
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user")
 	fmt.Fprintf(w, "This is an authenticated request")
@@ -18,15 +38,7 @@ var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 })
 
 func main() {
-	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-			return []byte("My Secret"), nil
-		},
-		// When set, the middleware verifies that tokens are signed with the specific signing algorithm
-		// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-		// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-		SigningMethod: jwt.SigningMethodHS256,
-	})
+	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.WithValidateToken(REPLACE_ValidateToken))
 
 	app := jwtMiddleware.Handler(myHandler)
 	http.ListenAndServe("0.0.0.0:3000", app)

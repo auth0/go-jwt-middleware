@@ -1,216 +1,240 @@
 package jwtmiddleware
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"reflect"
 	"testing"
-
-	"github.com/form3tech-oss/jwt-go"
-	"github.com/gorilla/mux"
-	. "github.com/smartystreets/goconvey/convey"
-	"github.com/urfave/negroni"
 )
 
-// defaultAuthorizationHeaderName is the default header name where the Auth
-// token should be written
-const defaultAuthorizationHeaderName = "Authorization"
+type testValidateToken struct {
+	returnToken interface{}
+	returnError error
 
-// userPropertyName is the property name that will be set in the request context
-const userPropertyName = "custom-user-property"
-
-// the bytes read from the keys/sample-key file
-// private key generated with http://kjur.github.io/jsjws/tool_jwt.html
-var privateKey []byte
-
-// TestUnauthenticatedRequest will perform requests with no Authorization header
-func TestUnauthenticatedRequest(t *testing.T) {
-	Convey("Simple unauthenticated request", t, func() {
-		Convey("Unauthenticated GET to / path should return a 200 response", func() {
-			w := makeUnauthenticatedRequest("GET", "/")
-			So(w.Code, ShouldEqual, http.StatusOK)
-		})
-		Convey("Unauthenticated GET to /protected path should return a 401 response", func() {
-			w := makeUnauthenticatedRequest("GET", "/protected")
-			So(w.Code, ShouldEqual, http.StatusUnauthorized)
-		})
-	})
+	called   bool
+	gotToken string
 }
 
-// TestAuthenticatedRequest will perform requests with an Authorization header
-func TestAuthenticatedRequest(t *testing.T) {
-	var e error
-	privateKey, e = readPrivateKey()
-	if e != nil {
-		panic(e)
-	}
-	Convey("Simple authenticated requests", t, func() {
-		Convey("Authenticated GET to / path should return a 200 response", func() {
-			w := makeAuthenticatedRequest("GET", "/", jwt.MapClaims{"foo": "bar"}, nil)
-			So(w.Code, ShouldEqual, http.StatusOK)
-		})
-		Convey("Authenticated GET to /protected path should return a 200 response if expected algorithm is not specified", func() {
-			var expectedAlgorithm jwt.SigningMethod = nil
-			w := makeAuthenticatedRequest("GET", "/protected", jwt.MapClaims{"foo": "bar"}, expectedAlgorithm)
-			So(w.Code, ShouldEqual, http.StatusOK)
-			responseBytes, err := ioutil.ReadAll(w.Body)
-			if err != nil {
-				panic(err)
-			}
-			responseString := string(responseBytes)
-			// check that the encoded data in the jwt was properly returned as json
-			So(responseString, ShouldEqual, `{"text":"bar"}`)
-		})
-		Convey("Authenticated GET to /protected path should return a 200 response if expected algorithm is correct", func() {
-			expectedAlgorithm := jwt.SigningMethodHS256
-			w := makeAuthenticatedRequest("GET", "/protected", jwt.MapClaims{"foo": "bar"}, expectedAlgorithm)
-			So(w.Code, ShouldEqual, http.StatusOK)
-			responseBytes, err := ioutil.ReadAll(w.Body)
-			if err != nil {
-				panic(err)
-			}
-			responseString := string(responseBytes)
-			// check that the encoded data in the jwt was properly returned as json
-			So(responseString, ShouldEqual, `{"text":"bar"}`)
-		})
-		Convey("Authenticated GET to /protected path should return a 401 response if algorithm is not expected one", func() {
-			expectedAlgorithm := jwt.SigningMethodRS256
-			w := makeAuthenticatedRequest("GET", "/protected", jwt.MapClaims{"foo": "bar"}, expectedAlgorithm)
-			So(w.Code, ShouldEqual, http.StatusUnauthorized)
-			responseBytes, err := ioutil.ReadAll(w.Body)
-			if err != nil {
-				panic(err)
-			}
-			responseString := string(responseBytes)
-			// check that the encoded data in the jwt was properly returned as json
-			So(strings.TrimSpace(responseString), ShouldEqual, "Expected RS256 signing method but token specified HS256")
-		})
-	})
+func (t *testValidateToken) validate(token string) (interface{}, error) {
+	t.called = true
+	t.gotToken = token
+
+	return t.returnToken, t.returnError
 }
 
-func makeUnauthenticatedRequest(method string, url string) *httptest.ResponseRecorder {
-	return makeAuthenticatedRequest(method, url, nil, nil)
-}
+var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "authenticated")
+})
 
-func makeAuthenticatedRequest(method string, url string, c jwt.Claims, expectedSignatureAlgorithm jwt.SigningMethod) *httptest.ResponseRecorder {
-	r, _ := http.NewRequest(method, url, nil)
-	if c != nil {
-		token := jwt.New(jwt.SigningMethodHS256)
-		token.Claims = c
-		// private key generated with http://kjur.github.io/jsjws/tool_jwt.html
-		s, e := token.SignedString(privateKey)
-		if e != nil {
-			panic(e)
-		}
-		r.Header.Set(defaultAuthorizationHeaderName, fmt.Sprintf("bearer %v", s))
-	}
-	w := httptest.NewRecorder()
-	n := createNegroniMiddleware(expectedSignatureAlgorithm)
-	n.ServeHTTP(w, r)
-	return w
-}
+// defaults tests against the default setup
+// TODO(joncarl): replace with actual JWTs once we have the validate stuff plumbed in
+func Test_defaults(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		token  string
 
-func createNegroniMiddleware(expectedSignatureAlgorithm jwt.SigningMethod) *negroni.Negroni {
-	// create a gorilla mux router for public requests
-	publicRouter := mux.NewRouter().StrictSlash(true)
-	publicRouter.Methods("GET").
-		Path("/").
-		Name("Index").
-		Handler(http.HandlerFunc(indexHandler))
+		validateReturnError error
 
-	// create a gorilla mux route for protected requests
-	// the routes will be tested for jwt tokens in the default auth header
-	protectedRouter := mux.NewRouter().StrictSlash(true)
-	protectedRouter.Methods("GET").
-		Path("/protected").
-		Name("Protected").
-		Handler(http.HandlerFunc(protectedHandler))
-	// create a negroni handler for public routes
-	negPublic := negroni.New()
-	negPublic.UseHandler(publicRouter)
-
-	// negroni handler for api request
-	negProtected := negroni.New()
-	//add the JWT negroni handler
-	negProtected.Use(negroni.HandlerFunc(JWT(expectedSignatureAlgorithm).HandlerWithNext))
-	negProtected.UseHandler(protectedRouter)
-
-	//Create the main router
-	mainRouter := mux.NewRouter().StrictSlash(true)
-
-	mainRouter.Handle("/", negPublic)
-	mainRouter.Handle("/protected", negProtected)
-	//if routes match the handle prefix then I need to add this dummy matcher {_dummy:.*}
-	mainRouter.Handle("/protected/{_dummy:.*}", negProtected)
-
-	n := negroni.Classic()
-	// This are the "GLOBAL" middlewares that will be applied to every request
-	// examples are listed below:
-	//n.Use(gzip.Gzip(gzip.DefaultCompression))
-	//n.Use(negroni.HandlerFunc(SecurityMiddleware().HandlerFuncWithNext))
-	n.UseHandler(mainRouter)
-
-	return n
-}
-
-// JWT creates the middleware that parses a JWT encoded token
-func JWT(expectedSignatureAlgorithm jwt.SigningMethod) *JWTMiddleware {
-	return New(Options{
-		Debug:               false,
-		CredentialsOptional: false,
-		UserProperty:        userPropertyName,
-		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-			if privateKey == nil {
-				var err error
-				privateKey, err = readPrivateKey()
-				if err != nil {
-					panic(err)
-				}
-			}
-			return privateKey, nil
+		expectStatusCode int
+		expectBody       string
+	}{
+		{
+			name:             "happy path",
+			method:           http.MethodGet,
+			token:            "bearer abc",
+			expectStatusCode: http.StatusOK,
+			expectBody:       "authenticated",
 		},
-		SigningMethod: expectedSignatureAlgorithm,
-	})
-}
-
-// readPrivateKey will load the keys/sample-key file into the
-// global privateKey variable
-func readPrivateKey() ([]byte, error) {
-	privateKey, e := ioutil.ReadFile("keys/sample-key")
-	return privateKey, e
-}
-
-// indexHandler will return an empty 200 OK response
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-}
-
-// protectedHandler will return the content of the "foo" encoded data
-// in the token as json -> {"text":"bar"}
-func protectedHandler(w http.ResponseWriter, r *http.Request) {
-	// retrieve the token from the context
-	u := r.Context().Value(userPropertyName)
-	user := u.(*jwt.Token)
-	respondJSON(user.Claims.(jwt.MapClaims)["foo"].(string), w)
-}
-
-// Response quick n' dirty Response struct to be encoded as json
-type Response struct {
-	Text string `json:"text"`
-}
-
-// respondJSON will take an string to write through the writer as json
-func respondJSON(text string, w http.ResponseWriter) {
-	response := Response{text}
-
-	jsonResponse, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		{
+			name:             "validate on options",
+			method:           http.MethodOptions,
+			token:            "bearer abc",
+			expectStatusCode: http.StatusOK,
+			expectBody:       "authenticated",
+		},
+		{
+			name:             "bad token format",
+			method:           http.MethodGet,
+			token:            "abc",
+			expectStatusCode: http.StatusInternalServerError,
+			expectBody:       "\n",
+		},
+		{
+			name:             "credentials not optional",
+			method:           http.MethodGet,
+			token:            "",
+			expectStatusCode: http.StatusBadRequest,
+			expectBody:       "\n",
+		},
+		{
+			name:                "validate token errors",
+			method:              http.MethodGet,
+			token:               "bearer abc",
+			validateReturnError: errors.New("validate token error"),
+			expectStatusCode:    http.StatusUnauthorized,
+			expectBody:          "\n",
+		},
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(jsonResponse)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// TODO(joncarl): replace this with actual default validation setup
+			m := New(WithValidateToken(func(token string) (interface{}, error) {
+				return nil, tc.validateReturnError
+			}))
+			ts := httptest.NewServer(m.Handler(myHandler))
+			defer ts.Close()
+
+			client := ts.Client()
+			req, _ := http.NewRequest(tc.method, ts.URL, nil)
+
+			if len(tc.token) > 0 {
+				req.Header.Add("Authorization", tc.token)
+			}
+
+			res, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			body, err := io.ReadAll(res.Body)
+			res.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if res.StatusCode != tc.expectStatusCode {
+				t.Fatalf("expected status code %d, but it was %d", tc.expectStatusCode, res.StatusCode)
+			}
+
+			if string(body) != tc.expectBody {
+				t.Fatalf("expected body: %q, got: %q", tc.expectBody, body)
+			}
+		})
+	}
+
 }
+
+type validToken struct {
+	foo string
+}
+
+func Test_CheckJWT(t *testing.T) {
+	tests := []struct {
+		name    string
+		options []Option
+		method  string
+
+		expectError string
+		expectToken *validToken
+	}{
+		{
+			name: "happy path: valid token",
+			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+				return &validToken{foo: "bar"}, nil
+			})},
+			expectToken: &validToken{foo: "bar"},
+		},
+		{
+			name: "happy path: invalid token",
+			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+				return nil, errors.New("validate token error")
+			})},
+			expectError: "jwt invalid: validate token error",
+		},
+		{
+			name: "validateOnOptions set to true",
+			options: []Option{
+				WithValidateOnOptions(true),
+				WithValidateToken(func(token string) (interface{}, error) {
+					return nil, errors.New("should hit me since it's validating on options")
+				}),
+			},
+			method:      http.MethodOptions,
+			expectError: "jwt invalid: should hit me since it's validating on options",
+		},
+		{
+			name: "validateOnOptions set to false",
+			options: []Option{
+				WithValidateOnOptions(false),
+				WithValidateToken(func(token string) (interface{}, error) {
+					return nil, errors.New("should not hit me since we are not validating on options")
+				}),
+			},
+			method: http.MethodOptions,
+		},
+		{
+			name: "tokenExtractor errors",
+			options: []Option{WithTokenExtractor(func(r *http.Request) (string, error) {
+				return "", errors.New("token extractor error")
+			})},
+			expectError: "error extracting token: token extractor error",
+		},
+		{
+			name: "credentialsOptional true",
+			options: []Option{
+				WithCredentialsOptional(true),
+				WithTokenExtractor(func(r *http.Request) (string, error) {
+					return "", nil
+				}),
+				WithValidateToken(func(token string) (interface{}, error) {
+					return nil, errors.New("should not hit me since credentials are optional and there are none")
+				}),
+			},
+		},
+		{
+			name: "credentialsOptional false",
+			options: []Option{
+				WithCredentialsOptional(false),
+				WithTokenExtractor(func(r *http.Request) (string, error) {
+					return "", nil
+				}),
+				WithValidateToken(func(token string) (interface{}, error) {
+					return nil, errors.New("should not hit me since ErrJWTMissing should be returned")
+				}),
+			},
+			expectError: ErrJWTMissing.Error(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defaultOptions := []Option{
+				WithTokenExtractor(func(r *http.Request) (string, error) { return "asdf", nil }),
+			}
+			m := New(append(defaultOptions, tc.options...)...)
+
+			req, _ := http.NewRequest(tc.method, "", nil)
+
+			err := m.CheckJWT(req)
+
+			mustErrorMsg(t, tc.expectError, err)
+
+			var contextToken *validToken
+			if v := req.Context().Value("user"); v != nil {
+				contextToken = v.(*validToken)
+			}
+			if !reflect.DeepEqual(contextToken, tc.expectToken) {
+				t.Fatalf("expected token in context: %+v\ngot: %+v", tc.expectToken, contextToken)
+			}
+		})
+	}
+}
+
+func mustErrorMsg(t testing.TB, want string, got error) {
+	if (want == "" && got != nil) ||
+		(want != "" && (got == nil || got.Error() != want)) {
+		t.Fatalf("want error: %s, got %v", want, got)
+	}
+}
+
+// To Test:
+// FromFirst
+// FromParameter
+// FromAuthHeader
+// Handler
+// HandlerWithNext
