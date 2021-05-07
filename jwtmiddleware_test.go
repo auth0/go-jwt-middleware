@@ -3,7 +3,7 @@ package jwtmiddleware
 import (
 	"errors"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -87,7 +87,7 @@ func Test_defaults(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			body, err := io.ReadAll(res.Body)
+			body, err := ioutil.ReadAll(res.Body)
 			res.Body.Close()
 			if err != nil {
 				t.Fatal(err)
