@@ -6,24 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"testing"
 )
-
-type testValidateToken struct {
-	returnToken interface{}
-	returnError error
-
-	called   bool
-	gotToken string
-}
-
-func (t *testValidateToken) validate(token string) (interface{}, error) {
-	t.called = true
-	t.gotToken = token
-
-	return t.returnToken, t.returnError
-}
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "authenticated")
@@ -225,16 +211,150 @@ func Test_CheckJWT(t *testing.T) {
 	}
 }
 
+func Test_invalidError(t *testing.T) {
+	t.Run("Is", func(t *testing.T) {
+		e := invalidError{details: errors.New("error details")}
+
+		if !errors.Is(&e, ErrJWTInvalid) {
+			t.Fatal("expected invalidError to be ErrJWTInvalid via errors.Is, but it was not")
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		e := invalidError{details: errors.New("error details")}
+
+		mustErrorMsg(t, "jwt invalid: error details", &e)
+	})
+
+	t.Run("Unwrap", func(t *testing.T) {
+		expectedErr := errors.New("expected err")
+		e := invalidError{details: expectedErr}
+
+		// under the hood errors.Is is unwrapping the invalidError via
+		// Unwrap().
+		if !errors.Is(&e, expectedErr) {
+			t.Fatal("expected invalidError to be expectedErr via errors.Is, but it was not")
+		}
+	})
+}
+
+func Test_FromFirst(t *testing.T) {
+	t.Run("uses first extractor that replies", func(t *testing.T) {
+		wantToken := "i am token"
+
+		exNothing := func(r *http.Request) (string, error) {
+			return "", nil
+		}
+		exSomething := func(r *http.Request) (string, error) {
+			return wantToken, nil
+		}
+		exFail := func(r *http.Request) (string, error) {
+			return "", errors.New("should not have hit me")
+		}
+
+		ex := FromFirst(exNothing, exSomething, exFail)
+
+		gotToken, err := ex(&http.Request{})
+		mustErrorMsg(t, "", err)
+
+		if wantToken != gotToken {
+			t.Fatalf("wanted token: %q, got: %q", wantToken, gotToken)
+		}
+	})
+
+	t.Run("stops when an extractor fails", func(t *testing.T) {
+		wantErr := "extraction fail"
+
+		exNothing := func(r *http.Request) (string, error) {
+			return "", nil
+		}
+		exFail := func(r *http.Request) (string, error) {
+			return "", errors.New(wantErr)
+		}
+
+		ex := FromFirst(exNothing, exFail)
+
+		gotToken, err := ex(&http.Request{})
+		mustErrorMsg(t, wantErr, err)
+
+		if gotToken != "" {
+			t.Fatalf("did not want a token but got: %q", gotToken)
+		}
+	})
+
+	t.Run("defaults to empty", func(t *testing.T) {
+		exNothing := func(r *http.Request) (string, error) {
+			return "", nil
+		}
+
+		ex := FromFirst(exNothing, exNothing, exNothing)
+
+		gotToken, err := ex(&http.Request{})
+		mustErrorMsg(t, "", err)
+
+		if "" != gotToken {
+			t.Fatalf("wanted empty token but got: %q", gotToken)
+		}
+	})
+}
+
+func Test_FromParameter(t *testing.T) {
+	wantToken := "i am token"
+	param := "i-am-param"
+
+	u, err := url.Parse(fmt.Sprintf("http://localhost?%s=%s", param, wantToken))
+	mustErrorMsg(t, "", err)
+	r := &http.Request{URL: u}
+
+	ex := FromParameter(param)
+
+	gotToken, err := ex(r)
+	mustErrorMsg(t, "", err)
+
+	if wantToken != gotToken {
+		t.Fatalf("wanted token: %q, got: %q", wantToken, gotToken)
+	}
+}
+
+func Test_FromAuthHeader(t *testing.T) {
+	tests := []struct {
+		name      string
+		request   *http.Request
+		wantToken string
+		wantError string
+	}{
+		{
+			name:    "empty / no header",
+			request: &http.Request{},
+		},
+		{
+			name:      "token in header",
+			request:   &http.Request{Header: http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", "i-am-token")}}},
+			wantToken: "i-am-token",
+		},
+		{
+			name:      "no bearer",
+			request:   &http.Request{Header: http.Header{"Authorization": []string{"i-am-token"}}},
+			wantError: "Authorization header format must be Bearer {token}",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotToken, gotError := FromAuthHeader(tc.request)
+			mustErrorMsg(t, tc.wantError, gotError)
+
+			if tc.wantToken != gotToken {
+				t.Fatalf("wanted token: %q, got: %q", tc.wantToken, gotToken)
+			}
+
+		})
+	}
+}
+
 func mustErrorMsg(t testing.TB, want string, got error) {
 	if (want == "" && got != nil) ||
 		(want != "" && (got == nil || got.Error() != want)) {
 		t.Fatalf("want error: %s, got %v", want, got)
 	}
 }
-
-// To Test:
-// FromFirst
-// FromParameter
-// FromAuthHeader
-// Handler
-// HandlerWithNext
