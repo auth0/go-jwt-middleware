@@ -1,6 +1,7 @@
 package jwtmiddleware
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -27,7 +28,7 @@ func Test_defaults(t *testing.T) {
 	}{
 		{
 			name: "happy path",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
 			})},
 			token:          "bearer abc",
@@ -37,7 +38,7 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "validate on options",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
 			})},
 			method:         http.MethodOptions,
@@ -48,7 +49,7 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "bad token format",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
 			})},
 			token:          "abc",
@@ -56,7 +57,7 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "credentials not optional",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
 			})},
 			token:          "",
@@ -64,7 +65,7 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "validate token errors",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 				return nil, errors.New("validate token error")
 			})},
 			token:          "bearer abc",
@@ -74,7 +75,7 @@ func Test_defaults(t *testing.T) {
 			name: "validateOnOptions set to false",
 			options: []Option{
 				WithValidateOnOptions(false),
-				WithValidateToken(func(token string) (interface{}, error) {
+				WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 					return nil, errors.New("should not hit me since we are not validating on options")
 				}),
 			},
@@ -97,7 +98,7 @@ func Test_defaults(t *testing.T) {
 				WithTokenExtractor(func(r *http.Request) (string, error) {
 					return "", nil
 				}),
-				WithValidateToken(func(token string) (interface{}, error) {
+				WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 					return nil, errors.New("should not hit me since credentials are optional and there are none")
 				}),
 			},
@@ -111,7 +112,7 @@ func Test_defaults(t *testing.T) {
 				WithTokenExtractor(func(r *http.Request) (string, error) {
 					return "", nil
 				}),
-				WithValidateToken(func(token string) (interface{}, error) {
+				WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
 					return nil, errors.New("should not hit me since ErrJWTMissing should be returned")
 				}),
 			},

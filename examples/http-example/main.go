@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -9,7 +10,7 @@ import (
 )
 
 // TODO: replace this with default validate token func once it is merged in
-func REPLACE_ValidateToken(token string) (interface{}, error) {
+func REPLACE_ValidateToken(_ context.Context, token string) (interface{}, error) {
 	// Now parse the token
 	parsedToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
 		return []byte("My Secret"), nil
