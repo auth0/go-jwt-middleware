@@ -3,7 +3,6 @@ module github.com/auth0/go-jwt-middleware
 go 1.14
 
 require (
-	github.com/form3tech-oss/jwt-go v3.2.3+incompatible
 	github.com/google/go-cmp v0.5.5
 	github.com/stretchr/testify v1.7.0 // indirect
 	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a // indirect
