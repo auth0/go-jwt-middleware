@@ -13,6 +13,10 @@ var (
 	ErrJWTInvalid = errors.New("jwt invalid")
 )
 
+// ContextKey is the key used in the request context where the information
+// from a validated JWT will be stored.
+type ContextKey struct{}
+
 // invalidError handles wrapping a JWT validation error with the concrete error
 // ErrJWTInvalid. We do not expose this publicly because the interface methods
 // of Is and Unwrap should give the user all they need.
@@ -62,7 +66,7 @@ type ValidateToken func(string) (interface{}, error)
 
 type JWTMiddleware struct {
 	validateToken       ValidateToken
-	contextKey          string
+	contextKey          interface{}
 	errorHandler        ErrorHandler
 	credentialsOptional bool
 	tokenExtractor      TokenExtractor
@@ -81,15 +85,6 @@ func WithValidateToken(vt ValidateToken) Option {
 	}
 }
 
-// WithContextKey sets up the property to be used in the request where the user
-// information from a validated JWT will be stored.
-// Default value: "user"
-func WithContextKey(k string) Option {
-	return func(m *JWTMiddleware) {
-		m.contextKey = k
-	}
-}
-
 // WithErrorHandler sets the handler which is called when there are errors in
 // the middleware. See the ErrorHandler type for more information.
 // Default value: DefaultErrorHandler
@@ -99,8 +94,8 @@ func WithErrorHandler(h ErrorHandler) Option {
 	}
 }
 
-// WithCredentialsOptions sets up if credentials are optional or not. If set to
-// true then an empty token will be considered valid.
+// WithCredentialsOptional sets up if credentials are optional or not. If set
+// to true then an empty token will be considered valid.
 // Default value: false
 func WithCredentialsOptional(value bool) Option {
 	return func(m *JWTMiddleware) {
@@ -110,7 +105,7 @@ func WithCredentialsOptional(value bool) Option {
 
 // WithTokenExtractor sets up the function which extracts the JWT to be
 // validated from the request.
-// Default: FromAuthHeader (i.e., from Authorization header as bearer token)
+// Default: AuthHeaderTokenExtractor
 func WithTokenExtractor(e TokenExtractor) Option {
 	return func(m *JWTMiddleware) {
 		m.tokenExtractor = e
@@ -126,14 +121,14 @@ func WithValidateOnOptions(value bool) Option {
 	}
 }
 
-// New constructs a new Secure instance with supplied options.
+// New constructs a new JWTMiddleware instance with the supplied options.
 func New(opts ...Option) *JWTMiddleware {
 	m := &JWTMiddleware{
 		validateToken:       func(string) (interface{}, error) { panic("not implemented") },
-		contextKey:          "user",
+		contextKey:          ContextKey{},
 		errorHandler:        DefaultErrorHandler,
 		credentialsOptional: false,
-		tokenExtractor:      FromAuthHeader,
+		tokenExtractor:      AuthHeaderTokenExtractor,
 		validateOnOptions:   true,
 	}
 
@@ -148,40 +143,19 @@ func New(opts ...Option) *JWTMiddleware {
 // middleware. If an error handler is not provided via the WithErrorHandler
 // option this will be used.
 func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, ErrJWTMissing) {
-		http.Error(w, "", http.StatusBadRequest)
-		return
-	} else if errors.Is(err, ErrJWTInvalid) {
-		http.Error(w, "", http.StatusUnauthorized)
-		return
-	}
-
-	http.Error(w, "", http.StatusInternalServerError)
-}
-
-// HandlerWithNext is a special implementation for Negroni, but could be used elsewhere.
-func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	err := m.CheckJWT(r)
-
-	if err != nil {
-		m.errorHandler(w, r, err)
-		return
-	}
-
-	if next != nil {
-		next(w, r)
+	switch {
+	case errors.Is(err, ErrJWTMissing):
+		w.WriteHeader(http.StatusBadRequest)
+	case errors.Is(err, ErrJWTInvalid):
+		w.WriteHeader(http.StatusUnauthorized)
+	default:
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
-func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.HandlerWithNext(w, r, h.ServeHTTP)
-	})
-}
-
-// FromAuthHeader is a "TokenExtractor" that takes a give request and extracts
-// the token from the Authorization header.
-func FromAuthHeader(r *http.Request) (string, error) {
+// AuthHeaderTokenExtractor is a TokenExtractor that takes a request and
+// extracts the token from the Authorization header.
+func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		return "", nil // No error, just no JWT
@@ -195,17 +169,19 @@ func FromAuthHeader(r *http.Request) (string, error) {
 	return authHeaderParts[1], nil
 }
 
-// FromParameter returns a function that extracts the token from the specified
-// query string parameter
-func FromParameter(param string) TokenExtractor {
+// ParameterTokenExtractor returns a TokenExtractor that extracts the token
+// from the specified query string parameter
+func ParameterTokenExtractor(param string) TokenExtractor {
 	return func(r *http.Request) (string, error) {
 		return r.URL.Query().Get(param), nil
 	}
 }
 
-// FromFirst returns a function that runs multiple TokenExtractors and takes
-// the first token it finds
-func FromFirst(extractors ...TokenExtractor) TokenExtractor {
+// MultiTokenExtractor returns a TokenExtractor that runs multiple
+// TokenExtractors and takes the TokenExtractor that does not return an empty
+// token. If a TokenExtractor returns an error that error is immediately
+// returned.
+func MultiTokenExtractor(extractors ...TokenExtractor) TokenExtractor {
 	return func(r *http.Request) (string, error) {
 		for _, ex := range extractors {
 			token, err := ex(r)
@@ -220,36 +196,50 @@ func FromFirst(extractors ...TokenExtractor) TokenExtractor {
 	}
 }
 
-func (m *JWTMiddleware) CheckJWT(r *http.Request) error {
-	if !m.validateOnOptions {
-		if r.Method == http.MethodOptions {
-			return nil
-		}
-	}
-
-	token, err := m.tokenExtractor(r)
-	if err != nil {
-		// this is not ErrJWTMissing because an error here means that
-		// the tokenExtractor had an error and _not_ that the token was
-		// missing.
-		return fmt.Errorf("error extracting token: %w", err)
-	}
-	if token == "" {
-		if m.credentialsOptional {
-			return nil
+// CheckJWT is the main middleware function which performs the main logic. It
+// is passed an http.Handler which will be called if the JWT passes validation.
+func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// if we don't validate on OPTIONS and this is OPTIONS then
+		// continue onto next without validating
+		if !m.validateOnOptions && r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
 		}
 
-		return ErrJWTMissing
-	}
+		token, err := m.tokenExtractor(r)
+		if err != nil {
+			// this is not ErrJWTMissing because an error here means that
+			// the tokenExtractor had an error and _not_ that the token was
+			// missing.
+			m.errorHandler(w, r, fmt.Errorf("error extracting token: %w", err))
+			return
+		}
 
-	validToken, err := m.validateToken(token)
-	if err != nil {
-		return &invalidError{details: err}
-	}
+		if token == "" {
+			// if credentials are optional continue onto next
+			// without validating
+			if m.credentialsOptional {
+				next.ServeHTTP(w, r)
+				return
+			}
 
-	newRequest := r.WithContext(context.WithValue(r.Context(), m.contextKey, validToken))
+			// credentials were not optional so we error
+			m.errorHandler(w, r, ErrJWTMissing)
+			return
+		}
 
-	// Update the current request with the new context information.
-	*r = *newRequest
-	return nil
+		// validate the token using the token validator
+		validToken, err := m.validateToken(token)
+		if err != nil {
+			m.errorHandler(w, r, &invalidError{details: err})
+			return
+		}
+
+		// no err means we have a valid token, so set it into the
+		// context and continue onto next
+		newRequest := r.WithContext(context.WithValue(r.Context(), m.contextKey, validToken))
+		r = newRequest
+		next.ServeHTTP(w, r)
+	})
 }

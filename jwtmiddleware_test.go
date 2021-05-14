@@ -7,72 +7,133 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"testing"
-)
 
-var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "authenticated")
-})
+	"github.com/google/go-cmp/cmp"
+)
 
 // defaults tests against the default setup
 // TODO(joncarl): replace with actual JWTs once we have the validate stuff plumbed in
 func Test_defaults(t *testing.T) {
 	tests := []struct {
-		name   string
-		method string
-		token  string
+		name    string
+		options []Option
+		method  string
+		token   string
 
-		validateReturnError error
-
-		expectStatusCode int
-		expectBody       string
+		wantToken      map[string]string
+		wantStatusCode int
+		wantBody       string
 	}{
 		{
-			name:             "happy path",
-			method:           http.MethodGet,
-			token:            "bearer abc",
-			expectStatusCode: http.StatusOK,
-			expectBody:       "authenticated",
+			name: "happy path",
+			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+				return map[string]string{"foo": "bar"}, nil
+			})},
+			token:          "bearer abc",
+			wantToken:      map[string]string{"foo": "bar"},
+			wantStatusCode: http.StatusOK,
+			wantBody:       "authenticated",
 		},
 		{
-			name:             "validate on options",
-			method:           http.MethodOptions,
-			token:            "bearer abc",
-			expectStatusCode: http.StatusOK,
-			expectBody:       "authenticated",
+			name: "validate on options",
+			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+				return map[string]string{"foo": "bar"}, nil
+			})},
+			method:         http.MethodOptions,
+			token:          "bearer abc",
+			wantToken:      map[string]string{"foo": "bar"},
+			wantStatusCode: http.StatusOK,
+			wantBody:       "authenticated",
 		},
 		{
-			name:             "bad token format",
-			method:           http.MethodGet,
-			token:            "abc",
-			expectStatusCode: http.StatusInternalServerError,
-			expectBody:       "\n",
+			name: "bad token format",
+			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+				return map[string]string{"foo": "bar"}, nil
+			})},
+			token:          "abc",
+			wantStatusCode: http.StatusInternalServerError,
 		},
 		{
-			name:             "credentials not optional",
-			method:           http.MethodGet,
-			token:            "",
-			expectStatusCode: http.StatusBadRequest,
-			expectBody:       "\n",
+			name: "credentials not optional",
+			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+				return map[string]string{"foo": "bar"}, nil
+			})},
+			token:          "",
+			wantStatusCode: http.StatusBadRequest,
 		},
 		{
-			name:                "validate token errors",
-			method:              http.MethodGet,
-			token:               "bearer abc",
-			validateReturnError: errors.New("validate token error"),
-			expectStatusCode:    http.StatusUnauthorized,
-			expectBody:          "\n",
+			name: "validate token errors",
+			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
+				return nil, errors.New("validate token error")
+			})},
+			token:          "bearer abc",
+			wantStatusCode: http.StatusUnauthorized,
+		},
+		{
+			name: "validateOnOptions set to false",
+			options: []Option{
+				WithValidateOnOptions(false),
+				WithValidateToken(func(token string) (interface{}, error) {
+					return nil, errors.New("should not hit me since we are not validating on options")
+				}),
+			},
+			method:         http.MethodOptions,
+			token:          "bearer abc",
+			wantStatusCode: http.StatusOK,
+			wantBody:       "authenticated",
+		},
+		{
+			name: "tokenExtractor errors",
+			options: []Option{WithTokenExtractor(func(r *http.Request) (string, error) {
+				return "", errors.New("token extractor error")
+			})},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name: "credentialsOptional true",
+			options: []Option{
+				WithCredentialsOptional(true),
+				WithTokenExtractor(func(r *http.Request) (string, error) {
+					return "", nil
+				}),
+				WithValidateToken(func(token string) (interface{}, error) {
+					return nil, errors.New("should not hit me since credentials are optional and there are none")
+				}),
+			},
+			wantStatusCode: http.StatusOK,
+			wantBody:       "authenticated",
+		},
+		{
+			name: "credentialsOptional false",
+			options: []Option{
+				WithCredentialsOptional(false),
+				WithTokenExtractor(func(r *http.Request) (string, error) {
+					return "", nil
+				}),
+				WithValidateToken(func(token string) (interface{}, error) {
+					return nil, errors.New("should not hit me since ErrJWTMissing should be returned")
+				}),
+			},
+			wantStatusCode: http.StatusBadRequest,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// TODO(joncarl): replace this with actual default validation setup
-			m := New(WithValidateToken(func(token string) (interface{}, error) {
-				return nil, tc.validateReturnError
-			}))
-			ts := httptest.NewServer(m.Handler(myHandler))
+			var actualContextToken map[string]string
+
+			if tc.method == "" {
+				tc.method = http.MethodGet
+			}
+
+			m := New(tc.options...)
+			ts := httptest.NewServer(m.CheckJWT(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if ctxToken, ok := r.Context().Value(ContextKey{}).(map[string]string); ok {
+					actualContextToken = ctxToken
+				}
+				fmt.Fprint(w, "authenticated")
+			})))
 			defer ts.Close()
 
 			client := ts.Client()
@@ -93,122 +154,20 @@ func Test_defaults(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if res.StatusCode != tc.expectStatusCode {
-				t.Fatalf("expected status code %d, but it was %d", tc.expectStatusCode, res.StatusCode)
+			if want, got := tc.wantStatusCode, res.StatusCode; want != got {
+				t.Fatalf("want status code %d, got %d", want, got)
 			}
 
-			if string(body) != tc.expectBody {
-				t.Fatalf("expected body: %q, got: %q", tc.expectBody, body)
+			if want, got := tc.wantBody, string(body); !cmp.Equal(want, got) {
+				t.Fatal(cmp.Diff(want, got))
 			}
-		})
-	}
 
-}
-
-type validToken struct {
-	foo string
-}
-
-func Test_CheckJWT(t *testing.T) {
-	tests := []struct {
-		name    string
-		options []Option
-		method  string
-
-		expectError string
-		expectToken *validToken
-	}{
-		{
-			name: "happy path: valid token",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
-				return &validToken{foo: "bar"}, nil
-			})},
-			expectToken: &validToken{foo: "bar"},
-		},
-		{
-			name: "happy path: invalid token",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
-				return nil, errors.New("validate token error")
-			})},
-			expectError: "jwt invalid: validate token error",
-		},
-		{
-			name: "validateOnOptions set to true",
-			options: []Option{
-				WithValidateOnOptions(true),
-				WithValidateToken(func(token string) (interface{}, error) {
-					return nil, errors.New("should hit me since it's validating on options")
-				}),
-			},
-			method:      http.MethodOptions,
-			expectError: "jwt invalid: should hit me since it's validating on options",
-		},
-		{
-			name: "validateOnOptions set to false",
-			options: []Option{
-				WithValidateOnOptions(false),
-				WithValidateToken(func(token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since we are not validating on options")
-				}),
-			},
-			method: http.MethodOptions,
-		},
-		{
-			name: "tokenExtractor errors",
-			options: []Option{WithTokenExtractor(func(r *http.Request) (string, error) {
-				return "", errors.New("token extractor error")
-			})},
-			expectError: "error extracting token: token extractor error",
-		},
-		{
-			name: "credentialsOptional true",
-			options: []Option{
-				WithCredentialsOptional(true),
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", nil
-				}),
-				WithValidateToken(func(token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since credentials are optional and there are none")
-				}),
-			},
-		},
-		{
-			name: "credentialsOptional false",
-			options: []Option{
-				WithCredentialsOptional(false),
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", nil
-				}),
-				WithValidateToken(func(token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since ErrJWTMissing should be returned")
-				}),
-			},
-			expectError: ErrJWTMissing.Error(),
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			defaultOptions := []Option{
-				WithTokenExtractor(func(r *http.Request) (string, error) { return "asdf", nil }),
-			}
-			m := New(append(defaultOptions, tc.options...)...)
-
-			req, _ := http.NewRequest(tc.method, "", nil)
-
-			err := m.CheckJWT(req)
-
-			mustErrorMsg(t, tc.expectError, err)
-
-			var contextToken *validToken
-			if v := req.Context().Value("user"); v != nil {
-				contextToken = v.(*validToken)
-			}
-			if !reflect.DeepEqual(contextToken, tc.expectToken) {
-				t.Fatalf("expected token in context: %+v\ngot: %+v", tc.expectToken, contextToken)
+			if want, got := tc.wantToken, actualContextToken; !cmp.Equal(want, got) {
+				t.Fatal(cmp.Diff(want, got))
 			}
 		})
 	}
+
 }
 
 func Test_invalidError(t *testing.T) {
@@ -238,7 +197,7 @@ func Test_invalidError(t *testing.T) {
 	})
 }
 
-func Test_FromFirst(t *testing.T) {
+func Test_MultiTokenExtractor(t *testing.T) {
 	t.Run("uses first extractor that replies", func(t *testing.T) {
 		wantToken := "i am token"
 
@@ -252,7 +211,7 @@ func Test_FromFirst(t *testing.T) {
 			return "", errors.New("should not have hit me")
 		}
 
-		ex := FromFirst(exNothing, exSomething, exFail)
+		ex := MultiTokenExtractor(exNothing, exSomething, exFail)
 
 		gotToken, err := ex(&http.Request{})
 		mustErrorMsg(t, "", err)
@@ -272,7 +231,7 @@ func Test_FromFirst(t *testing.T) {
 			return "", errors.New(wantErr)
 		}
 
-		ex := FromFirst(exNothing, exFail)
+		ex := MultiTokenExtractor(exNothing, exFail)
 
 		gotToken, err := ex(&http.Request{})
 		mustErrorMsg(t, wantErr, err)
@@ -287,7 +246,7 @@ func Test_FromFirst(t *testing.T) {
 			return "", nil
 		}
 
-		ex := FromFirst(exNothing, exNothing, exNothing)
+		ex := MultiTokenExtractor(exNothing, exNothing, exNothing)
 
 		gotToken, err := ex(&http.Request{})
 		mustErrorMsg(t, "", err)
@@ -298,7 +257,7 @@ func Test_FromFirst(t *testing.T) {
 	})
 }
 
-func Test_FromParameter(t *testing.T) {
+func Test_ParameterTokenExtractor(t *testing.T) {
 	wantToken := "i am token"
 	param := "i-am-param"
 
@@ -306,7 +265,7 @@ func Test_FromParameter(t *testing.T) {
 	mustErrorMsg(t, "", err)
 	r := &http.Request{URL: u}
 
-	ex := FromParameter(param)
+	ex := ParameterTokenExtractor(param)
 
 	gotToken, err := ex(r)
 	mustErrorMsg(t, "", err)
@@ -316,7 +275,7 @@ func Test_FromParameter(t *testing.T) {
 	}
 }
 
-func Test_FromAuthHeader(t *testing.T) {
+func Test_AuthHeaderTokenExtractor(t *testing.T) {
 	tests := []struct {
 		name      string
 		request   *http.Request
@@ -341,7 +300,7 @@ func Test_FromAuthHeader(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotToken, gotError := FromAuthHeader(tc.request)
+			gotToken, gotError := AuthHeaderTokenExtractor(tc.request)
 			mustErrorMsg(t, tc.wantError, gotError)
 
 			if tc.wantToken != gotToken {
