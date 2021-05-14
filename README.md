@@ -1,25 +1,106 @@
 # GO JWT Middleware
 
+[![GoDoc Widget]][GoDoc]
+
 **WARNING**
 This `v2` branch is not production ready - use at your own risk.
 
-TODO: update this README in the `v2` branch. We're waiting so as not to hold everything up in the testing branch. Also some of the default validation logic needs to be added here.
+Golang middleware to check and validate [JWTs](jwt.io) in the request and add the valid token contents to the request context.
 
-## What is Auth0?
+## Installation
+```
+go get github.com/auth0/go-jwt-middleware
+```
 
-Auth0 helps you to:
+## Usage
+```golang
+package main
 
-* Add authentication with [multiple authentication sources](https://docs.auth0.com/identityproviders), either social like **Google, Facebook, Microsoft Account, LinkedIn, GitHub, Twitter, Box, Salesforce, amont others**, or enterprise identity systems like **Windows Azure AD, Google Apps, Active Directory, ADFS or any SAML Identity Provider**.
-* Add authentication through more traditional **[username/password databases](https://docs.auth0.com/mysql-connection-tutorial)**.
-* Add support for **[linking different user accounts](https://docs.auth0.com/link-accounts)** with the same user.
-* Support for generating signed [Json Web Tokens](https://docs.auth0.com/jwt) to call your APIs and **flow the user identity** securely.
-* Analytics of how, when and where users are logging in.
-* Pull data from other sources and add it to the user profile, through [JavaScript rules](https://docs.auth0.com/rules).
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 
-## Create a free Auth0 Account
+	jwtmiddleware "github.com/auth0/go-jwt-middleware"
+	"github.com/auth0/go-jwt-middleware/validate/josev2"
+	"gopkg.in/square/go-jose.v2"
+	"gopkg.in/square/go-jose.v2/jwt"
+)
 
-1. Go to [Auth0](https://auth0.com) and click Sign Up.
-2. Use Google, GitHub or Microsoft Account to login.
+var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(jwtmiddleware.ContextKey{})
+	j, err := json.MarshalIndent(user, "", "\t")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Println(err)
+	}
+
+	fmt.Fprintf(w, "This is an authenticated request")
+	fmt.Fprintf(w, "Claim content:\n")
+	fmt.Fprint(w, string(j))
+})
+
+func main() {
+	keyFunc := func(ctx context.Context) (interface{}, error) {
+		// our token must be signed using this data
+		return []byte("secret"), nil
+	}
+
+	expectedClaimsFunc := func() jwt.Expected {
+		// By setting up expected claims we are saying a token must
+		// have the data we specify.
+		return jwt.Expected{
+			Issuer: "josev2-example",
+		}
+	}
+
+	// setup the piece which will validate tokens
+	validator, err := josev2.New(
+		keyFunc,
+		jose.HS256,
+		josev2.WithExpectedClaims(expectedClaimsFunc),
+	)
+	if err != nil {
+		// we'll panic in order to fail fast
+		panic(err)
+	}
+
+	// setup the middleware
+	m := jwtmiddleware.New(validator.ValidateToken)
+
+	http.ListenAndServe("0.0.0.0:3000", m.CheckJWT(handler))
+}
+```
+
+Running that code you can then curl it from another terminal:
+```
+$ curl -H Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJpc3MiOiJqb3NldjItZXhhbXBsZSJ9.e0lGglk9-m-n-t07eA5f7qgXGM-nD4ekwJkYVKprIUM" localhost:3000
+```
+should give you the response
+```
+This is an authenticated requestClaim content:
+{
+        "CustomClaims": null,
+        "Claims": {
+                "iss": "josev2-example",
+                "sub": "1234567890",
+                "iat": 1516239022
+        }
+}
+```
+The JWT included in the Authorization header above is signed with `secret`.
+
+To test it not working:
+```
+$ curl -v -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.yiDw9IDNCa1WXCoDfPR_g356vSsHBEerqh9IvnD49QE" localhost:3000
+```
+should give you a response like
+```
+...
+< HTTP/1.1 401 Unauthorized
+...
+```
 
 ## Issue Reporting
 
@@ -27,8 +108,11 @@ If you have found a bug or if you have a feature request, please report them at 
 
 ## Author
 
-[Auth0](auth0.com)
+[Auth0](https://auth0.com/)
 
 ## License
 
 This project is licensed under the MIT license. See the [LICENSE](LICENSE) file for more info.
+
+[GoDoc]: https://pkg.go.dev/github.com/go-chi/chi?tab=versions
+[GoDoc Widget]: https://godoc.org/github.com/auth0/go-jwt-middleware?status.svg
