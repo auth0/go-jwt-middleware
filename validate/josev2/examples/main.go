@@ -75,7 +75,7 @@ func main() {
 	}
 
 	// setup the middleware
-	m := jwtmiddleware.New(jwtmiddleware.WithValidateToken(validator.ValidateToken))
+	m := jwtmiddleware.New(validator.ValidateToken)
 
 	http.ListenAndServe("0.0.0.0:3000", m.CheckJWT(handler))
 	// try it out with eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJqb3NldjItZXhhbXBsZSIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJpYXQiOjE1MTYyMzkwMjIsInVzZXJuYW1lIjoidXNlcjEyMyJ9.1v7S4aF7lVM92bRZ8tVTrKGZ6FwkX-7ybZQA5A7mq8E

@@ -17,10 +17,11 @@ import (
 // TODO(joncarl): replace with actual JWTs once we have the validate stuff plumbed in
 func Test_defaults(t *testing.T) {
 	tests := []struct {
-		name    string
-		options []Option
-		method  string
-		token   string
+		name          string
+		validateToken ValidateToken
+		options       []Option
+		method        string
+		token         string
 
 		wantToken      map[string]string
 		wantStatusCode int
@@ -28,9 +29,9 @@ func Test_defaults(t *testing.T) {
 	}{
 		{
 			name: "happy path",
-			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
-			})},
+			},
 			token:          "bearer abc",
 			wantToken:      map[string]string{"foo": "bar"},
 			wantStatusCode: http.StatusOK,
@@ -38,9 +39,9 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "validate on options",
-			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
-			})},
+			},
 			method:         http.MethodOptions,
 			token:          "bearer abc",
 			wantToken:      map[string]string{"foo": "bar"},
@@ -49,35 +50,35 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "bad token format",
-			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
-			})},
+			},
 			token:          "abc",
 			wantStatusCode: http.StatusInternalServerError,
 		},
 		{
 			name: "credentials not optional",
-			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
 				return map[string]string{"foo": "bar"}, nil
-			})},
+			},
 			token:          "",
 			wantStatusCode: http.StatusBadRequest,
 		},
 		{
 			name: "validate token errors",
-			options: []Option{WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
 				return nil, errors.New("validate token error")
-			})},
+			},
 			token:          "bearer abc",
 			wantStatusCode: http.StatusUnauthorized,
 		},
 		{
 			name: "validateOnOptions set to false",
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
+				return nil, errors.New("should not hit me since we are not validating on options")
+			},
 			options: []Option{
 				WithValidateOnOptions(false),
-				WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since we are not validating on options")
-				}),
 			},
 			method:         http.MethodOptions,
 			token:          "bearer abc",
@@ -86,6 +87,9 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "tokenExtractor errors",
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
+				return nil, errors.New("should not hit me since we are erroring on token extraction")
+			},
 			options: []Option{WithTokenExtractor(func(r *http.Request) (string, error) {
 				return "", errors.New("token extractor error")
 			})},
@@ -93,13 +97,13 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "credentialsOptional true",
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
+				return nil, errors.New("should not hit me since credentials are optional and there are none")
+			},
 			options: []Option{
 				WithCredentialsOptional(true),
 				WithTokenExtractor(func(r *http.Request) (string, error) {
 					return "", nil
-				}),
-				WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since credentials are optional and there are none")
 				}),
 			},
 			wantStatusCode: http.StatusOK,
@@ -107,13 +111,13 @@ func Test_defaults(t *testing.T) {
 		},
 		{
 			name: "credentialsOptional false",
+			validateToken: func(_ context.Context, token string) (interface{}, error) {
+				return nil, errors.New("should not hit me since ErrJWTMissing should be returned")
+			},
 			options: []Option{
 				WithCredentialsOptional(false),
 				WithTokenExtractor(func(r *http.Request) (string, error) {
 					return "", nil
-				}),
-				WithValidateToken(func(_ context.Context, token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since ErrJWTMissing should be returned")
 				}),
 			},
 			wantStatusCode: http.StatusBadRequest,
@@ -128,7 +132,7 @@ func Test_defaults(t *testing.T) {
 				tc.method = http.MethodGet
 			}
 
-			m := New(tc.options...)
+			m := New(tc.validateToken, tc.options...)
 			ts := httptest.NewServer(m.CheckJWT(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if ctxToken, ok := r.Context().Value(ContextKey{}).(map[string]string); ok {
 					actualContextToken = ctxToken

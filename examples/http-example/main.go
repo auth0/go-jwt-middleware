@@ -39,7 +39,7 @@ var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 })
 
 func main() {
-	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.WithValidateToken(REPLACE_ValidateToken))
+	jwtMiddleware := jwtmiddleware.New(REPLACE_ValidateToken)
 
 	http.ListenAndServe("0.0.0.0:3000", jwtMiddleware.CheckJWT(myHandler))
 }

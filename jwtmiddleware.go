@@ -120,10 +120,12 @@ func WithValidateOnOptions(value bool) Option {
 	}
 }
 
-// New constructs a new JWTMiddleware instance with the supplied options.
-func New(opts ...Option) *JWTMiddleware {
+// New constructs a new JWTMiddleware instance with the supplied options. It
+// requires a ValidateToken function to be passed in so it can properly
+// validate tokens.
+func New(validateToken ValidateToken, opts ...Option) *JWTMiddleware {
 	m := &JWTMiddleware{
-		validateToken:       func(context.Context, string) (interface{}, error) { panic("not implemented") },
+		validateToken:       validateToken,
 		errorHandler:        DefaultErrorHandler,
 		credentialsOptional: false,
 		tokenExtractor:      AuthHeaderTokenExtractor,
