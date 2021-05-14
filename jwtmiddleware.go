@@ -66,7 +66,6 @@ type ValidateToken func(string) (interface{}, error)
 
 type JWTMiddleware struct {
 	validateToken       ValidateToken
-	contextKey          interface{}
 	errorHandler        ErrorHandler
 	credentialsOptional bool
 	tokenExtractor      TokenExtractor
@@ -125,7 +124,6 @@ func WithValidateOnOptions(value bool) Option {
 func New(opts ...Option) *JWTMiddleware {
 	m := &JWTMiddleware{
 		validateToken:       func(string) (interface{}, error) { panic("not implemented") },
-		contextKey:          ContextKey{},
 		errorHandler:        DefaultErrorHandler,
 		credentialsOptional: false,
 		tokenExtractor:      AuthHeaderTokenExtractor,
@@ -238,7 +236,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 
 		// no err means we have a valid token, so set it into the
 		// context and continue onto next
-		newRequest := r.WithContext(context.WithValue(r.Context(), m.contextKey, validToken))
+		newRequest := r.WithContext(context.WithValue(r.Context(), ContextKey{}, validToken))
 		r = newRequest
 		next.ServeHTTP(w, r)
 	})
