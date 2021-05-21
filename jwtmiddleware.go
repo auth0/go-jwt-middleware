@@ -236,8 +236,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 
 		// no err means we have a valid token, so set it into the
 		// context and continue onto next
-		newRequest := r.WithContext(context.WithValue(r.Context(), ContextKey{}, validToken))
-		r = newRequest
+		*r = *r.Clone(context.WithValue(r.Context(), ContextKey{}, validToken))
 		next.ServeHTTP(w, r)
 	})
 }
