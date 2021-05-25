@@ -62,7 +62,7 @@ type TokenExtractor func(r *http.Request) (string, error)
 // error message describing why validation failed.
 // Inside of ValidateToken is where things like key and alg checking can
 // happen. In the default implementation we can add safe defaults for those.
-type ValidateToken func(string) (interface{}, error)
+type ValidateToken func(context.Context, string) (interface{}, error)
 
 type JWTMiddleware struct {
 	validateToken       ValidateToken
@@ -120,10 +120,12 @@ func WithValidateOnOptions(value bool) Option {
 	}
 }
 
-// New constructs a new JWTMiddleware instance with the supplied options.
-func New(opts ...Option) *JWTMiddleware {
+// New constructs a new JWTMiddleware instance with the supplied options. It
+// requires a ValidateToken function to be passed in so it can properly
+// validate tokens.
+func New(validateToken ValidateToken, opts ...Option) *JWTMiddleware {
 	m := &JWTMiddleware{
-		validateToken:       func(string) (interface{}, error) { panic("not implemented") },
+		validateToken:       validateToken,
 		errorHandler:        DefaultErrorHandler,
 		credentialsOptional: false,
 		tokenExtractor:      AuthHeaderTokenExtractor,
@@ -228,7 +230,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// validate the token using the token validator
-		validToken, err := m.validateToken(token)
+		validToken, err := m.validateToken(r.Context(), token)
 		if err != nil {
 			m.errorHandler(w, r, &invalidError{details: err})
 			return
