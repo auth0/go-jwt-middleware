@@ -1,6 +1,7 @@
 package jwtmiddleware
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -9,77 +10,83 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/auth0/go-jwt-middleware/validate/josev2"
 	"github.com/google/go-cmp/cmp"
+	"gopkg.in/square/go-jose.v2"
+	"gopkg.in/square/go-jose.v2/jwt"
 )
 
-// defaults tests against the default setup
-// TODO(joncarl): replace with actual JWTs once we have the validate stuff plumbed in
-func Test_defaults(t *testing.T) {
-	tests := []struct {
-		name    string
-		options []Option
-		method  string
-		token   string
+func Test(t *testing.T) {
+	var (
+		validToken        = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.SdU_8KjnZsQChrVtQpYGxS48DxB4rTM9biq6D4haR70"
+		invalidToken      = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
+		validContextToken = &josev2.UserContext{
+			Claims: jwt.Claims{
+				Issuer: "testing",
+			},
+		}
+	)
 
-		wantToken      map[string]string
+	validator, err := josev2.New(
+		func(_ context.Context) (interface{}, error) { return []byte("secret"), nil },
+		jose.HS256,
+		josev2.WithExpectedClaims(func() jwt.Expected { return jwt.Expected{Issuer: "testing"} }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name          string
+		validateToken ValidateToken
+		options       []Option
+		method        string
+		token         string
+
+		wantToken      interface{}
 		wantStatusCode int
 		wantBody       string
 	}{
 		{
-			name: "happy path",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
-				return map[string]string{"foo": "bar"}, nil
-			})},
-			token:          "bearer abc",
-			wantToken:      map[string]string{"foo": "bar"},
+			name:           "happy path",
+			validateToken:  validator.ValidateToken,
+			token:          validToken,
+			wantToken:      validContextToken,
 			wantStatusCode: http.StatusOK,
 			wantBody:       "authenticated",
 		},
 		{
-			name: "validate on options",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
-				return map[string]string{"foo": "bar"}, nil
-			})},
+			name:           "validate on options",
+			validateToken:  validator.ValidateToken,
 			method:         http.MethodOptions,
-			token:          "bearer abc",
-			wantToken:      map[string]string{"foo": "bar"},
+			token:          validToken,
+			wantToken:      validContextToken,
 			wantStatusCode: http.StatusOK,
 			wantBody:       "authenticated",
 		},
 		{
-			name: "bad token format",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
-				return map[string]string{"foo": "bar"}, nil
-			})},
-			token:          "abc",
+			name:           "bad token format",
+			token:          "bad",
 			wantStatusCode: http.StatusInternalServerError,
 		},
 		{
-			name: "credentials not optional",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
-				return map[string]string{"foo": "bar"}, nil
-			})},
+			name:           "credentials not optional",
 			token:          "",
 			wantStatusCode: http.StatusBadRequest,
 		},
 		{
-			name: "validate token errors",
-			options: []Option{WithValidateToken(func(token string) (interface{}, error) {
-				return nil, errors.New("validate token error")
-			})},
-			token:          "bearer abc",
+			name:           "validate token errors",
+			validateToken:  validator.ValidateToken,
+			token:          invalidToken,
 			wantStatusCode: http.StatusUnauthorized,
 		},
 		{
 			name: "validateOnOptions set to false",
 			options: []Option{
 				WithValidateOnOptions(false),
-				WithValidateToken(func(token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since we are not validating on options")
-				}),
 			},
 			method:         http.MethodOptions,
-			token:          "bearer abc",
+			token:          validToken,
 			wantStatusCode: http.StatusOK,
 			wantBody:       "authenticated",
 		},
@@ -97,9 +104,6 @@ func Test_defaults(t *testing.T) {
 				WithTokenExtractor(func(r *http.Request) (string, error) {
 					return "", nil
 				}),
-				WithValidateToken(func(token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since credentials are optional and there are none")
-				}),
 			},
 			wantStatusCode: http.StatusOK,
 			wantBody:       "authenticated",
@@ -111,9 +115,6 @@ func Test_defaults(t *testing.T) {
 				WithTokenExtractor(func(r *http.Request) (string, error) {
 					return "", nil
 				}),
-				WithValidateToken(func(token string) (interface{}, error) {
-					return nil, errors.New("should not hit me since ErrJWTMissing should be returned")
-				}),
 			},
 			wantStatusCode: http.StatusBadRequest,
 		},
@@ -121,17 +122,15 @@ func Test_defaults(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var actualContextToken map[string]string
+			var actualContextToken interface{}
 
 			if tc.method == "" {
 				tc.method = http.MethodGet
 			}
 
-			m := New(tc.options...)
+			m := New(tc.validateToken, tc.options...)
 			ts := httptest.NewServer(m.CheckJWT(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if ctxToken, ok := r.Context().Value(ContextKey{}).(map[string]string); ok {
-					actualContextToken = ctxToken
-				}
+				actualContextToken = r.Context().Value(ContextKey{})
 				fmt.Fprint(w, "authenticated")
 			})))
 			defer ts.Close()
