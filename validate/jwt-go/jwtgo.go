@@ -61,7 +61,7 @@ type validator struct {
 	customClaims func() CustomClaims
 }
 
-// ValidateToken validates the passed in JWT using the jose v2 package.
+// ValidateToken validates the passed in JWT using the jwt-go package.
 func (v *validator) ValidateToken(ctx context.Context, token string) (interface{}, error) {
 	var claims jwt.Claims
 
