@@ -12,18 +12,22 @@ import (
 // call the Validate function which is where custom validation logic can be
 // defined.
 type CustomClaims interface {
+	jwt.Claims
 	Validate(context.Context) error
-}
-
-// UserContext is the struct that will be inserted into the context for the
-// user. CustomClaims will be nil unless WithCustomClaims is passed to New.
-type UserContext struct {
-	CustomClaims CustomClaims
-	jwt.StandardClaims
 }
 
 // Option is how options for the validator are setup.
 type Option func(*validator)
+
+// WithCustomClaims sets up a function that returns the object CustomClaims are
+// unmarshalled into and the object which Validate is called on for custom
+// validation. If this option is not used the validator will do nothing for
+// custom claims.
+func WithCustomClaims(f func() CustomClaims) Option {
+	return func(v *validator) {
+		v.customClaims = f
+	}
+}
 
 // New sets up a new Validator. With the required keyFunc and
 // signatureAlgorithm as well as options.
@@ -59,18 +63,30 @@ type validator struct {
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
 func (v *validator) ValidateToken(ctx context.Context, token string) (interface{}, error) {
-	userCtx := UserContext{}
+	var claims jwt.Claims
+
+	if v.customClaims != nil {
+		claims = v.customClaims()
+	} else {
+		claims = &jwt.StandardClaims{}
+	}
 
 	p := new(jwt.Parser)
 
-	p.ValidMethods = []string{v.signatureAlgorithm}
+	if v.signatureAlgorithm != "" {
+		p.ValidMethods = []string{v.signatureAlgorithm}
+	}
 
-	tok, err := jwt.ParseWithClaims(token, &userCtx, v.keyFunc)
+	_, err := p.ParseWithClaims(token, claims, v.keyFunc)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
 
-	fmt.Printf("token: %+v", tok)
+	if customClaims, ok := claims.(CustomClaims); ok {
+		if err = customClaims.Validate(ctx); err != nil {
+			return nil, fmt.Errorf("custom claims not validated: %w", err)
+		}
+	}
 
-	return &userCtx, nil
+	return claims, nil
 }
