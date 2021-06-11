@@ -169,6 +169,23 @@ func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 	return authHeaderParts[1], nil
 }
 
+// CookieTokenExtractor builds a TokenExtractor that takes a request and
+// extracts the token from the cookie using the passed in cookieName.
+func CookieTokenExtractor(cookieName string) TokenExtractor {
+	return func(r *http.Request) (string, error) {
+		cookie, err := r.Cookie(cookieName)
+		if err != nil {
+			return "", err
+		}
+
+		if cookie != nil {
+			return cookie.Value, nil
+		}
+
+		return "", nil // No error, just no JWT
+	}
+}
+
 // ParameterTokenExtractor returns a TokenExtractor that extracts the token
 // from the specified query string parameter
 func ParameterTokenExtractor(param string) TokenExtractor {
