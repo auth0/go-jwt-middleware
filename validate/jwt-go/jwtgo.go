@@ -58,6 +58,7 @@ type validator struct {
 	keyFunc            func(*jwt.Token) (interface{}, error)
 	signatureAlgorithm string
 
+	// optional options
 	customClaims func() CustomClaims
 }
 

@@ -33,9 +33,8 @@ func Test_Validate(t *testing.T) {
 		token              string
 		keyFuncReturnError error
 		customClaims       CustomClaims
-		//expectedClaims	string
-		expectedError   string
-		expectedContext jwt.Claims
+		expectedError      string
+		expectedContext    jwt.Claims
 	}{
 		{
 			name:            "happy path",
@@ -66,12 +65,6 @@ func Test_Validate(t *testing.T) {
 			token:         `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.hDyICUnkCrwFJnkJHRSkwMZNSYZ9LI6z2EFJdtwFurA`,
 			expectedError: "could not parse the token: signature is invalid",
 		},
-		/*{
-			name:  "errors when expected claims errors",
-			token: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.XbPfbIHMI6arZ3Y922BhjWgQzWXcXNrz0ogtVhfEd2o`,
-			expectedClaims: jwt.Expected{Subject: "wrong subject"},
-			expectedError: "expected claims not validated: square/go-jose/jwt: validation failed, invalid subject claim (sub)",
-		},*/
 		{
 			name:          "errors when custom claims errors",
 			token:         `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiZm9vIjoiYmFyIiwiaWF0IjoxNTE2MjM5MDIyfQ.DFTWyYib4-xFdMaEZFAYx5AKMPNS7Hhl4kcyjQVinYc`,
@@ -91,7 +84,6 @@ func Test_Validate(t *testing.T) {
 				return []byte("secret"), testCase.keyFuncReturnError
 			},
 				testCase.signatureAlgorithm,
-				//WithExpectedClaims(func() jwt.Expected { return testCase.expectedClaims }),
 				WithCustomClaims(customClaimsFunc),
 			)
 			actualContext, err := v.ValidateToken(context.Background(), testCase.token)
@@ -121,11 +113,6 @@ func Test_New(t *testing.T) {
 		if !equalErrors(err, "") {
 			t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", "", err)
 		}
-
-		/*if v.allowedClockSkew != 0 {
-			t.Logf("expected allowedClockSkew to be 0 but it was %d", v.allowedClockSkew)
-			t.Fail()
-		}*/
 
 		if v.keyFunc == nil {
 			t.Log("keyFunc was nil when it should not have been")
