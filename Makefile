@@ -6,7 +6,7 @@ test: ## Run tests.
 
 .PHONY: lint
 lint: ## Run golangci-lint.
-	golangci-lint run -v --timeout=5m --exclude SA1029
+	golangci-lint run -v --timeout=5m
 
 .PHONY: help
 help:

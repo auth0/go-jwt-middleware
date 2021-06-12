@@ -1,33 +1,57 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware"
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/auth0/go-jwt-middleware/validate/josev2"
+	"gopkg.in/square/go-jose.v2"
+	"gopkg.in/square/go-jose.v2/jwt"
 )
 
-var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user")
+var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(jwtmiddleware.ContextKey{})
+	j, err := json.MarshalIndent(user, "", "\t")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Println(err)
+	}
+
 	fmt.Fprintf(w, "This is an authenticated request")
 	fmt.Fprintf(w, "Claim content:\n")
-	for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
-		fmt.Fprintf(w, "%s :\t%#v\n", k, v)
-	}
+	fmt.Fprint(w, string(j))
 })
 
 func main() {
-	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-			return []byte("My Secret"), nil
-		},
-		// When set, the middleware verifies that tokens are signed with the specific signing algorithm
-		// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-		// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-		SigningMethod: jwt.SigningMethodHS256,
-	})
+	keyFunc := func(ctx context.Context) (interface{}, error) {
+		// our token must be signed using this data
+		return []byte("secret"), nil
+	}
 
-	app := jwtMiddleware.Handler(myHandler)
-	http.ListenAndServe("0.0.0.0:3000", app)
+	expectedClaimsFunc := func() jwt.Expected {
+		// By setting up expected claims we are saying a token must
+		// have the data we specify.
+		return jwt.Expected{
+			Issuer: "josev2-example",
+		}
+	}
+
+	// setup the piece which will validate tokens
+	validator, err := josev2.New(
+		keyFunc,
+		jose.HS256,
+		josev2.WithExpectedClaims(expectedClaimsFunc),
+	)
+	if err != nil {
+		// we'll panic in order to fail fast
+		panic(err)
+	}
+
+	// setup the middleware
+	m := jwtmiddleware.New(validator.ValidateToken)
+
+	http.ListenAndServe("0.0.0.0:3000", m.CheckJWT(handler))
 }

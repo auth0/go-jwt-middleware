@@ -21,7 +21,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v2
         with:
-          args: -v --timeout=5m --exclude SA1029
+          args: -v --timeout=5m
           skip-build-cache: true
           skip-go-installation: true
           skip-pkg-cache: true
