@@ -310,6 +310,47 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 	}
 }
 
+func Test_CookieTokenExtractor(t *testing.T) {
+	tests := []struct {
+		name      string
+		cookie    *http.Cookie
+		wantToken string
+		wantError string
+	}{
+		{
+			name:      "no cookie",
+			wantError: "http: named cookie not present",
+		},
+		{
+			name:      "token in cookie",
+			cookie:    &http.Cookie{Name: "token", Value: "i-am-token"},
+			wantToken: "i-am-token",
+		},
+		{
+			name:   "empty cookie",
+			cookie: &http.Cookie{Name: "token"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", "http://example.com", nil)
+
+			if tc.cookie != nil {
+				req.AddCookie(tc.cookie)
+			}
+
+			gotToken, gotError := CookieTokenExtractor("token")(req)
+			mustErrorMsg(t, tc.wantError, gotError)
+
+			if tc.wantToken != gotToken {
+				t.Fatalf("wanted token: %q, got: %q", tc.wantToken, gotToken)
+			}
+
+		})
+	}
+}
+
 func mustErrorMsg(t testing.TB, want string, got error) {
 	if (want == "" && got != nil) ||
 		(want != "" && (got == nil || got.Error() != want)) {
