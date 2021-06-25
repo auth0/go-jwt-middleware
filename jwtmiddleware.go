@@ -144,6 +144,19 @@ func FromParameter(param string) TokenExtractor {
 	}
 }
 
+// FromCookie returns a function that extracts the token from the specified
+// key in the HTTP cookie, like "access_token"
+func FromCookie(accessTokenName string) TokenExtractor {
+	return func(r *http.Request) (string, error) {
+		cookie, _ := r.Cookie(accessTokenName)
+		if cookie != nil {
+			return cookie.Value, nil
+		} else {
+			return "", nil
+		}
+	}
+}
+
 // FromFirst returns a function that runs multiple token extractors and takes the
 // first token it finds
 func FromFirst(extractors ...TokenExtractor) TokenExtractor {
