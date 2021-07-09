@@ -17,6 +17,7 @@ import (
 
 	"github.com/auth0/go-jwt-middleware/internal/oidc"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
@@ -223,8 +224,8 @@ func Test_JWKSProvider(t *testing.T) {
 					t.Fatalf("did not want an error, but got %s", err)
 				}
 
-				if want, got := &jwks, actualJWKS; !cmp.Equal(want, got) {
-					t.Fatalf("jwks did not match: %s", cmp.Diff(want, got))
+				if want, got := &jwks, actualJWKS; !cmp.Equal(want, got, cmpopts.IgnoreUnexported()) {
+					t.Fatalf("jwks did not match: %s", cmp.Diff(want, got, cmpopts.IgnoreUnexported()))
 				}
 
 				if want, got := &jwks, p.cache[serverURL.Hostname()].jwks; !cmp.Equal(want, got) {
