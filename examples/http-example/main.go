@@ -26,6 +26,15 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 })
 
 func main() {
+	// uncomment the below to use the caching key provider
+	// u, err := url.Parse("https://<your-domain>")
+	// if err != nil {
+	// 	// we'll panic in order to fail fast
+	// 	panic(err)
+	// }
+
+	// p := josev2.NewCachingJWKSProvider(*u, 5*time.Minute)
+
 	keyFunc := func(ctx context.Context) (interface{}, error) {
 		// our token must be signed using this data
 		return []byte("secret"), nil
@@ -41,6 +50,7 @@ func main() {
 
 	// setup the piece which will validate tokens
 	validator, err := josev2.New(
+		// p.KeyFunc, // uncomment this to use the caching key provider
 		keyFunc,
 		jose.HS256,
 		josev2.WithExpectedClaims(expectedClaimsFunc),
