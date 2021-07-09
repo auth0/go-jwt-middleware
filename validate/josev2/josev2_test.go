@@ -367,7 +367,10 @@ func Test_JWKSProvider(t *testing.T) {
 			switch r.URL.String() {
 			case "/.well-known/openid-configuration":
 				wk := oidc.WellKnownEndpoints{JWKSURI: server.URL + "/url_for_jwks"}
-				json.NewEncoder(w).Encode(wk)
+				err := json.NewEncoder(w).Encode(wk)
+				if !equalErrors(err, "") {
+					t.Fatalf("did not want an error, but got %s", err)
+				}
 			case "/url_for_jwks":
 				_, err := w.Write(responseBytes)
 				if !equalErrors(err, "") {
