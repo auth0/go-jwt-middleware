@@ -223,17 +223,7 @@ func Test_JWKSProvider(t *testing.T) {
 					t.Fatalf("did not want an error, but got %s", err)
 				}
 
-				jwksJSON, err := json.Marshal(jwks)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				actualJWKSJSON, err := json.Marshal(actualJWKS)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				if want, got := jwksJSON, actualJWKSJSON; !cmp.Equal(want, got) {
+				if want, got := &jwks, actualJWKS; !cmp.Equal(want, got) {
 					t.Fatalf("jwks did not match: %s", cmp.Diff(want, got))
 				}
 
