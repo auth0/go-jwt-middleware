@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware"
 	jwtgo "github.com/auth0/go-jwt-middleware/validate/jwt-go"
 	"github.com/golang-jwt/jwt"
+	"github.com/pkg/errors"
 )
 
 // CustomClaimsExample contains custom data we want from the token.

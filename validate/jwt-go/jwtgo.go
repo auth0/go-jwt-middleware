@@ -2,10 +2,10 @@ package jwtgo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/pkg/errors"
 )
 
 // CustomClaims defines any custom data / claims wanted. The validator will
