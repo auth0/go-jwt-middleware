@@ -81,5 +81,7 @@ It will print out something like
 The token isn't valid: expected claims not validated: square/go-jose/jwt: validation failed, invalid issuer claim (iss)
 ```
 
+### JWKS
+For a JWKS example please see [examples/http-jwks-example/README.md](../../../examples/http-jwks-example/README.md).
 
 Take a look through the example code and things will make a lot more sense.
