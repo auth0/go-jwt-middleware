@@ -174,7 +174,7 @@ Options are passed into `jwtmiddleware.New` after validation provider and use th
 
 ### `jwtmiddleware.Handler*`
 Both `jwtmiddleware.HandlerWithNext` and `jwtmiddleware.Handler` have been dropped.
-You can use [jwtmiddleware.CheckJWT](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#CheckJWT) instead which takes in an `http.Handler` and returns an `http.Handler`.
+You can use [jwtmiddleware.CheckJWT](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#JWTMiddleware.CheckJWT) instead which takes in an `http.Handler` and returns an `http.Handler`.
 
 ### `jwtmiddleware.CheckJWT`
 This function has been reworked to be the main middleware handler piece and so we've dropped the functionality of it returning and error.
