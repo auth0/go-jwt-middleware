@@ -3,7 +3,6 @@ package josev2
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/auth0/go-jwt-middleware/internal/oidc"
+	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
@@ -98,7 +98,6 @@ type Validator struct {
 	// With josev2 `jose.JSONWebKeySet` is supported as a return type of
 	// this function which hands off the heavy lifting of determining which
 	// key to used based on the header `kid` to the josev2 library.
-	// TODO(joncarl): provide an example of using a kid
 	keyFunc            func(context.Context) (interface{}, error)
 	signatureAlgorithm jose.SignatureAlgorithm
 
