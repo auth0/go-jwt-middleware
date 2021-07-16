@@ -2,7 +2,6 @@ package jwtmiddleware
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/auth0/go-jwt-middleware/validate/josev2"
 	"github.com/google/go-cmp/cmp"
+	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 )

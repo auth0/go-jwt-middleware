@@ -2,11 +2,11 @@ package jwtgo
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/google/go-cmp/cmp"
+	"github.com/pkg/errors"
 )
 
 type testingCustomClaims struct {
