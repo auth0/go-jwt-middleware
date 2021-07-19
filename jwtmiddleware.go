@@ -76,15 +76,6 @@ type JWTMiddleware struct {
 // Option is how options for the middleware are setup.
 type Option func(*JWTMiddleware)
 
-// WithValidateToken sets up the function to be used to validate all tokens.
-// See the ValidateToken type for more information.
-// Default: TODO: after merge into `v2`
-func WithValidateToken(vt ValidateToken) Option {
-	return func(m *JWTMiddleware) {
-		m.validateToken = vt
-	}
-}
-
 // WithErrorHandler sets the handler which is called when there are errors in
 // the middleware. See the ErrorHandler type for more information.
 // Default value: DefaultErrorHandler
