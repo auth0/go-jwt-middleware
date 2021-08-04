@@ -6,7 +6,7 @@ We are looking for testers for a new major version of this package. We've been w
 In this release we’ve addressed some long-standing asks and made some major improvements:
 - Replaceable JWT validation - you can now bring your favorite JWT package to validate tokens by ensuring it conforms to a simple interface. We provide two implementations for two different JWT packages.
 - We now support a custom error handler.
-- Under the hood we clone the http.Request instead of a shallow copy in order to better support reverse proxies.
+- Under the hood we clone the `http.Request` instead of a shallow copy in order to better support reverse proxies.
 - We now support extracting JWTs from cookies.
 - We now store the JWT information using a non-string context key to conform to Golang best practices.
 - A caching provider for JWKS is now provided to help you with rate limits from your identity provider.
