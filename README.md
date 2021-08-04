@@ -4,7 +4,7 @@
 We are looking for testers for a new major version of this package. We've been working hard on the new version and want to get it tested out by users before we officially release it. For details on how to test it out please see [this](https://github.com/auth0/go-jwt-middleware/issues/86#issuecomment-881737547) issue comment.
 
 In this release we’ve addressed some long-standing asks and made some major improvements:
-- Replaceable JWT validation - you can now bring your favorite JWT package to validated tokens by conforming it to a simple interface. We provide two implementations for two different JWT packages.
+- Replaceable JWT validation - you can now bring your favorite JWT package to validate tokens by ensuring it conforms to a simple interface. We provide two implementations for two different JWT packages.
 - We now support a custom error handler.
 - Under the hood we clone the http.Request instead of a shallow copy in order to better support reverse proxies.
 - We now support extracting JWTs from cookies.
