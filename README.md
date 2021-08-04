@@ -1,5 +1,19 @@
 # GO JWT Middleware
 
+### :mega: testers wanted :mega:
+We are looking for testers for a new major version of this package. We've been working hard on the new version and want to get it tested out by users before we officially release it. For details on how to test it out please see [this](https://github.com/auth0/go-jwt-middleware/issues/86#issuecomment-881737547) issue comment.
+
+In this release we’ve addressed some long-standing asks and made some major improvements:
+- Replaceable JWT validation - you can now bring your favorite JWT package to validate tokens by ensuring it conforms to a simple interface. We provide two implementations for two different JWT packages.
+- We now support a custom error handler.
+- Under the hood we clone the `http.Request` instead of a shallow copy in order to better support reverse proxies.
+- We now support extracting JWTs from cookies.
+- We now store the JWT information using a non-string context key to conform to Golang best practices.
+- A caching provider for JWKS is now provided to help you with rate limits from your identity provider.
+- We’ve switched errors to use github.com/pkg/errors to provide better error context. If you’re not familiar with the package, don’t worry as it adheres to the error interface.
+
+---
+
 **NOTE:** We released this version using a fork of jwt-go in order to address a security vulnerability. Due to jwt-go not being actively maintained we will be looking to switch to a more actively maintained package in the near future.
 
 A middleware that will check that a [JWT](http://jwt.io/) is sent on the `Authorization` header and will then set the content of the JWT into the `user` variable of the request.
