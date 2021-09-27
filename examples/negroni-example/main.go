@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware"
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
 )
