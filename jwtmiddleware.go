@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/golang-jwt/jwt"
 )
 
 // A function called whenever an error is encountered

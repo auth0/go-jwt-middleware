@@ -44,7 +44,7 @@ import (
 	"net/http"
 
 	"github.com/auth0/go-jwt-middleware"
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/golang-jwt/jwt"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,7 @@ import (
 	"net/http"
 
 	"github.com/auth0/go-jwt-middleware"
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
 )

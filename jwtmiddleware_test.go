@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/mux"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/urfave/negroni"
