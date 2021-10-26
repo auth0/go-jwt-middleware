@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 )
@@ -12,7 +12,7 @@ import (
 type testingCustomClaims struct {
 	Foo         string `json:"foo"`
 	ReturnError error
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 func (tcc *testingCustomClaims) Validate(ctx context.Context) error {
@@ -39,7 +39,7 @@ func Test_Validate(t *testing.T) {
 		{
 			name:            "happy path",
 			token:           `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Rq8IxqeX7eA6GgYxlcHdPFVRNFFZc5rEI3MQTZZbK3I`,
-			expectedContext: &jwt.StandardClaims{Subject: "1234567890"},
+			expectedContext: &jwt.RegisteredClaims{Subject: "1234567890"},
 		},
 		{
 			// we want to test that when it expects RSA but we send
