@@ -104,8 +104,8 @@ type Validator struct {
 
 	// optional options which we will default if not specified
 	expectedClaims   func() jwt.Expected
-	allowedClockSkew time.Duration
 	customClaims     func() CustomClaims
+	allowedClockSkew time.Duration
 }
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
@@ -215,9 +215,8 @@ type cachedJWKS struct {
 type CachingJWKSProvider struct {
 	IssuerURL url.URL
 	CacheTTL  time.Duration
-
-	mu    sync.Mutex
-	cache map[string]cachedJWKS
+	mu        sync.Mutex
+	cache     map[string]cachedJWKS
 }
 
 // NewCachingJWKSProvider builds and returns a new CachingJWKSProvider. If

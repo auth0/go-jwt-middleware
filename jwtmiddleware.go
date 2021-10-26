@@ -68,8 +68,8 @@ type ValidateToken func(context.Context, string) (interface{}, error)
 type JWTMiddleware struct {
 	validateToken       ValidateToken
 	errorHandler        ErrorHandler
-	credentialsOptional bool
 	tokenExtractor      TokenExtractor
+	credentialsOptional bool
 	validateOnOptions   bool
 }
 
