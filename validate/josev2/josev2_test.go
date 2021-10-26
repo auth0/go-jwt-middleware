@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/auth0/go-jwt-middleware/internal/oidc"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
+
+	"github.com/auth0/go-jwt-middleware/internal/oidc"
 )
 
 type testingCustomClaims struct {

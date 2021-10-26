@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/pkg/errors"
 )
 
@@ -69,7 +69,7 @@ func (v *validator) ValidateToken(ctx context.Context, token string) (interface{
 	if v.customClaims != nil {
 		claims = v.customClaims()
 	} else {
-		claims = &jwt.StandardClaims{}
+		claims = &jwt.RegisteredClaims{}
 	}
 
 	p := new(jwt.Parser)
