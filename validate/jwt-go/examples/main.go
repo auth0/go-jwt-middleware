@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"net/http"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware"
-	jwtgo "github.com/auth0/go-jwt-middleware/validate/jwt-go"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/pkg/errors"
+
+	"github.com/auth0/go-jwt-middleware"
+	"github.com/auth0/go-jwt-middleware/validate/jwt-go"
 )
 
 // CustomClaimsExample contains custom data we want from the token.
 type CustomClaimsExample struct {
 	Username     string `json:"username"`
 	ShouldReject bool   `json:"shouldReject,omitempty"`
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 // Validate does nothing for this example
@@ -62,9 +63,9 @@ func main() {
 	validator, err := jwtgo.New(
 		keyFunc,
 		"HS256",
-		//jwtgo.WithExpectedClaims(expectedClaims),
+		// jwtgo.WithExpectedClaims(expectedClaims),
 		jwtgo.WithCustomClaims(customClaims),
-		//jwtgo.WithAllowedClockSkew(30*time.Second),
+		// jwtgo.WithAllowedClockSkew(30*time.Second),
 	)
 
 	if err != nil {
