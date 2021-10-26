@@ -17,7 +17,7 @@ import (
 	"github.com/auth0/go-jwt-middleware/validate/josev2"
 )
 
-func Test(t *testing.T) {
+func Test_CheckJWT(t *testing.T) {
 	var (
 		validToken        = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.SdU_8KjnZsQChrVtQpYGxS48DxB4rTM9biq6D4haR70"
 		invalidToken      = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
@@ -29,21 +29,26 @@ func Test(t *testing.T) {
 	)
 
 	validator, err := josev2.New(
-		func(_ context.Context) (interface{}, error) { return []byte("secret"), nil },
+		func(_ context.Context) (interface{}, error) {
+			return []byte("secret"), nil
+		},
 		jose.HS256,
-		josev2.WithExpectedClaims(func() jwt.Expected { return jwt.Expected{Issuer: "testing"} }),
+		josev2.WithExpectedClaims(
+			func() jwt.Expected {
+				return jwt.Expected{Issuer: "testing"}
+			},
+		),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	tests := []struct {
-		name          string
-		validateToken ValidateToken
-		options       []Option
-		method        string
-		token         string
-
+	testCases := []struct {
+		name           string
+		validateToken  ValidateToken
+		options        []Option
+		method         string
+		token          string
 		wantToken      interface{}
 		wantStatusCode int
 		wantBody       string
@@ -54,7 +59,7 @@ func Test(t *testing.T) {
 			token:          validToken,
 			wantToken:      validContextToken,
 			wantStatusCode: http.StatusOK,
-			wantBody:       "authenticated",
+			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
 			name:           "validate on options",
@@ -63,7 +68,7 @@ func Test(t *testing.T) {
 			token:          validToken,
 			wantToken:      validContextToken,
 			wantStatusCode: http.StatusOK,
-			wantBody:       "authenticated",
+			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
 			name:           "bad token format",
@@ -89,13 +94,15 @@ func Test(t *testing.T) {
 			method:         http.MethodOptions,
 			token:          validToken,
 			wantStatusCode: http.StatusOK,
-			wantBody:       "authenticated",
+			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
 			name: "tokenExtractor errors",
-			options: []Option{WithTokenExtractor(func(r *http.Request) (string, error) {
-				return "", errors.New("token extractor error")
-			})},
+			options: []Option{
+				WithTokenExtractor(func(r *http.Request) (string, error) {
+					return "", errors.New("token extractor error")
+				}),
+			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
 		{
@@ -107,7 +114,7 @@ func Test(t *testing.T) {
 				}),
 			},
 			wantStatusCode: http.StatusOK,
-			wantBody:       "authenticated",
+			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
 			name: "credentialsOptional false",
@@ -121,48 +128,55 @@ func Test(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.method == "" {
+				testCase.method = http.MethodGet
+			}
+
+			middleware := New(testCase.validateToken, testCase.options...)
+
 			var actualContextToken interface{}
-
-			if tc.method == "" {
-				tc.method = http.MethodGet
-			}
-
-			m := New(tc.validateToken, tc.options...)
-			ts := httptest.NewServer(m.CheckJWT(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				actualContextToken = r.Context().Value(ContextKey{})
-				fmt.Fprint(w, "authenticated")
-			})))
-			defer ts.Close()
 
-			client := ts.Client()
-			req, _ := http.NewRequest(tc.method, ts.URL, nil)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"message":"Authenticated."}`))
+			})
 
-			if len(tc.token) > 0 {
-				req.Header.Add("Authorization", tc.token)
-			}
+			testServer := httptest.NewServer(middleware.CheckJWT(testHandler))
+			defer testServer.Close()
 
-			res, err := client.Do(req)
+			request, err := http.NewRequest(testCase.method, testServer.URL, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			body, err := ioutil.ReadAll(res.Body)
-			res.Body.Close()
+			if testCase.token != "" {
+				request.Header.Add("Authorization", testCase.token)
+			}
+
+			response, err := testServer.Client().Do(request)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			if want, got := tc.wantStatusCode, res.StatusCode; want != got {
+			body, err := ioutil.ReadAll(response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+
+			if want, got := testCase.wantStatusCode, response.StatusCode; want != got {
 				t.Fatalf("want status code %d, got %d", want, got)
 			}
 
-			if want, got := tc.wantBody, string(body); !cmp.Equal(want, got) {
+			if want, got := testCase.wantBody, string(body); !cmp.Equal(want, got) {
 				t.Fatal(cmp.Diff(want, got))
 			}
 
-			if want, got := tc.wantToken, actualContextToken; !cmp.Equal(want, got) {
+			if want, got := testCase.wantToken, actualContextToken; !cmp.Equal(want, got) {
 				t.Fatal(cmp.Diff(want, got))
 			}
 		})
@@ -276,7 +290,7 @@ func Test_ParameterTokenExtractor(t *testing.T) {
 }
 
 func Test_AuthHeaderTokenExtractor(t *testing.T) {
-	tests := []struct {
+	testCases := []struct {
 		name      string
 		request   *http.Request
 		wantToken string
@@ -298,13 +312,13 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			gotToken, gotError := AuthHeaderTokenExtractor(tc.request)
-			mustErrorMsg(t, tc.wantError, gotError)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gotToken, gotError := AuthHeaderTokenExtractor(testCase.request)
+			mustErrorMsg(t, testCase.wantError, gotError)
 
-			if tc.wantToken != gotToken {
-				t.Fatalf("wanted token: %q, got: %q", tc.wantToken, gotToken)
+			if testCase.wantToken != gotToken {
+				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
 			}
 
 		})
@@ -312,7 +326,7 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 }
 
 func Test_CookieTokenExtractor(t *testing.T) {
-	tests := []struct {
+	testCases := []struct {
 		name      string
 		cookie    *http.Cookie
 		wantToken string
@@ -333,19 +347,19 @@ func Test_CookieTokenExtractor(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
 
-			if tc.cookie != nil {
-				req.AddCookie(tc.cookie)
+			if testCase.cookie != nil {
+				req.AddCookie(testCase.cookie)
 			}
 
 			gotToken, gotError := CookieTokenExtractor("token")(req)
-			mustErrorMsg(t, tc.wantError, gotError)
+			mustErrorMsg(t, testCase.wantError, gotError)
 
-			if tc.wantToken != gotToken {
-				t.Fatalf("wanted token: %q, got: %q", tc.wantToken, gotToken)
+			if testCase.wantToken != gotToken {
+				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
 			}
 
 		})
