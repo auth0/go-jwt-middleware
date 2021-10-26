@@ -9,11 +9,12 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
+
+	"github.com/auth0/go-jwt-middleware/validate/josev2"
 )
 
 func Test(t *testing.T) {

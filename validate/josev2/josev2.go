@@ -9,10 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/auth0/go-jwt-middleware/internal/oidc"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
+
+	"github.com/auth0/go-jwt-middleware/internal/oidc"
 )
 
 // CustomClaims defines any custom data / claims wanted. The validator will
