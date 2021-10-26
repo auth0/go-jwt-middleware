@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"time"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware"
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
+
+	"github.com/auth0/go-jwt-middleware"
+	"github.com/auth0/go-jwt-middleware/validate/josev2"
 )
 
 // CustomClaimsExample contains custom data we want from the token.
