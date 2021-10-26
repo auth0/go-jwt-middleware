@@ -74,17 +74,20 @@ func Test_CheckJWT(t *testing.T) {
 			name:           "bad token format",
 			token:          "bad",
 			wantStatusCode: http.StatusInternalServerError,
+			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
 		},
 		{
 			name:           "credentials not optional",
 			token:          "",
 			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"message":"JWT is missing."}`,
 		},
 		{
 			name:           "validate token errors",
 			validateToken:  validator.ValidateToken,
 			token:          invalidToken,
 			wantStatusCode: http.StatusUnauthorized,
+			wantBody:       `{"message":"JWT is invalid."}`,
 		},
 		{
 			name: "validateOnOptions set to false",
@@ -104,6 +107,7 @@ func Test_CheckJWT(t *testing.T) {
 				}),
 			},
 			wantStatusCode: http.StatusInternalServerError,
+			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
 		},
 		{
 			name: "credentialsOptional true",
@@ -125,6 +129,7 @@ func Test_CheckJWT(t *testing.T) {
 				}),
 			},
 			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"message":"JWT is missing."}`,
 		},
 	}
 
@@ -142,7 +147,7 @@ func Test_CheckJWT(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"message":"Authenticated."}`))
+				_, _ = w.Write([]byte(`{"message":"Authenticated."}`))
 			})
 
 			testServer := httptest.NewServer(middleware.CheckJWT(testHandler))
@@ -170,6 +175,10 @@ func Test_CheckJWT(t *testing.T) {
 
 			if want, got := testCase.wantStatusCode, response.StatusCode; want != got {
 				t.Fatalf("want status code %d, got %d", want, got)
+			}
+
+			if want, got := "application/json", response.Header.Get("Content-Type"); want != got {
+				t.Fatalf("want Content-Type %s, got %s", want, got)
 			}
 
 			if want, got := testCase.wantBody, string(body); !cmp.Equal(want, got) {
