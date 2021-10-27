@@ -233,7 +233,6 @@ func Test_JWKSProvider(t *testing.T) {
 			default:
 				t.Fatalf("do not know how to handle url %s", r.URL.String())
 			}
-
 		}))
 		defer server.Close()
 		serverURL = mustParseURL(server.URL)

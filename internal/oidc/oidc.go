@@ -9,13 +9,12 @@ import (
 	"path"
 )
 
-// WellKnownEndpoints holds the well known OIDC endpoints
+// WellKnownEndpoints holds the well known OIDC endpoints.
 type WellKnownEndpoints struct {
 	JWKSURI string `json:"jwks_uri"`
 }
 
-// GetWellKnownEndpointsFromIssuerURL gets the well known endpoints for the
-// passed in issuer url
+// GetWellKnownEndpointsFromIssuerURL gets the well known endpoints for the passed in issuer url.
 func GetWellKnownEndpointsFromIssuerURL(ctx context.Context, issuerURL url.URL) (*WellKnownEndpoints, error) {
 	issuerURL.Path = path.Join(issuerURL.Path, ".well-known/openid-configuration")
 

@@ -22,7 +22,7 @@ func Test_CheckJWT(t *testing.T) {
 		validToken        = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.SdU_8KjnZsQChrVtQpYGxS48DxB4rTM9biq6D4haR70"
 		invalidToken      = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
 		validContextToken = &josev2.UserContext{
-			Claims: jwt.Claims{
+			RegisteredClaims: jwt.Claims{
 				Issuer: "testing",
 			},
 		}
@@ -190,7 +190,6 @@ func Test_CheckJWT(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func Test_invalidError(t *testing.T) {
@@ -329,7 +328,6 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 			if testCase.wantToken != gotToken {
 				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
 			}
-
 		})
 	}
 }
@@ -370,7 +368,6 @@ func Test_CookieTokenExtractor(t *testing.T) {
 			if testCase.wantToken != gotToken {
 				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
 			}
-
 		})
 	}
 }

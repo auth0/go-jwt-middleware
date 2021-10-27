@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 
 	"gopkg.in/square/go-jose.v2"
@@ -14,45 +14,44 @@ import (
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value(jwtmiddleware.ContextKey{})
-	j, err := json.MarshalIndent(user, "", "\t")
+	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*josev2.UserContext)
+
+	payload, err := json.Marshal(claims)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Println(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	fmt.Fprintf(w, "This is an authenticated request\n")
-	fmt.Fprintf(w, "Claim content:\n")
-	fmt.Fprint(w, string(j))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payload)
 })
 
 func main() {
 	keyFunc := func(ctx context.Context) (interface{}, error) {
-		// our token must be signed using this data
+		// Our token must be signed using this data.
 		return []byte("secret"), nil
 	}
 
 	expectedClaimsFunc := func() jwt.Expected {
-		// By setting up expected claims we are saying a token must
-		// have the data we specify.
+		// By setting up expected claims we are saying
+		// a token must have the data we specify.
 		return jwt.Expected{
 			Issuer: "josev2-example",
 		}
 	}
 
-	// setup the piece which will validate tokens
+	// Set up the josev2 validator.
 	validator, err := josev2.New(
 		keyFunc,
 		jose.HS256,
 		josev2.WithExpectedClaims(expectedClaimsFunc),
 	)
 	if err != nil {
-		// we'll panic in order to fail fast
-		panic(err)
+		log.Fatalf("failed to set up the josev2 validator: %v", err)
 	}
 
-	// setup the middleware
-	m := jwtmiddleware.New(validator.ValidateToken)
+	// Set up the middleware.
+	middleware := jwtmiddleware.New(validator.ValidateToken)
 
-	http.ListenAndServe("0.0.0.0:3000", m.CheckJWT(handler))
+	http.ListenAndServe("0.0.0.0:3000", middleware.CheckJWT(handler))
 }

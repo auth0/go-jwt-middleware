@@ -8,39 +8,46 @@ import (
 	"github.com/pkg/errors"
 )
 
-// CustomClaims defines any custom data / claims wanted. The validator will
-// call the Validate function which is where custom validation logic can be
-// defined.
+// Validator to use with the jwt-go package.
+type Validator struct {
+	keyFunc            func(*jwt.Token) (interface{}, error) // Required.
+	signatureAlgorithm string                                // Required.
+	customClaims       func() CustomClaims                   // Optional.
+}
+
+// Option is how options for the Validator are set up.
+type Option func(*Validator)
+
+// CustomClaims defines any custom data / claims wanted.
+// The Validator will call the Validate function which
+// is where custom validation logic can be defined.
 type CustomClaims interface {
 	jwt.Claims
 	Validate(context.Context) error
 }
 
-// Option is how options for the validator are setup.
-type Option func(*validator)
-
-// WithCustomClaims sets up a function that returns the object CustomClaims are
-// unmarshalled into and the object which Validate is called on for custom
-// validation. If this option is not used the validator will do nothing for
-// custom claims.
+// WithCustomClaims sets up a function that returns the object
+// CustomClaims that will be unmarshalled into and on which
+// Validate is called on for custom validation. If this option
+// is not used the Validator will do nothing for custom claims.
 func WithCustomClaims(f func() CustomClaims) Option {
-	return func(v *validator) {
+	return func(v *Validator) {
 		v.customClaims = f
 	}
 }
 
-// New sets up a new Validator. With the required keyFunc and
-// signatureAlgorithm as well as options.
+// New sets up a new Validator with the required keyFunc
+// and signatureAlgorithm as well as custom options.
 func New(
 	keyFunc jwt.Keyfunc,
 	signatureAlgorithm string,
 	opts ...Option,
-) (*validator, error) {
+) (*Validator, error) {
 	if keyFunc == nil {
 		return nil, errors.New("keyFunc is required but was nil")
 	}
 
-	v := &validator{
+	v := &Validator{
 		keyFunc:            keyFunc,
 		signatureAlgorithm: signatureAlgorithm,
 		customClaims:       nil,
@@ -53,17 +60,8 @@ func New(
 	return v, nil
 }
 
-type validator struct {
-	// required options
-	keyFunc            func(*jwt.Token) (interface{}, error)
-	signatureAlgorithm string
-
-	// optional options
-	customClaims func() CustomClaims
-}
-
 // ValidateToken validates the passed in JWT using the jwt-go package.
-func (v *validator) ValidateToken(ctx context.Context, token string) (interface{}, error) {
+func (v *Validator) ValidateToken(ctx context.Context, token string) (interface{}, error) {
 	var claims jwt.Claims = &jwt.RegisteredClaims{}
 	if v.customClaims != nil {
 		claims = v.customClaims()
