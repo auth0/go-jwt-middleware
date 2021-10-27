@@ -46,10 +46,11 @@ type UserContext struct {
 
 // New sets up a new Validator. With the required keyFunc and
 // signatureAlgorithm as well as options.
-func New(keyFunc func(context.Context) (interface{}, error),
+func New(
+	keyFunc func(context.Context) (interface{}, error),
 	signatureAlgorithm jose.SignatureAlgorithm,
-	opts ...Option) (*Validator, error) {
-
+	opts ...Option,
+) (*Validator, error) {
 	if keyFunc == nil {
 		return nil, errors.New("keyFunc is required but was nil")
 	}
@@ -103,8 +104,8 @@ func WithExpectedClaims(f func() jwt.Expected) Option {
 }
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
-func (v *Validator) ValidateToken(ctx context.Context, token string) (interface{}, error) {
-	tok, err := jwt.ParseSigned(token)
+func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
+	token, err := jwt.ParseSigned(tokenString)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
@@ -113,8 +114,12 @@ func (v *Validator) ValidateToken(ctx context.Context, token string) (interface{
 
 	// if jwt.ParseSigned did not error there will always be at least one
 	// header in the token
-	if signatureAlgorithm != "" && signatureAlgorithm != tok.Headers[0].Algorithm {
-		return nil, fmt.Errorf("expected %q signing algorithm but token specified %q", signatureAlgorithm, tok.Headers[0].Algorithm)
+	if signatureAlgorithm != "" && signatureAlgorithm != token.Headers[0].Algorithm {
+		return nil, fmt.Errorf(
+			"expected %q signing algorithm but token specified %q",
+			signatureAlgorithm,
+			token.Headers[0].Algorithm,
+		)
 	}
 
 	key, err := v.keyFunc(ctx)
@@ -127,7 +132,7 @@ func (v *Validator) ValidateToken(ctx context.Context, token string) (interface{
 		claimDest = append(claimDest, v.customClaims())
 	}
 
-	if err = tok.Claims(key, claimDest...); err != nil {
+	if err = token.Claims(key, claimDest...); err != nil {
 		return nil, fmt.Errorf("could not get token claims: %w", err)
 	}
 
