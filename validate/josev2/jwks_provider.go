@@ -23,14 +23,14 @@ type JWKSProvider struct {
 	IssuerURL url.URL
 }
 
-// NewJWKSProvider builds and returns a new JWKSProvider.
+// NewJWKSProvider builds and returns a new *JWKSProvider.
 func NewJWKSProvider(issuerURL url.URL) *JWKSProvider {
 	return &JWKSProvider{IssuerURL: issuerURL}
 }
 
-// KeyFunc adheres to the keyFunc signature that the Validator requires. While
-// it returns an interface to adhere to keyFunc, as long as the error is nil
-// the type will be *jose.JSONWebKeySet.
+// KeyFunc adheres to the keyFunc signature that the Validator requires.
+// While it returns an interface to adhere to keyFunc, as long as the
+// error is nil the type will be *jose.JSONWebKeySet.
 func (p *JWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.IssuerURL)
 	if err != nil {
@@ -62,9 +62,9 @@ func (p *JWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	return &jwks, nil
 }
 
-// CachingJWKSProvider handles getting JWKS from the specified IssuerURL and
-// caching them for CacheTTL time. It exposes KeyFunc which adheres to the
-// keyFunc signature that the Validator requires.
+// CachingJWKSProvider handles getting JWKS from the specified IssuerURL
+// and caching them for CacheTTL time. It exposes KeyFunc which adheres
+// to the keyFunc signature that the Validator requires.
 type CachingJWKSProvider struct {
 	IssuerURL url.URL
 	CacheTTL  time.Duration
@@ -77,8 +77,8 @@ type cachedJWKS struct {
 	expiresAt time.Time
 }
 
-// NewCachingJWKSProvider builds and returns a new CachingJWKSProvider. If
-// cacheTTL is zero then a default value of 1 minute will be used.
+// NewCachingJWKSProvider builds and returns a new CachingJWKSProvider.
+// If cacheTTL is zero then a default value of 1 minute will be used.
 func NewCachingJWKSProvider(issuerURL url.URL, cacheTTL time.Duration) *CachingJWKSProvider {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Minute
@@ -91,9 +91,9 @@ func NewCachingJWKSProvider(issuerURL url.URL, cacheTTL time.Duration) *CachingJ
 	}
 }
 
-// KeyFunc adheres to the keyFunc signature that the Validator requires. While
-// it returns an interface to adhere to keyFunc, as long as the error is nil
-// the type will be *jose.JSONWebKeySet.
+// KeyFunc adheres to the keyFunc signature that the Validator requires.
+// While it returns an interface to adhere to keyFunc, as long as the
+// error is nil the type will be *jose.JSONWebKeySet.
 func (c *CachingJWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	issuer := c.IssuerURL.Hostname()
 

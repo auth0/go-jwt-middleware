@@ -75,7 +75,7 @@ func Test_Validate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			var customClaimsFunc func() CustomClaims = nil
+			var customClaimsFunc func() CustomClaims
 			if testCase.customClaims != nil {
 				customClaimsFunc = func() CustomClaims { return testCase.customClaims }
 			}
@@ -97,7 +97,6 @@ func Test_Validate(t *testing.T) {
 				if diff := cmp.Diff(testCase.expectedContext, actualContext.(jwt.Claims)); diff != "" {
 					t.Errorf("user context mismatch (-want +got):\n%s", diff)
 				}
-
 			}
 		})
 	}
@@ -138,5 +137,4 @@ func Test_New(t *testing.T) {
 			t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", expectedErr, err)
 		}
 	})
-
 }
