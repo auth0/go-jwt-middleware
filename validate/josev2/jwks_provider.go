@@ -37,25 +37,25 @@ func (p *JWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	u, err := url.Parse(wkEndpoints.JWKSURI)
+	jwksURI, err := url.Parse(wkEndpoints.JWKSURI)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse JWKS URI from well known endpoints: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	request, err := http.NewRequest(http.MethodGet, jwksURI.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not build request to get JWKS: %w", err)
 	}
-	req = req.WithContext(ctx)
+	request = request.WithContext(ctx)
 
-	resp, err := http.DefaultClient.Do(req)
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer response.Body.Close()
 
 	var jwks jose.JSONWebKeySet
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+	if err := json.NewDecoder(response.Body).Decode(&jwks); err != nil {
 		return nil, fmt.Errorf("could not decode jwks: %w", err)
 	}
 
@@ -108,8 +108,8 @@ func (c *CachingJWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) 
 		}
 	}
 
-	p := JWKSProvider{IssuerURL: c.IssuerURL}
-	jwks, err := p.KeyFunc(ctx)
+	provider := JWKSProvider{IssuerURL: c.IssuerURL}
+	jwks, err := provider.KeyFunc(ctx)
 	if err != nil {
 		return nil, err
 	}

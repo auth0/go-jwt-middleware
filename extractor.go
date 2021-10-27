@@ -66,6 +66,7 @@ func MultiTokenExtractor(extractors ...TokenExtractor) TokenExtractor {
 			if err != nil {
 				return "", err
 			}
+
 			if token != "" {
 				return token, nil
 			}
