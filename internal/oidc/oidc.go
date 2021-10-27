@@ -19,19 +19,20 @@ type WellKnownEndpoints struct {
 func GetWellKnownEndpointsFromIssuerURL(ctx context.Context, issuerURL url.URL) (*WellKnownEndpoints, error) {
 	issuerURL.Path = path.Join(issuerURL.Path, ".well-known/openid-configuration")
 
-	req, err := http.NewRequest(http.MethodGet, issuerURL.String(), nil)
+	request, err := http.NewRequest(http.MethodGet, issuerURL.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not build request to get well known endpoints: %w", err)
 	}
-	req = req.WithContext(ctx)
+	request = request.WithContext(ctx)
 
-	r, err := http.DefaultClient.Do(req)
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("could not get well known endpoints from url %s: %w", issuerURL.String(), err)
 	}
+	defer response.Body.Close()
+
 	var wkEndpoints WellKnownEndpoints
-	err = json.NewDecoder(r.Body).Decode(&wkEndpoints)
-	if err != nil {
+	if err = json.NewDecoder(response.Body).Decode(&wkEndpoints); err != nil {
 		return nil, fmt.Errorf("could not decode json body when getting well known endpoints: %w", err)
 	}
 

@@ -31,10 +31,11 @@ func WithCustomClaims(f func() CustomClaims) Option {
 
 // New sets up a new Validator. With the required keyFunc and
 // signatureAlgorithm as well as options.
-func New(keyFunc jwt.Keyfunc,
+func New(
+	keyFunc jwt.Keyfunc,
 	signatureAlgorithm string,
-	opts ...Option) (*validator, error) {
-
+	opts ...Option,
+) (*validator, error) {
 	if keyFunc == nil {
 		return nil, errors.New("keyFunc is required but was nil")
 	}
@@ -54,7 +55,6 @@ func New(keyFunc jwt.Keyfunc,
 
 type validator struct {
 	// required options
-
 	keyFunc            func(*jwt.Token) (interface{}, error)
 	signatureAlgorithm string
 
@@ -64,27 +64,22 @@ type validator struct {
 
 // ValidateToken validates the passed in JWT using the jwt-go package.
 func (v *validator) ValidateToken(ctx context.Context, token string) (interface{}, error) {
-	var claims jwt.Claims
-
+	var claims jwt.Claims = &jwt.RegisteredClaims{}
 	if v.customClaims != nil {
 		claims = v.customClaims()
-	} else {
-		claims = &jwt.RegisteredClaims{}
 	}
 
-	p := new(jwt.Parser)
-
+	parser := &jwt.Parser{}
 	if v.signatureAlgorithm != "" {
-		p.ValidMethods = []string{v.signatureAlgorithm}
+		parser.ValidMethods = []string{v.signatureAlgorithm}
 	}
 
-	_, err := p.ParseWithClaims(token, claims, v.keyFunc)
-	if err != nil {
+	if _, err := parser.ParseWithClaims(token, claims, v.keyFunc); err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
 
 	if customClaims, ok := claims.(CustomClaims); ok {
-		if err = customClaims.Validate(ctx); err != nil {
+		if err := customClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}
 	}
