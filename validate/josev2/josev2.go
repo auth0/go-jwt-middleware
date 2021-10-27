@@ -10,42 +10,35 @@ import (
 	"gopkg.in/square/go-jose.v2/jwt"
 )
 
+// Validator to use with the jose v2 package.
 type Validator struct {
-	// required options
-
-	// in the past keyFunc might take in a token as a parameter in order to
-	// allow the function provider to return a key based on a header kid.
-	// With josev2 `jose.JSONWebKeySet` is supported as a return type of
-	// this function which hands off the heavy lifting of determining which
-	// key to used based on the header `kid` to the josev2 library.
-	keyFunc            func(context.Context) (interface{}, error)
-	signatureAlgorithm jose.SignatureAlgorithm
-
-	// optional options which we will default if not specified
-	expectedClaims   func() jwt.Expected
-	customClaims     func() CustomClaims
-	allowedClockSkew time.Duration
+	keyFunc            func(context.Context) (interface{}, error) // Required.
+	signatureAlgorithm jose.SignatureAlgorithm                    // Required.
+	expectedClaims     func() jwt.Expected                        // Optional.
+	customClaims       func() CustomClaims                        // Optional.
+	allowedClockSkew   time.Duration                              // Optional.
 }
 
-// Option is how options for the validator are setup.
+// Option is how options for the Validator are set up.
 type Option func(*Validator)
 
-// CustomClaims defines any custom data / claims wanted. The validator will
-// call the Validate function which is where custom validation logic can be
-// defined.
+// CustomClaims defines any custom data / claims wanted.
+// The Validator will call the Validate function which
+// is where custom validation logic can be defined.
 type CustomClaims interface {
 	Validate(context.Context) error
 }
 
-// UserContext is the struct that will be inserted into the context for the
-// user. CustomClaims will be nil unless WithCustomClaims is passed to New.
+// UserContext is the struct that will be inserted into
+// the context for the user. CustomClaims will be nil
+// unless WithCustomClaims is passed to New.
 type UserContext struct {
-	CustomClaims CustomClaims
-	Claims       jwt.Claims
+	CustomClaims     CustomClaims
+	RegisteredClaims jwt.Claims
 }
 
-// New sets up a new Validator. With the required keyFunc and
-// signatureAlgorithm as well as options.
+// New sets up a new Validator with the required keyFunc
+// and signatureAlgorithm as well as custom options.
 func New(
 	keyFunc func(context.Context) (interface{}, error),
 	signatureAlgorithm jose.SignatureAlgorithm,
@@ -137,11 +130,11 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	userCtx := &UserContext{
-		CustomClaims: nil,
-		Claims:       *claimDest[0].(*jwt.Claims),
+		CustomClaims:     nil,
+		RegisteredClaims: *claimDest[0].(*jwt.Claims),
 	}
 
-	if err = userCtx.Claims.ValidateWithLeeway(v.expectedClaims(), v.allowedClockSkew); err != nil {
+	if err = userCtx.RegisteredClaims.ValidateWithLeeway(v.expectedClaims(), v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 

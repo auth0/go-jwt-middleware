@@ -41,7 +41,7 @@ func Test_Validate(t *testing.T) {
 			name:  "happy path",
 			token: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Rq8IxqeX7eA6GgYxlcHdPFVRNFFZc5rEI3MQTZZbK3I`,
 			expectedContext: &UserContext{
-				Claims: jwt.Claims{Subject: "1234567890"},
+				RegisteredClaims: jwt.Claims{Subject: "1234567890"},
 			},
 		},
 		{
@@ -84,7 +84,7 @@ func Test_Validate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			var customClaimsFunc func() CustomClaims = nil
+			var customClaimsFunc func() CustomClaims
 			if testCase.customClaims != nil {
 				customClaimsFunc = func() CustomClaims { return testCase.customClaims }
 			}
@@ -105,9 +105,7 @@ func Test_Validate(t *testing.T) {
 				if diff := cmp.Diff(testCase.expectedContext, actualContext.(*UserContext)); diff != "" {
 					t.Errorf("user context mismatch (-want +got):\n%s", diff)
 				}
-
 			}
-
 		})
 	}
 }
@@ -152,5 +150,4 @@ func Test_New(t *testing.T) {
 			t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", expectedErr, err)
 		}
 	})
-
 }
