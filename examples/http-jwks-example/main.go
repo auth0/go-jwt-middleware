@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -14,39 +14,37 @@ import (
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value(jwtmiddleware.ContextKey{})
-	j, err := json.MarshalIndent(user, "", "\t")
+	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*josev2.UserContext)
+
+	payload, err := json.Marshal(claims)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Println(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	fmt.Fprintf(w, "This is an authenticated request\n")
-	fmt.Fprintf(w, "Claim content:\n")
-	fmt.Fprint(w, string(j))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payload)
 })
 
 func main() {
-	u, err := url.Parse("https://<your tenant domain>")
+	issuerURL, err := url.Parse("https://<your tenant domain>")
 	if err != nil {
-		// we'll panic in order to fail fast
-		panic(err)
+		log.Fatalf("failed to parse the issuer url: %v", err)
 	}
 
-	p := josev2.NewCachingJWKSProvider(*u, 5*time.Minute)
+	provider := josev2.NewCachingJWKSProvider(*issuerURL, 5*time.Minute)
 
-	// setup the piece which will validate tokens
+	// Set up the josev2 validator.
 	validator, err := josev2.New(
-		p.KeyFunc,
+		provider.KeyFunc,
 		jose.RS256,
 	)
 	if err != nil {
-		// we'll panic in order to fail fast
-		panic(err)
+		log.Fatalf("failed to set up the josev2 validator: %v", err)
 	}
 
-	// setup the middleware
-	m := jwtmiddleware.New(validator.ValidateToken)
+	// Set up the middleware.
+	middleware := jwtmiddleware.New(validator.ValidateToken)
 
-	http.ListenAndServe("0.0.0.0:3000", m.CheckJWT(handler))
+	http.ListenAndServe("0.0.0.0:3000", middleware.CheckJWT(handler))
 }
