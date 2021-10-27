@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -13,6 +13,19 @@ import (
 	"github.com/auth0/go-jwt-middleware/validate/jwt-go"
 )
 
+var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*CustomClaimsExample)
+
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payload)
+})
+
 // CustomClaimsExample contains custom data we want from the token.
 type CustomClaimsExample struct {
 	Username     string `json:"username"`
@@ -20,7 +33,8 @@ type CustomClaimsExample struct {
 	jwt.RegisteredClaims
 }
 
-// Validate does nothing for this example
+// Validate does nothing for this example, however we can
+// validate in here any expectations we have on our claims.
 func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 	if c.ShouldReject {
 		return errors.New("should reject was set to true")
@@ -28,56 +42,36 @@ func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 	return nil
 }
 
-var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(jwtmiddleware.ContextKey{})
-	j, err := json.MarshalIndent(claims, "", "\t")
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Println(err)
-	}
-
-	fmt.Fprintf(w, "This is an authenticated request\n")
-	fmt.Fprintf(w, "Claim content: %s\n", string(j))
-})
-
 func main() {
 	keyFunc := func(t *jwt.Token) (interface{}, error) {
-		// our token must be signed using this data
+		// Our token must be signed using this data.
 		return []byte("secret"), nil
 	}
-	/*expectedClaims := func() jwt.Expected {
-		// By setting up expected claims we are saying a token must
-		// have the data we specify.
-		return jwt.Expected{
-			Issuer: "josev2-example",
-			Time:   time.Now(),
-		}
-	}*/
+
 	customClaims := func() jwtgo.CustomClaims {
-		// we want this struct to be filled in with our custom claims
-		// from the token
+		// We want this struct to be filled in with
+		// our custom claims from the token.
 		return &CustomClaimsExample{}
 	}
 
-	// setup the jwt-go validator
+	// Set up the jwt-go validator.
 	validator, err := jwtgo.New(
 		keyFunc,
 		"HS256",
-		// jwtgo.WithExpectedClaims(expectedClaims),
 		jwtgo.WithCustomClaims(customClaims),
-		// jwtgo.WithAllowedClockSkew(30*time.Second),
 	)
-
 	if err != nil {
-		// we'll panic in order to fail fast
-		panic(err)
+		log.Fatalf("failed to set up the jwt-go validator: %v", err)
 	}
 
-	// setup the middleware
-	m := jwtmiddleware.New(validator.ValidateToken)
+	// Set up the middleware.
+	middleware := jwtmiddleware.New(validator.ValidateToken)
 
-	http.ListenAndServe("0.0.0.0:3000", m.CheckJWT(handler))
-	// try it out with eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJqd3Rnby1leGFtcGxlIiwic3ViIjoiMTIzNDU2Nzg5MCIsImlhdCI6MTUxNjIzOTAyMiwidXNlcm5hbWUiOiJ1c2VyMTIzIn0.ha_JgA29vSAb3HboPRXEi9Dm5zy7ARzd4P8AFoYP9t0
+	http.ListenAndServe("0.0.0.0:3000", middleware.CheckJWT(handler))
+	// Try it out with:
+	//
+	// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJqd3Rnby1leGFtcGxlIiwic3ViIjoiMTIzNDU2Nzg5MCIsImlhdCI6MTUxNjIzOTAyMiwidXNlcm5hbWUiOiJ1c2VyMTIzIn0.ha_JgA29vSAb3HboPRXEi9Dm5zy7ARzd4P8AFoYP9t0
+	//
 	// which is signed with 'secret' and has the data:
 	// {
 	//   "iss": "jwtgo-example",
@@ -85,8 +79,11 @@ func main() {
 	//   "iat": 1516239022,
 	//   "username": "user123"
 	// }
-
-	// you can also try out the custom validation with eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJqd3Rnby1leGFtcGxlIiwic3ViIjoiMTIzNDU2Nzg5MCIsImlhdCI6MTUxNjIzOTAyMiwidXNlcm5hbWUiOiJ1c2VyMTIzIiwic2hvdWxkUmVqZWN0Ijp0cnVlfQ.awZ0DFpJ-hH5xn-q-sZHJWj7oTAOkPULwgFO4O6D67o
+	//
+	// You can also try out the custom validation with:
+	//
+	// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJqd3Rnby1leGFtcGxlIiwic3ViIjoiMTIzNDU2Nzg5MCIsImlhdCI6MTUxNjIzOTAyMiwidXNlcm5hbWUiOiJ1c2VyMTIzIiwic2hvdWxkUmVqZWN0Ijp0cnVlfQ.awZ0DFpJ-hH5xn-q-sZHJWj7oTAOkPULwgFO4O6D67o
+	//
 	// which is signed with 'secret' and has the data:
 	// {
 	//	 "iss": "jwtgo-example",
