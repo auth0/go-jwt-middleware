@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide covers the migration from the [v1](https://github.com/auth0/go-jwt-middleware/tree/v1.0.1) version.
+This guide covers the migration from [v1](https://github.com/auth0/go-jwt-middleware/tree/v1.0.1).
 
 ### `jwtmiddleware.Options`
 
@@ -66,8 +66,7 @@ And also an extractor which can combine multiple different extractors together:
 
 #### `Debug`
 
-Dropped. We don't believe that libraries should be logging so we have removed this option.
-If you need more details of when things go wrong the errors should give the details you need.
+Removed. Please review individual exception messages for error details.
 
 #### `EnableAuthOnOptions`
 
@@ -93,7 +92,7 @@ In the example above you can see
 [github.com/auth0/go-jwt-middleware/validate/josev2](https://pkg.go.dev/github.com/auth0/go-jwt-middleware@v2.0.0/validate/josev2)
 being used.
 
-This change was made in order to allow JWT validation provider to be easily switched out.
+This change was made to allow the JWT validation provider to be easily switched out.
 
 Options are passed into `jwtmiddleware.New` after validation provider and use the `jwtmiddleware.With...` functions to 
 set options.
