@@ -1,13 +1,13 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
+	"time"
 
 	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
 
 	"github.com/auth0/go-jwt-middleware"
 	"github.com/auth0/go-jwt-middleware/validate/josev2"
@@ -27,24 +27,17 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 })
 
 func main() {
-	keyFunc := func(ctx context.Context) (interface{}, error) {
-		// Our token must be signed using this data.
-		return []byte("secret"), nil
+	issuerURL, err := url.Parse("https://<your tenant domain>")
+	if err != nil {
+		log.Fatalf("failed to parse the issuer url: %v", err)
 	}
 
-	expectedClaimsFunc := func() jwt.Expected {
-		// By setting up expected claims we are saying
-		// a token must have the data we specify.
-		return jwt.Expected{
-			Issuer: "josev2-example",
-		}
-	}
+	provider := josev2.NewCachingJWKSProvider(*issuerURL, 5*time.Minute)
 
 	// Set up the josev2 validator.
 	validator, err := josev2.New(
-		keyFunc,
-		jose.HS256,
-		josev2.WithExpectedClaims(expectedClaimsFunc),
+		provider.KeyFunc,
+		jose.RS256,
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the josev2 validator: %v", err)

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Auth0 Community
+    url: https://community.auth0.com/c/sdks/5
+    about: Discuss this SDK in the Auth0 Community forums
+  - name: SDK API Documentation
+    url: https://pkg.go.dev/github.com/auth0/go-jwt-middleware
+    about: Read the API documentation for this SDK
