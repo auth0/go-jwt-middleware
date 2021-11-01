@@ -1,3 +1,12 @@
+---
+name: Feature request
+about: Suggest an idea or a feature for this project
+title: ''
+labels: feature request
+assignees: ''
+
+---
+
 **Please do not report security vulnerabilities here**. 
 The [Responsible Disclosure Program](https://auth0.com/whitehat) details the procedure for disclosing security issues.
 
