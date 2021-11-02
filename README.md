@@ -27,7 +27,7 @@ context.
 ## Installation
 
 ```shell
-go get github.com/auth0/go-jwt-middleware
+go get github.com/Hikely/go-jwt-middleware
 ```
 
 [[table of contents]](#table-of-contents)
@@ -46,8 +46,8 @@ import (
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 
-	"github.com/auth0/go-jwt-middleware"
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
+	"github.com/Hikely/go-jwt-middleware"
+	"github.com/Hikely/go-jwt-middleware/validate/josev2"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

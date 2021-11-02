@@ -14,7 +14,7 @@ import (
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
+	"github.com/Hikely/go-jwt-middleware/validate/josev2"
 )
 
 func Test_CheckJWT(t *testing.T) {

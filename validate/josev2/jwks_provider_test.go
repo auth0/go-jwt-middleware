@@ -17,7 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"gopkg.in/square/go-jose.v2"
 
-	"github.com/auth0/go-jwt-middleware/internal/oidc"
+	"github.com/Hikely/go-jwt-middleware/internal/oidc"
 )
 
 func Test_JWKSProvider(t *testing.T) {

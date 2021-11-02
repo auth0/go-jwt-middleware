@@ -9,8 +9,8 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/pkg/errors"
 
-	"github.com/auth0/go-jwt-middleware"
-	"github.com/auth0/go-jwt-middleware/validate/jwt-go"
+	"github.com/Hikely/go-jwt-middleware"
+	"github.com/Hikely/go-jwt-middleware/validate/jwt-go"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
