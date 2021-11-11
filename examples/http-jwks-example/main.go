@@ -32,7 +32,7 @@ func main() {
 		log.Fatalf("failed to parse the issuer url: %v", err)
 	}
 
-	provider := josev2.NewCachingJWKSProvider(*issuerURL, 5*time.Minute)
+	provider := josev2.NewCachingJWKSProvider(issuerURL, 5*time.Minute)
 
 	// Set up the josev2 validator.
 	validator, err := josev2.New(
