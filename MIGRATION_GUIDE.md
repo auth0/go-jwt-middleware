@@ -1,8 +1,33 @@
 # Migration Guide
 
-This guide covers the migration from [v1](https://github.com/auth0/go-jwt-middleware/tree/v1.0.1).
+## Upgrading from v1.x → v2.0
 
-### `jwtmiddleware.Options`
+Our version 2 release includes many significant improvements:
+
+- Customizable JWT validation. 
+- Full support for custom claims.
+- Full support for custom error handlers.
+- Added support for retrieving the JWKS from the Issuer.
+
+As is to be expected with a major release, there are breaking changes in this update. Please ensure you read this guide
+thoroughly and prepare your API before upgrading to SDK v2.
+
+### Breaking Changes
+
+- [jwtmiddleware.Options](#jwtmiddlewareoptions)
+  - [ValidationKeyGetter](#validationkeygetter)
+  - [UserProperty](#userproperty)
+  - [ErrorHandler](#errorhandler)
+  - [CredentialsOptional](#credentialsoptional)
+  - [Extractor](#extractor)
+  - [Debug](#debug)
+  - [EnableAuthOnOptions](#enableauthonoptions)
+  - [SigningMethod](#signingmethod)
+- [jwtmiddleware.New](#jwtmiddlewarenew)
+- [jwtmiddleware.Handler](#jwtmiddlewarehandler)
+- [jwtmiddleware.CheckJWT](#jwtmiddlewarecheckjwt)
+
+#### `jwtmiddleware.Options`
 
 Now handled by individual [jwtmiddleware.Option](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#Option) items. 
 They can be passed to [jwtmiddleware.New](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#New) after the 
@@ -12,16 +37,16 @@ They can be passed to [jwtmiddleware.New](https://pkg.go.dev/github.com/auth0/go
 jwtmiddleware.New(validator, WithCredentialsOptional(true), ...)
 ```
 
-#### `ValidationKeyGetter`
+##### `ValidationKeyGetter`
 
 Token validation is now handled via a token provider which can be learned about in the section on 
 [jwtmiddleware.New](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#New).
 
-#### `UserProperty`
+##### `UserProperty`
 
 This is now handled in the validation provider.
 
-#### `ErrorHandler`
+##### `ErrorHandler`
 
 We now provide a public [jwtmiddleware.ErrorHandler](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#ErrorHandler)
 type:
@@ -45,13 +70,13 @@ myErrHandler := func(w http.ResponseWriter, r *http.Request, err error) {
 jwtMiddleware := jwtmiddleware.New(validator.ValidateToken, jwtmiddleware.WithErrorHandler(myErrHandler))
 ```
 
-#### `CredentialsOptional`
+##### `CredentialsOptional`
 
 Use the option function 
 [jwtmiddleware.WithCredentialsOptional(true|false)](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#WithCredentialsOptional).
 Default is false.
 
-#### `Extractor`
+##### `Extractor`
 
 Use the option function [jwtmiddleware.WithTokenExtractor](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#WithTokenExtractor).
 Default is to extract tokens from the auth header.
@@ -64,19 +89,19 @@ We provide 3 different token extractors:
 And also an extractor which can combine multiple different extractors together: 
 [jwtmiddleware.MultiTokenExtractor](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#MultiTokenExtractor) renamed from `jwtmiddleware.FromFirst`.
 
-#### `Debug`
+##### `Debug`
 
 Removed. Please review individual exception messages for error details.
 
-#### `EnableAuthOnOptions`
+##### `EnableAuthOnOptions`
 
 Use the option function [jwtmiddleware.WithValidateOnOptions(true|false)](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#WithValidateOnOptions). Default is true.
 
-#### `SigningMethod`
+##### `SigningMethod`
 
 This is now handled in the validation provider.
 
-### `jwtmiddleware.New`
+#### `jwtmiddleware.New`
 
 A token provider is set up in the middleware by passing a 
 [jwtmiddleware.ValidateToken](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#ValidateToken)
@@ -89,7 +114,7 @@ func(context.Context, string) (interface{}, error)
 to [jwtmiddleware.New](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#New).
 
 In the example above you can see 
-[github.com/auth0/go-jwt-middleware/validate/josev2](https://pkg.go.dev/github.com/auth0/go-jwt-middleware@v2.0.0/validate/josev2)
+[github.com/auth0/go-jwt-middleware/validator](https://pkg.go.dev/github.com/auth0/go-jwt-middleware@v2.0.0/validator)
 being used.
 
 This change was made to allow the JWT validation provider to be easily switched out.
@@ -97,13 +122,13 @@ This change was made to allow the JWT validation provider to be easily switched 
 Options are passed into `jwtmiddleware.New` after validation provider and use the `jwtmiddleware.With...` functions to 
 set options.
 
-### `jwtmiddleware.Handler*`
+#### `jwtmiddleware.Handler*`
 
 Both `jwtmiddleware.HandlerWithNext` and `jwtmiddleware.Handler` have been dropped.
 You can use [jwtmiddleware.CheckJWT](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#JWTMiddleware.CheckJWT) 
 instead which takes in an `http.Handler` and returns an `http.Handler`.
 
-### `jwtmiddleware.CheckJWT`
+#### `jwtmiddleware.CheckJWT`
 
 This function has been reworked to be the main middleware handler piece, and so we've dropped the functionality of it 
 returning and error.
