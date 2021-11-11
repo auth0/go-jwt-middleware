@@ -6,11 +6,14 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,259 +24,174 @@ import (
 )
 
 func Test_JWKSProvider(t *testing.T) {
-	var (
-		p                            CachingJWKSProvider
-		server                       *httptest.Server
-		responseBytes                []byte
-		responseStatusCode, reqCount int
-		serverURL                    *url.URL
-	)
+	var requestCount int32
 
-	tests := []struct {
-		name string
-		main func(t *testing.T)
-	}{
-		{
-			name: "calls out to well known endpoint",
-			main: func(t *testing.T) {
-				_, jwks := genValidRSAKeyAndJWKS(t)
-				var err error
-				responseBytes, err = json.Marshal(jwks)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				_, err = p.KeyFunc(context.TODO())
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-			},
-		},
-		{
-			name: "errors if it can't decode the jwks",
-			main: func(t *testing.T) {
-				responseBytes = []byte("<>")
-				_, err := p.KeyFunc(context.TODO())
-
-				wantErr := "could not decode jwks: invalid character '<' looking for beginning of value"
-				if !equalErrors(err, wantErr) {
-					t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", wantErr, err)
-				}
-			},
-		},
-		{
-			name: "passes back the valid jwks",
-			main: func(t *testing.T) {
-				_, jwks := genValidRSAKeyAndJWKS(t)
-				var err error
-				responseBytes, err = json.Marshal(jwks)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				p.CacheTTL = time.Minute * 5
-				actualJWKS, err := p.KeyFunc(context.TODO())
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				if want, got := &jwks, actualJWKS; !cmp.Equal(want, got) {
-					t.Fatalf("jwks did not match: %s", cmp.Diff(want, got))
-				}
-
-				if want, got := &jwks, p.cache[serverURL.Hostname()].jwks; !cmp.Equal(want, got) {
-					t.Fatalf("cached jwks did not match: %s", cmp.Diff(want, got))
-				}
-
-				expiresAt := p.cache[serverURL.Hostname()].expiresAt
-				if !time.Now().Before(expiresAt) {
-					t.Fatalf("wanted cache item expiration to be in the future but it was not: %s", expiresAt)
-				}
-			},
-		},
-		{
-			name: "returns the cached jwks when they are not expired",
-			main: func(t *testing.T) {
-				_, expectedCachedJWKS := genValidRSAKeyAndJWKS(t)
-				p.cache[serverURL.Hostname()] = cachedJWKS{
-					jwks:      &expectedCachedJWKS,
-					expiresAt: time.Now().Add(1 * time.Minute),
-				}
-
-				actualJWKS, err := p.KeyFunc(context.TODO())
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				if want, got := &expectedCachedJWKS, actualJWKS; !cmp.Equal(want, got) {
-					t.Fatalf("cached jwks did not match: %s", cmp.Diff(want, got))
-				}
-
-				if reqCount > 0 {
-					t.Fatalf("did not want any requests since we should have read from the cache, but we got %d requests", reqCount)
-				}
-			},
-		},
-		{
-			name: "re-caches the jwks if they have expired",
-			main: func(t *testing.T) {
-				_, expiredCachedJWKS := genValidRSAKeyAndJWKS(t)
-				expiresAt := time.Now().Add(-10 * time.Minute)
-				p.cache[server.URL] = cachedJWKS{
-					jwks:      &expiredCachedJWKS,
-					expiresAt: expiresAt,
-				}
-				_, jwks := genValidRSAKeyAndJWKS(t)
-				var err error
-				responseBytes, err = json.Marshal(jwks)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				p.CacheTTL = time.Minute * 5
-				actualJWKS, err := p.KeyFunc(context.TODO())
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				if want, got := &jwks, actualJWKS; !cmp.Equal(want, got) {
-					t.Fatalf("jwks did not match: %s", cmp.Diff(want, got))
-				}
-
-				if want, got := &jwks, p.cache[serverURL.Hostname()].jwks; !cmp.Equal(want, got) {
-					t.Fatalf("cached jwks did not match: %s", cmp.Diff(want, got))
-				}
-
-				cacheExpiresAt := p.cache[serverURL.Hostname()].expiresAt
-				if !time.Now().Before(cacheExpiresAt) {
-					t.Fatalf("wanted cache item expiration to be in the future but it was not: %s", cacheExpiresAt)
-				}
-			},
-		},
-		{
-			name: "only calls the API once when multiple requests come in",
-			main: func(t *testing.T) {
-				_, jwks := genValidRSAKeyAndJWKS(t)
-				var err error
-				responseBytes, err = json.Marshal(jwks)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				p.CacheTTL = time.Minute * 5
-
-				wg := sync.WaitGroup{}
-				for i := 0; i < 50; i++ {
-					wg.Add(1)
-					go func(t *testing.T) {
-						actualJWKS, err := p.KeyFunc(context.TODO())
-						if !equalErrors(err, "") {
-							t.Errorf("did not want an error, but got %s", err)
-						}
-
-						if want, got := &jwks, actualJWKS; !cmp.Equal(want, got) {
-							t.Errorf("jwks did not match: %s", cmp.Diff(want, got))
-						}
-
-						wg.Done()
-					}(t)
-				}
-				wg.Wait()
-
-				actualJWKS, err := p.KeyFunc(context.TODO())
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-
-				if want, got := &jwks, actualJWKS; !cmp.Equal(want, got) {
-					t.Fatalf("jwks did not match: %s", cmp.Diff(want, got))
-				}
-
-				if reqCount != 2 {
-					t.Fatalf("only wanted 2 requests (well known and jwks) , but we got %d requests", reqCount)
-				}
-
-				if want, got := &jwks, p.cache[serverURL.Hostname()].jwks; !cmp.Equal(want, got) {
-					t.Fatalf("cached jwks did not match: %s", cmp.Diff(want, got))
-				}
-
-				cacheExpiresAt := p.cache[serverURL.Hostname()].expiresAt
-				if !time.Now().Before(cacheExpiresAt) {
-					t.Fatalf("wanted cache item expiration to be in the future but it was not: %s", cacheExpiresAt)
-				}
-			},
-		},
+	expectedJWKS, err := generateJWKS()
+	if err != nil {
+		t.Fatalf("did not expect an error but gone one: %v", err)
 	}
 
-	for _, test := range tests {
-		var reqCallMutex sync.Mutex
+	expectedCustomJWKS, err := generateJWKS()
+	if err != nil {
+		t.Fatalf("did not expect an error but gone one: %v", err)
+	}
 
-		reqCount = 0
-		responseBytes = []byte(`{"kid":""}`)
-		responseStatusCode = http.StatusOK
-		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// handle mutex things
-			reqCallMutex.Lock()
-			defer reqCallMutex.Unlock()
-			reqCount++
-			w.WriteHeader(responseStatusCode)
+	server := setupTestServer(t, expectedJWKS, expectedCustomJWKS, &requestCount)
+	defer server.Close()
 
-			switch r.URL.String() {
-			case "/.well-known/openid-configuration":
-				wk := oidc.WellKnownEndpoints{JWKSURI: server.URL + "/url_for_jwks"}
-				err := json.NewEncoder(w).Encode(wk)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-			case "/url_for_jwks":
-				_, err := w.Write(responseBytes)
-				if !equalErrors(err, "") {
-					t.Fatalf("did not want an error, but got %s", err)
-				}
-			default:
-				t.Fatalf("do not know how to handle url %s", r.URL.String())
-			}
-		}))
-		defer server.Close()
-		serverURL = mustParseURL(server.URL)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("did not want an error, but got %s", err)
+	}
 
-		p = CachingJWKSProvider{
-			IssuerURL: *serverURL,
-			CacheTTL:  0,
-			cache:     map[string]cachedJWKS{},
+	t.Run("It correctly fetches the JWKS after calling the discovery endpoint", func(t *testing.T) {
+		provider := NewJWKSProvider(serverURL)
+		actualJWKS, err := provider.KeyFunc(context.Background())
+		if err != nil {
+			t.Fatalf("did not want an error, but got %s", err)
 		}
 
-		t.Run(test.name, test.main)
-	}
+		if !cmp.Equal(expectedJWKS, actualJWKS) {
+			t.Fatalf("jwks did not match: %s", cmp.Diff(expectedJWKS, actualJWKS))
+		}
+	})
+
+	t.Run("It skips the discovery if a custom JWKS_URI is provided", func(t *testing.T) {
+		customJWKSURI, err := url.Parse(server.URL + "/custom/jwks.json")
+		if err != nil {
+			t.Fatalf("did not want an error, but got %s", err)
+		}
+
+		provider := NewJWKSProvider(serverURL, WithCustomJWKSURI(customJWKSURI))
+		actualJWKS, err := provider.KeyFunc(context.Background())
+		if err != nil {
+			t.Fatalf("did not want an error, but got %s", err)
+		}
+
+		if !cmp.Equal(expectedCustomJWKS, actualJWKS) {
+			t.Fatalf("jwks did not match: %s", cmp.Diff(expectedCustomJWKS, actualJWKS))
+		}
+	})
+
+	t.Run("It tells the provider to cancel fetching the JWKS if request is cancelled", func(t *testing.T) {
+		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(ctx, 0)
+		defer cancel()
+
+		provider := NewJWKSProvider(serverURL)
+		_, err := provider.KeyFunc(ctx)
+		if !strings.Contains(err.Error(), "context deadline exceeded") {
+			t.Fatalf("was expecting context deadline to exceed but error is: %v", err)
+		}
+	})
+
+	t.Run("It re-caches the JWKS if they have expired when using CachingJWKSProvider", func(t *testing.T) {
+		expiredCachedJWKS, err := generateJWKS()
+		if err != nil {
+			t.Fatalf("did not expect an error but gone one: %v", err)
+		}
+
+		provider := NewCachingJWKSProvider(serverURL, 5*time.Minute)
+		provider.cache[serverURL.Hostname()] = cachedJWKS{
+			jwks:      expiredCachedJWKS,
+			expiresAt: time.Now().Add(-10 * time.Minute),
+		}
+
+		actualJWKS, err := provider.KeyFunc(context.Background())
+		if err != nil {
+			t.Fatalf("did not want an error, but got %s", err)
+		}
+
+		if !cmp.Equal(expectedJWKS, actualJWKS) {
+			t.Fatalf("jwks did not match: %s", cmp.Diff(expectedJWKS, actualJWKS))
+		}
+
+		if !cmp.Equal(expectedJWKS, provider.cache[serverURL.Hostname()].jwks) {
+			t.Fatalf("cached jwks did not match: %s", cmp.Diff(expectedJWKS, provider.cache[serverURL.Hostname()].jwks))
+		}
+
+		cacheExpiresAt := provider.cache[serverURL.Hostname()].expiresAt
+		if !time.Now().Before(cacheExpiresAt) {
+			t.Fatalf("wanted cache item expiration to be in the future but it was not: %s", cacheExpiresAt)
+		}
+	})
+
+	t.Run(
+		"It only calls the API once when multiple requests come in when using the CachingJWKSProvider",
+		func(t *testing.T) {
+			requestCount = 0
+
+			provider := NewCachingJWKSProvider(serverURL, 5*time.Minute)
+
+			var wg sync.WaitGroup
+			for i := 0; i < 50; i++ {
+				wg.Add(1)
+				go func() {
+					_, _ = provider.KeyFunc(context.Background())
+					wg.Done()
+				}()
+			}
+			wg.Wait()
+
+			if requestCount != 2 {
+				t.Fatalf("only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
+			}
+		},
+	)
+
+	t.Run("It sets the caching TTL to 1 if 0 is provided when using the CachingJWKSProvider", func(t *testing.T) {
+		provider := NewCachingJWKSProvider(serverURL, 0)
+		if provider.CacheTTL != time.Minute {
+			t.Fatalf("was expecting cache ttl to be 1 minute")
+		}
+	})
+
+	t.Run(
+		"It fails to parse the jwks uri after fetching it from the discovery endpoint if malformed",
+		func(t *testing.T) {
+			malformedURL, err := url.Parse(server.URL+"/malformed")
+			if err != nil {
+				t.Fatalf("did not want an error, but got %s", err)
+			}
+
+			provider := NewJWKSProvider(malformedURL)
+			_, err = provider.KeyFunc(context.Background())
+			if !strings.Contains(err.Error(), "could not parse JWKS URI from well known endpoints") {
+				t.Fatalf("wanted an error, but got %s", err)
+			}
+		},
+	)
 }
 
-func mustParseURL(toParse string) *url.URL {
-	parsed, err := url.Parse(toParse)
-	if err != nil {
-		panic(err)
-	}
-
-	return parsed
-}
-
-func genValidRSAKeyAndJWKS(t *testing.T) (*rsa.PrivateKey, jose.JSONWebKeySet) {
-	ca := &x509.Certificate{
+func generateJWKS() (*jose.JSONWebKeySet, error) {
+	certificate := &x509.Certificate{
 		SerialNumber: big.NewInt(1653),
 	}
-	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
-	rawCert, err := x509.CreateCertificate(rand.Reader, ca, ca, &priv.PublicKey, priv)
-	if !equalErrors(err, "") {
-		t.Fatalf("did not want an error, but got %s", err)
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate private key")
+	}
+
+	rawCertificate, err := x509.CreateCertificate(
+		rand.Reader,
+		certificate,
+		certificate,
+		&privateKey.PublicKey,
+		privateKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate")
 	}
 
 	jwks := jose.JSONWebKeySet{
 		Keys: []jose.JSONWebKey{
 			{
-				Key:   priv,
+				Key:   privateKey,
 				KeyID: "kid",
 				Certificates: []*x509.Certificate{
 					{
-						Raw: rawCert,
+						Raw: rawCertificate,
 					},
 				},
 				CertificateThumbprintSHA1:   []uint8{},
@@ -281,5 +199,44 @@ func genValidRSAKeyAndJWKS(t *testing.T) (*rsa.PrivateKey, jose.JSONWebKeySet) {
 			},
 		},
 	}
-	return priv, jwks
+
+	return &jwks, nil
+}
+
+func setupTestServer(
+	t *testing.T,
+	expectedJWKS *jose.JSONWebKeySet,
+	expectedCustomJWKS *jose.JSONWebKeySet,
+	requestCount *int32,
+) (server *httptest.Server) {
+	t.Helper()
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(requestCount, 1)
+
+		switch r.URL.String() {
+		case "/malformed/.well-known/openid-configuration":
+			wk := oidc.WellKnownEndpoints{JWKSURI: ":"}
+			if err := json.NewEncoder(w).Encode(wk); err != nil {
+				t.Fatalf("did not want an error, but got %s", err)
+			}
+		case "/.well-known/openid-configuration":
+			wk := oidc.WellKnownEndpoints{JWKSURI: server.URL + "/.well-known/jwks.json"}
+			if err := json.NewEncoder(w).Encode(wk); err != nil {
+				t.Fatalf("did not want an error, but got %s", err)
+			}
+		case "/.well-known/jwks.json":
+			if err := json.NewEncoder(w).Encode(expectedJWKS); err != nil {
+				t.Fatalf("did not want an error, but got %s", err)
+			}
+		case "/custom/jwks.json":
+			if err := json.NewEncoder(w).Encode(expectedCustomJWKS); err != nil {
+				t.Fatalf("did not want an error, but got %s", err)
+			}
+		default:
+			t.Fatalf("was not expecting to handle the following url: %s", r.URL.String())
+		}
+	})
+
+	return httptest.NewServer(handler)
 }
