@@ -15,16 +15,19 @@ type WellKnownEndpoints struct {
 }
 
 // GetWellKnownEndpointsFromIssuerURL gets the well known endpoints for the passed in issuer url.
-func GetWellKnownEndpointsFromIssuerURL(ctx context.Context, issuerURL url.URL) (*WellKnownEndpoints, error) {
+func GetWellKnownEndpointsFromIssuerURL(
+	ctx context.Context,
+	httpClient *http.Client,
+	issuerURL url.URL,
+) (*WellKnownEndpoints, error) {
 	issuerURL.Path = path.Join(issuerURL.Path, ".well-known/openid-configuration")
 
-	request, err := http.NewRequest(http.MethodGet, issuerURL.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, issuerURL.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not build request to get well known endpoints: %w", err)
 	}
-	request = request.WithContext(ctx)
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("could not get well known endpoints from url %s: %w", issuerURL.String(), err)
 	}
