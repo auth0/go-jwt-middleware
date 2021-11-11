@@ -20,35 +20,60 @@ import (
 // getting and caching JWKS which can help reduce request time and potential
 // rate limiting from your provider.
 type JWKSProvider struct {
-	IssuerURL url.URL
+	IssuerURL     *url.URL // Required.
+	CustomJWKSURI *url.URL // Optional.
+	Client        *http.Client
 }
 
+// ProviderOption is how options for the JWKSProvider are set up.
+type ProviderOption func(*JWKSProvider)
+
 // NewJWKSProvider builds and returns a new *JWKSProvider.
-func NewJWKSProvider(issuerURL url.URL) *JWKSProvider {
-	return &JWKSProvider{IssuerURL: issuerURL}
+func NewJWKSProvider(issuerURL *url.URL, opts ...ProviderOption) *JWKSProvider {
+	p := &JWKSProvider{
+		IssuerURL: issuerURL,
+		Client:    &http.Client{},
+	}
+
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	return p
+}
+
+// WithCustomJWKSURI will set a custom JWKS URI on the *JWKSProvider and
+// call this directly inside the keyFunc in order to fetch the JWKS,
+// skipping the oidc.GetWellKnownEndpointsFromIssuerURL call.
+func WithCustomJWKSURI(jwksURI *url.URL) ProviderOption {
+	return func(p *JWKSProvider) {
+		p.CustomJWKSURI = jwksURI
+	}
 }
 
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (p *JWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) {
-	wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.IssuerURL)
-	if err != nil {
-		return nil, err
+	jwksURI := p.CustomJWKSURI
+	if jwksURI == nil {
+		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.Client, *p.IssuerURL)
+		if err != nil {
+			return nil, err
+		}
+
+		jwksURI, err = url.Parse(wkEndpoints.JWKSURI)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse JWKS URI from well known endpoints: %w", err)
+		}
 	}
 
-	jwksURI, err := url.Parse(wkEndpoints.JWKSURI)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse JWKS URI from well known endpoints: %w", err)
-	}
-
-	request, err := http.NewRequest(http.MethodGet, jwksURI.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not build request to get JWKS: %w", err)
 	}
-	request = request.WithContext(ctx)
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := p.Client.Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +91,10 @@ func (p *JWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 // and caching them for CacheTTL time. It exposes KeyFunc which adheres
 // to the keyFunc signature that the Validator requires.
 type CachingJWKSProvider struct {
-	IssuerURL url.URL
-	CacheTTL  time.Duration
-	mu        sync.Mutex
-	cache     map[string]cachedJWKS
+	*JWKSProvider
+	CacheTTL time.Duration
+	mu       sync.Mutex
+	cache    map[string]cachedJWKS
 }
 
 type cachedJWKS struct {
@@ -79,15 +104,15 @@ type cachedJWKS struct {
 
 // NewCachingJWKSProvider builds and returns a new CachingJWKSProvider.
 // If cacheTTL is zero then a default value of 1 minute will be used.
-func NewCachingJWKSProvider(issuerURL url.URL, cacheTTL time.Duration) *CachingJWKSProvider {
+func NewCachingJWKSProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...ProviderOption) *CachingJWKSProvider {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Minute
 	}
 
 	return &CachingJWKSProvider{
-		IssuerURL: issuerURL,
-		CacheTTL:  cacheTTL,
-		cache:     map[string]cachedJWKS{},
+		JWKSProvider: NewJWKSProvider(issuerURL, opts...),
+		CacheTTL:     cacheTTL,
+		cache:        map[string]cachedJWKS{},
 	}
 }
 
@@ -95,12 +120,10 @@ func NewCachingJWKSProvider(issuerURL url.URL, cacheTTL time.Duration) *CachingJ
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (c *CachingJWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) {
-	issuer := c.IssuerURL.Hostname()
-
 	c.mu.Lock()
-	defer func() {
-		c.mu.Unlock()
-	}()
+	defer c.mu.Unlock()
+
+	issuer := c.IssuerURL.Hostname()
 
 	if cached, ok := c.cache[issuer]; ok {
 		if !time.Now().After(cached.expiresAt) {
@@ -108,8 +131,7 @@ func (c *CachingJWKSProvider) KeyFunc(ctx context.Context) (interface{}, error) 
 		}
 	}
 
-	provider := JWKSProvider{IssuerURL: c.IssuerURL}
-	jwks, err := provider.KeyFunc(ctx)
+	jwks, err := c.JWKSProvider.KeyFunc(ctx)
 	if err != nil {
 		return nil, err
 	}
