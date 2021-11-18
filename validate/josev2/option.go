@@ -28,12 +28,3 @@ func WithCustomClaims(c CustomClaims) Option {
 		v.customClaims = c
 	}
 }
-
-// WithExpectedClaims sets up a function that returns the object
-// used to validate claims. If this option is not used a default
-// jwt.Expected object is used which only validates token time.
-func WithExpectedClaims(e jwt.Expected) Option {
-	return func(v *Validator) {
-		v.expectedClaims = e
-	}
-}
