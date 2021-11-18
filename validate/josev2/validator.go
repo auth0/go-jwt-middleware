@@ -3,7 +3,6 @@ package josev2
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/pkg/errors"
@@ -15,10 +14,8 @@ import (
 type Validator struct {
 	keyFunc            func(context.Context) (interface{}, error) // Required.
 	signatureAlgorithm jose.SignatureAlgorithm                    // Required.
-	issuerURL          *url.URL                                   // Required.
-	audience           jwt.Audience                               // Required.
-	expectedClaims     func() jwt.Expected                        // Optional.
-	customClaims       func() CustomClaims                        // Optional.
+	expectedClaims     jwt.Expected                               // Optional.
+	customClaims       CustomClaims                               // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
 }
 
@@ -42,21 +39,30 @@ type UserContext struct {
 func New(
 	keyFunc func(context.Context) (interface{}, error),
 	signatureAlgorithm jose.SignatureAlgorithm,
+	issuerURL string,
+	audience jwt.Audience,
 	opts ...Option,
 ) (*Validator, error) {
 	if keyFunc == nil {
 		return nil, errors.New("keyFunc is required but was nil")
 	}
+	if signatureAlgorithm == "" {
+		return nil, errors.New("signature algorithm is required but was empty")
+	}
+	if issuerURL == "" {
+		return nil, errors.New("issuer url is required but was empty")
+	}
+	if audience == nil {
+		return nil, errors.New("audience is required but was nil")
+	}
 
 	v := &Validator{
-		allowedClockSkew:   0,
 		keyFunc:            keyFunc,
 		signatureAlgorithm: signatureAlgorithm,
-		customClaims:       nil,
-		expectedClaims: func() jwt.Expected {
-			return jwt.Expected{
-				Time: time.Now(),
-			}
+		expectedClaims: jwt.Expected{
+			Issuer:   issuerURL,
+			Audience: audience,
+			Time:     time.Now(),
 		},
 	}
 
@@ -74,13 +80,10 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
 
-	signatureAlgorithm := string(v.signatureAlgorithm)
-
-	// If jwt.ParseSigned did not error there will always be at least one header in the token.
-	if signatureAlgorithm != "" && signatureAlgorithm != token.Headers[0].Algorithm {
+	if string(v.signatureAlgorithm) != token.Headers[0].Algorithm {
 		return nil, fmt.Errorf(
 			"expected %q signing algorithm but token specified %q",
-			signatureAlgorithm,
+			v.signatureAlgorithm,
 			token.Headers[0].Algorithm,
 		)
 	}
@@ -92,7 +95,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 
 	claimDest := []interface{}{&jwt.Claims{}}
 	if v.customClaims != nil {
-		claimDest = append(claimDest, v.customClaims())
+		claimDest = append(claimDest, v.customClaims)
 	}
 
 	if err = token.Claims(key, claimDest...); err != nil {
@@ -100,11 +103,10 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	userCtx := &UserContext{
-		CustomClaims:     nil,
 		RegisteredClaims: *claimDest[0].(*jwt.Claims),
 	}
 
-	if err = userCtx.RegisteredClaims.ValidateWithLeeway(v.expectedClaims(), v.allowedClockSkew); err != nil {
+	if err = userCtx.RegisteredClaims.ValidateWithLeeway(v.expectedClaims, v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 

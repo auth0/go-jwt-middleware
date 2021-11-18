@@ -2,152 +2,159 @@ package josev2
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
 
-type testingCustomClaims struct {
-	Subject     string
+type testClaims struct {
+	Scope       string `json:"scope"`
 	ReturnError error
 }
 
-func (tcc *testingCustomClaims) Validate(ctx context.Context) error {
-	return tcc.ReturnError
+func (tc *testClaims) Validate(context.Context) error {
+	return tc.ReturnError
 }
 
-func equalErrors(actual error, expected string) bool {
-	if actual == nil {
-		return expected == ""
-	}
-	return actual.Error() == expected
-}
+func TestValidator_ValidateToken(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+		subject  = "1234567890"
+	)
 
-func Test_Validate(t *testing.T) {
 	testCases := []struct {
-		name               string
-		signatureAlgorithm jose.SignatureAlgorithm
-		token              string
-		keyFuncReturnError error
-		customClaims       CustomClaims
-		expectedClaims     jwt.Expected
-		expectedError      string
-		expectedContext    *UserContext
+		name            string
+		token           string
+		keyFunc         func(context.Context) (interface{}, error)
+		algorithm       jose.SignatureAlgorithm
+		customClaims    CustomClaims
+		expectedError   error
+		expectedContext *UserContext
 	}{
 		{
-			name:  "happy path",
-			token: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Rq8IxqeX7eA6GgYxlcHdPFVRNFFZc5rEI3MQTZZbK3I`,
+			name:  "it successfully validates a token",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
 			expectedContext: &UserContext{
-				RegisteredClaims: jwt.Claims{Subject: "1234567890"},
+				RegisteredClaims: jwt.Claims{
+					Issuer:   issuer,
+					Subject:  subject,
+					Audience: jwt.Audience{audience},
+				},
 			},
 		},
 		{
-			// we want to test that when it expects RSA but we send
-			// HMAC encrypted with the server public key it will
-			// error
-			name:               "errors on wrong algorithm",
-			signatureAlgorithm: jose.PS256,
-			token:              `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.XbPfbIHMI6arZ3Y922BhjWgQzWXcXNrz0ogtVhfEd2o`,
-			expectedError:      "expected \"PS256\" signing algorithm but token specified \"HS256\"",
+			name:  "it successfully validates a token with custom claims",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJzY29wZSI6InJlYWQ6bWVzc2FnZXMifQ.oqtUZQ-Q8un4CPduUBdGVq5gXpQVIFT_QSQjkOXFT5I",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			customClaims: &testClaims{},
+			expectedContext: &UserContext{
+				RegisteredClaims: jwt.Claims{
+					Issuer:   issuer,
+					Subject:  subject,
+					Audience: jwt.Audience{audience},
+				},
+				CustomClaims: &testClaims{
+					Scope: "read:messages",
+				},
+			},
 		},
 		{
-			name:          "errors when jwt.ParseSigned errors",
-			expectedError: "could not parse the token: square/go-jose: compact JWS format must have three parts",
+			name:  "it throws an error when token has a different signing algorithm than the validator",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			algorithm:     jose.RS256,
+			expectedError: errors.New(`expected "RS256" signing algorithm but token specified "HS256"`),
 		},
 		{
-			name:               "errors when the key func errors",
-			token:              `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.XbPfbIHMI6arZ3Y922BhjWgQzWXcXNrz0ogtVhfEd2o`,
-			keyFuncReturnError: errors.New("key func error message"),
-			expectedError:      "error getting the keys from the key func: key func error message",
+			name:  "it throws an error when it cannot parse the token",
+			token: "",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			expectedError: errors.New("could not parse the token: square/go-jose: compact JWS format must have three parts"),
 		},
 		{
-			name:          "errors when tok.Claims errors",
-			token:         `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.hDyICUnkCrwFJnkJHRSkwMZNSYZ9LI6z2EFJdtwFurA`,
-			expectedError: "could not get token claims: square/go-jose: error in cryptographic primitive",
+			name:  "it throws an error when it fails to fetch the keys from the key func",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return nil, errors.New("key func error message")
+			},
+			expectedError: errors.New("error getting the keys from the key func: key func error message"),
 		},
 		{
-			name:           "errors when expected claims errors",
-			token:          `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.XbPfbIHMI6arZ3Y922BhjWgQzWXcXNrz0ogtVhfEd2o`,
-			expectedClaims: jwt.Expected{Subject: "wrong subject"},
-			expectedError:  "expected claims not validated: square/go-jose/jwt: validation failed, invalid subject claim (sub)",
+			name:  "it throws an error when it fails to deserialize the claims",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.vR2K2tZHDrgsEh9zNWcyk4aljtR6gZK0s2anNGlfwz0",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			expectedError: errors.New("could not get token claims: square/go-jose: error in cryptographic primitive"),
 		},
 		{
-			name:          "errors when custom claims errors",
-			token:         `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.XbPfbIHMI6arZ3Y922BhjWgQzWXcXNrz0ogtVhfEd2o`,
-			customClaims:  &testingCustomClaims{ReturnError: errors.New("custom claims error message")},
-			expectedError: "custom claims not validated: custom claims error message",
+			name:  "it throws an error when it fails to validate the registered claims",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIn0.VoIwDVmb--26wGrv93NmjNZYa4nrzjLw4JANgEjPI28",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			expectedError: errors.New("expected claims not validated: square/go-jose/jwt: validation failed, invalid audience claim (aud)"),
+		},
+		{
+			name:  "it throws an error when it fails to validate the custom claims",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJzY29wZSI6InJlYWQ6bWVzc2FnZXMifQ.oqtUZQ-Q8un4CPduUBdGVq5gXpQVIFT_QSQjkOXFT5I",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			customClaims: &testClaims{
+				ReturnError: errors.New("custom claims error message"),
+			},
+			expectedError: errors.New("custom claims not validated: custom claims error message"),
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			var customClaimsFunc func() CustomClaims
-			if testCase.customClaims != nil {
-				customClaimsFunc = func() CustomClaims { return testCase.customClaims }
+			if testCase.algorithm == "" {
+				testCase.algorithm = jose.HS256
 			}
 
-			v, _ := New(func(ctx context.Context) (interface{}, error) { return []byte("secret"), testCase.keyFuncReturnError },
-				testCase.signatureAlgorithm,
-				WithExpectedClaims(func() jwt.Expected { return testCase.expectedClaims }),
-				WithCustomClaims(customClaimsFunc),
+			validator, err := New(
+				testCase.keyFunc,
+				testCase.algorithm,
+				issuer,
+				jwt.Audience{audience},
+				WithCustomClaims(testCase.customClaims),
 			)
-			actualContext, err := v.ValidateToken(context.Background(), testCase.token)
-			if !equalErrors(err, testCase.expectedError) {
-				t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", testCase.expectedError, err)
+			if err != nil {
+				t.Fatalf("expected not to err but got: %v", err)
 			}
 
-			if (testCase.expectedContext == nil && actualContext != nil) || (testCase.expectedContext != nil && actualContext == nil) {
-				t.Fatalf("wanted user context:\n%+v\ngot:\n%+v\n", testCase.expectedContext, actualContext)
-			} else if testCase.expectedContext != nil {
-				if diff := cmp.Diff(testCase.expectedContext, actualContext.(*UserContext)); diff != "" {
-					t.Errorf("user context mismatch (-want +got):\n%s", diff)
+			actualContext, err := validator.ValidateToken(context.Background(), testCase.token)
+			if testCase.expectedError != nil {
+				if testCase.expectedError.Error() != err.Error() {
+					t.Fatalf("wanted err: %v, but got: %v", testCase.expectedError, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected not to err but got: %v", err)
+				}
+
+				if !cmp.Equal(testCase.expectedContext, actualContext.(*UserContext)) {
+					t.Fatalf(
+						"user context did not match: %s",
+						cmp.Diff(testCase.expectedContext, actualContext.(*UserContext)),
+					)
 				}
 			}
 		})
 	}
-}
-
-func Test_New(t *testing.T) {
-	t.Run("happy path", func(t *testing.T) {
-		keyFunc := func(ctx context.Context) (interface{}, error) { return nil, nil }
-		customClaims := func() CustomClaims { return nil }
-
-		v, err := New(keyFunc, jose.HS256, WithCustomClaims(customClaims))
-
-		if !equalErrors(err, "") {
-			t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", "", err)
-		}
-
-		if v.allowedClockSkew != 0 {
-			t.Logf("expected allowedClockSkew to be 0 but it was %d", v.allowedClockSkew)
-			t.Fail()
-		}
-
-		if v.keyFunc == nil {
-			t.Log("keyFunc was nil when it should not have been")
-			t.Fail()
-		}
-
-		if v.signatureAlgorithm != jose.HS256 {
-			t.Logf("signatureAlgorithm was %q when it should have been %q", v.signatureAlgorithm, jose.HS256)
-			t.Fail()
-		}
-
-		if v.customClaims == nil {
-			t.Log("customClaims was nil when it should not have been")
-			t.Fail()
-		}
-	})
-
-	t.Run("error on no keyFunc", func(t *testing.T) {
-		_, err := New(nil, jose.HS256)
-
-		expectedErr := "keyFunc is required but was nil"
-		if !equalErrors(err, expectedErr) {
-			t.Fatalf("wanted err:\n%s\ngot:\n%+v\n", expectedErr, err)
-		}
-	})
 }
