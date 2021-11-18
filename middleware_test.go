@@ -33,11 +33,8 @@ func Test_CheckJWT(t *testing.T) {
 			return []byte("secret"), nil
 		},
 		jose.HS256,
-		josev2.WithExpectedClaims(
-			func() jwt.Expected {
-				return jwt.Expected{Issuer: "testing"}
-			},
-		),
+		"testing",
+		jwt.Audience{},
 	)
 	if err != nil {
 		t.Fatal(err)

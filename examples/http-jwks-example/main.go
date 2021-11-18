@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"gopkg.in/square/go-jose.v2"
+	"gopkg.in/square/go-jose.v2/jwt"
+
+	"github.com/auth0/go-jwt-middleware/validate/josev2"
 
 	"github.com/auth0/go-jwt-middleware"
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +40,8 @@ func main() {
 	validator, err := josev2.New(
 		provider.KeyFunc,
 		jose.RS256,
+		"josev2-example",
+		jwt.Audience{},
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the josev2 validator: %v", err)

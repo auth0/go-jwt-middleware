@@ -49,26 +49,16 @@ func main() {
 		return []byte("secret"), nil
 	}
 
-	expectedClaims := func() jwt.Expected {
-		// By setting up expected claims we are saying
-		// a token must have the data we specify.
-		return jwt.Expected{
-			Issuer: "josev2-example",
-			Time:   time.Now(),
-		}
-	}
-
-	customClaims := func() josev2.CustomClaims {
-		// We want this struct to be filled in with
-		// our custom claims from the token.
-		return &CustomClaimsExample{}
-	}
+	// We want this struct to be filled in with
+	// our custom claims from the token.
+	customClaims := &CustomClaimsExample{}
 
 	// Set up the josev2 validator.
 	validator, err := josev2.New(
 		keyFunc,
 		jose.HS256,
-		josev2.WithExpectedClaims(expectedClaims),
+		"josev2-example",
+		jwt.Audience{},
 		josev2.WithCustomClaims(customClaims),
 		josev2.WithAllowedClockSkew(30*time.Second),
 	)
