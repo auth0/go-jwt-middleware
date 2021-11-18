@@ -3,6 +3,7 @@ package josev2
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/pkg/errors"
@@ -14,6 +15,8 @@ import (
 type Validator struct {
 	keyFunc            func(context.Context) (interface{}, error) // Required.
 	signatureAlgorithm jose.SignatureAlgorithm                    // Required.
+	issuerURL          *url.URL                                   // Required.
+	audience           jwt.Audience                               // Required.
 	expectedClaims     func() jwt.Expected                        // Optional.
 	customClaims       func() CustomClaims                        // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
