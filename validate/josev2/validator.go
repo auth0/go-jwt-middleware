@@ -19,13 +19,6 @@ type Validator struct {
 	allowedClockSkew   time.Duration                              // Optional.
 }
 
-// CustomClaims defines any custom data / claims wanted.
-// The Validator will call the Validate function which
-// is where custom validation logic can be defined.
-type CustomClaims interface {
-	Validate(context.Context) error
-}
-
 // UserContext is the struct that will be inserted into
 // the context for the user. CustomClaims will be nil
 // unless WithCustomClaims is passed to New.
