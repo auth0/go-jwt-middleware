@@ -15,7 +15,7 @@ import (
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*josev2.UserContext)
+	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
 
 	payload, err := json.Marshal(claims)
 	if err != nil {

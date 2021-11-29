@@ -20,7 +20,7 @@ func Test_CheckJWT(t *testing.T) {
 	var (
 		validToken        = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.SdU_8KjnZsQChrVtQpYGxS48DxB4rTM9biq6D4haR70"
 		invalidToken      = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
-		validContextToken = &validator.UserContext{
+		validContextToken = &validator.ValidatedClaims{
 			RegisteredClaims: jwt.Claims{
 				Issuer: "testing",
 			},

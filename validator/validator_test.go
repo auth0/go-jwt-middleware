@@ -32,7 +32,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		algorithm       string
 		customClaims    CustomClaims
 		expectedError   error
-		expectedContext *UserContext
+		expectedContext *ValidatedClaims
 	}{
 		{
 			name:  "it successfully validates a token",
@@ -40,7 +40,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			expectedContext: &UserContext{
+			expectedContext: &ValidatedClaims{
 				RegisteredClaims: jwt.Claims{
 					Issuer:   issuer,
 					Subject:  subject,
@@ -55,7 +55,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			customClaims: &testClaims{},
-			expectedContext: &UserContext{
+			expectedContext: &ValidatedClaims{
 				RegisteredClaims: jwt.Claims{
 					Issuer:   issuer,
 					Subject:  subject,
@@ -147,10 +147,10 @@ func TestValidator_ValidateToken(t *testing.T) {
 					t.Fatalf("expected not to err but got: %v", err)
 				}
 
-				if !cmp.Equal(testCase.expectedContext, actualContext.(*UserContext)) {
+				if !cmp.Equal(testCase.expectedContext, actualContext.(*ValidatedClaims)) {
 					t.Fatalf(
 						"user context did not match: %s",
-						cmp.Diff(testCase.expectedContext, actualContext.(*UserContext)),
+						cmp.Diff(testCase.expectedContext, actualContext.(*ValidatedClaims)),
 					)
 				}
 			}

@@ -19,10 +19,10 @@ type Validator struct {
 	allowedClockSkew   time.Duration                              // Optional.
 }
 
-// UserContext is the struct that will be inserted into
+// ValidatedClaims is the struct that will be inserted into
 // the context for the user. CustomClaims will be nil
 // unless WithCustomClaims is passed to New.
-type UserContext struct {
+type ValidatedClaims struct {
 	CustomClaims     CustomClaims
 	RegisteredClaims jwt.Claims
 }
@@ -95,7 +95,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("could not get token claims: %w", err)
 	}
 
-	userCtx := &UserContext{
+	userCtx := &ValidatedClaims{
 		RegisteredClaims: *claimDest[0].(*jwt.Claims),
 	}
 
