@@ -157,3 +157,43 @@ func TestValidator_ValidateToken(t *testing.T) {
 		})
 	}
 }
+
+func TestNewValidator(t *testing.T) {
+	const (
+		issuer    = "https://go-jwt-middleware.eu.auth0.com/"
+		audience  = "https://go-jwt-middleware-api/"
+		algorithm = "HS256"
+	)
+
+	var keyFunc = func(context.Context) (interface{}, error) {
+		return []byte("secret"), nil
+	}
+
+	t.Run("it throws an error when the keyFunc is nil", func(t *testing.T) {
+		_, err := New(nil, algorithm, issuer, []string{audience})
+		if "keyFunc is required but was nil" != err.Error() {
+			t.Fatalf("wanted err: %q, but got: %v", "keyFunc is required but was nil", err)
+		}
+	})
+
+	t.Run("it throws an error when the signature algorithm is empty", func(t *testing.T) {
+		_, err := New(keyFunc, "", issuer, []string{audience})
+		if "signature algorithm is required but was empty" != err.Error() {
+			t.Fatalf("wanted err: %q, but got: %v", "signature algorithm is required but was empty", err)
+		}
+	})
+
+	t.Run("it throws an error when the issuerURL is empty", func(t *testing.T) {
+		_, err := New(keyFunc, algorithm, "", []string{audience})
+		if "issuer url is required but was empty" != err.Error() {
+			t.Fatalf("wanted err: %q, but got: %v", "issuer url is required but was empty", err)
+		}
+	})
+
+	t.Run("it throws an error when the audience is nil", func(t *testing.T) {
+		_, err := New(keyFunc, algorithm, issuer, nil)
+		if "audience is required but was nil" != err.Error() {
+			t.Fatalf("wanted err: %q, but got: %v", "audience is required but was nil", err)
+		}
+	})
+}
