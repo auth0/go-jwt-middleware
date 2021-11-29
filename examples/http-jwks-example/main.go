@@ -13,6 +13,8 @@ import (
 	"github.com/auth0/go-jwt-middleware/validate/josev2"
 
 	"github.com/auth0/go-jwt-middleware"
+	"github.com/auth0/go-jwt-middleware/jwks"
+	"github.com/auth0/go-jwt-middleware/validator"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +36,7 @@ func main() {
 		log.Fatalf("failed to parse the issuer url: %v", err)
 	}
 
-	provider := josev2.NewCachingJWKSProvider(issuerURL, 5*time.Minute)
+	provider := jwks.NewCachingProvider(issuerURL, 5*time.Minute)
 
 	// Set up the josev2 validator.
 	validator, err := josev2.New(
