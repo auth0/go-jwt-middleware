@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
 
 	"github.com/auth0/go-jwt-middleware"
 	"github.com/auth0/go-jwt-middleware/validate/josev2"
@@ -56,9 +54,9 @@ func main() {
 	// Set up the josev2 validator.
 	validator, err := josev2.New(
 		keyFunc,
-		jose.HS256,
+		"HS256",
 		"josev2-example",
-		jwt.Audience{},
+		[]string{},
 		josev2.WithCustomClaims(customClaims),
 		josev2.WithAllowedClockSkew(30*time.Second),
 	)

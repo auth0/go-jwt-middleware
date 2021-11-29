@@ -31,9 +31,9 @@ type UserContext struct {
 // and signatureAlgorithm as well as custom options.
 func New(
 	keyFunc func(context.Context) (interface{}, error),
-	signatureAlgorithm jose.SignatureAlgorithm,
+	signatureAlgorithm string,
 	issuerURL string,
-	audience jwt.Audience,
+	audience []string,
 	opts ...Option,
 ) (*Validator, error) {
 	if keyFunc == nil {
@@ -51,7 +51,7 @@ func New(
 
 	v := &Validator{
 		keyFunc:            keyFunc,
-		signatureAlgorithm: signatureAlgorithm,
+		signatureAlgorithm: jose.SignatureAlgorithm(signatureAlgorithm),
 		expectedClaims: jwt.Expected{
 			Issuer:   issuerURL,
 			Audience: audience,

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
 
@@ -30,7 +29,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		name            string
 		token           string
 		keyFunc         func(context.Context) (interface{}, error)
-		algorithm       jose.SignatureAlgorithm
+		algorithm       string
 		customClaims    CustomClaims
 		expectedError   error
 		expectedContext *UserContext
@@ -73,7 +72,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     jose.RS256,
+			algorithm:     "RS256",
 			expectedError: errors.New(`expected "RS256" signing algorithm but token specified "HS256"`),
 		},
 		{
@@ -93,7 +92,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			expectedError: errors.New("error getting the keys from the key func: key func error message"),
 		},
 		{
-			name:  "it throws an error when it fails to deserialize the claims",
+			name:  "it throws an error when it fails to deserialize the claims because the signature is invalid",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.vR2K2tZHDrgsEh9zNWcyk4aljtR6gZK0s2anNGlfwz0",
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
@@ -124,14 +123,14 @@ func TestValidator_ValidateToken(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			if testCase.algorithm == "" {
-				testCase.algorithm = jose.HS256
+				testCase.algorithm = "HS256"
 			}
 
 			validator, err := New(
 				testCase.keyFunc,
 				testCase.algorithm,
 				issuer,
-				jwt.Audience{audience},
+				[]string{audience},
 				WithCustomClaims(testCase.customClaims),
 			)
 			if err != nil {
