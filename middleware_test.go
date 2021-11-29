@@ -13,21 +13,21 @@ import (
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2/jwt"
 
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
+	"github.com/auth0/go-jwt-middleware/validator"
 )
 
 func Test_CheckJWT(t *testing.T) {
 	var (
 		validToken        = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.SdU_8KjnZsQChrVtQpYGxS48DxB4rTM9biq6D4haR70"
 		invalidToken      = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
-		validContextToken = &josev2.UserContext{
+		validContextToken = &validator.UserContext{
 			RegisteredClaims: jwt.Claims{
 				Issuer: "testing",
 			},
 		}
 	)
 
-	validator, err := josev2.New(
+	jwtValidator, err := validator.New(
 		func(_ context.Context) (interface{}, error) {
 			return []byte("secret"), nil
 		},
@@ -51,7 +51,7 @@ func Test_CheckJWT(t *testing.T) {
 	}{
 		{
 			name:           "happy path",
-			validateToken:  validator.ValidateToken,
+			validateToken:  jwtValidator.ValidateToken,
 			token:          validToken,
 			wantToken:      validContextToken,
 			wantStatusCode: http.StatusOK,
@@ -59,7 +59,7 @@ func Test_CheckJWT(t *testing.T) {
 		},
 		{
 			name:           "validate on options",
-			validateToken:  validator.ValidateToken,
+			validateToken:  jwtValidator.ValidateToken,
 			method:         http.MethodOptions,
 			token:          validToken,
 			wantToken:      validContextToken,
@@ -80,7 +80,7 @@ func Test_CheckJWT(t *testing.T) {
 		},
 		{
 			name:           "validate token errors",
-			validateToken:  validator.ValidateToken,
+			validateToken:  jwtValidator.ValidateToken,
 			token:          invalidToken,
 			wantStatusCode: http.StatusUnauthorized,
 			wantBody:       `{"message":"JWT is invalid."}`,

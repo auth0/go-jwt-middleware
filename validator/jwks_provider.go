@@ -1,4 +1,4 @@
-package josev2
+package validator
 
 import (
 	"context"

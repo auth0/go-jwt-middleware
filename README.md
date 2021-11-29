@@ -47,7 +47,7 @@ import (
 	"gopkg.in/square/go-jose.v2/jwt"
 
 	"github.com/auth0/go-jwt-middleware"
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
+	"github.com/auth0/go-jwt-middleware/validator"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

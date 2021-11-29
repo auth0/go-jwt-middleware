@@ -15,4 +15,4 @@ gopkg.in/square/go-jose.v2/jwt package.
 Note that while the jose package does support multi-recipient JWTs, this
 package does not support them.
 */
-package josev2
+package validator

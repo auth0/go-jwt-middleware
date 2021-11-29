@@ -10,11 +10,11 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/auth0/go-jwt-middleware"
-	"github.com/auth0/go-jwt-middleware/validate/josev2"
+	validator2 "github.com/auth0/go-jwt-middleware/validator"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*josev2.UserContext)
+	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator2.UserContext)
 
 	payload, err := json.Marshal(claims)
 	if err != nil {
@@ -52,13 +52,13 @@ func main() {
 	customClaims := &CustomClaimsExample{}
 
 	// Set up the josev2 validator.
-	validator, err := josev2.New(
+	validator, err := validator2.New(
 		keyFunc,
 		"HS256",
 		"josev2-example",
 		[]string{},
-		josev2.WithCustomClaims(customClaims),
-		josev2.WithAllowedClockSkew(30*time.Second),
+		validator2.WithCustomClaims(customClaims),
+		validator2.WithAllowedClockSkew(30*time.Second),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the josev2 validator: %v", err)
