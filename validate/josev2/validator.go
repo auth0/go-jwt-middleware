@@ -14,19 +14,9 @@ import (
 type Validator struct {
 	keyFunc            func(context.Context) (interface{}, error) // Required.
 	signatureAlgorithm jose.SignatureAlgorithm                    // Required.
-	expectedClaims     func() jwt.Expected                        // Optional.
-	customClaims       func() CustomClaims                        // Optional.
+	expectedClaims     jwt.Expected                               // Optional.
+	customClaims       CustomClaims                               // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
-}
-
-// Option is how options for the Validator are set up.
-type Option func(*Validator)
-
-// CustomClaims defines any custom data / claims wanted.
-// The Validator will call the Validate function which
-// is where custom validation logic can be defined.
-type CustomClaims interface {
-	Validate(context.Context) error
 }
 
 // UserContext is the struct that will be inserted into
@@ -41,22 +31,31 @@ type UserContext struct {
 // and signatureAlgorithm as well as custom options.
 func New(
 	keyFunc func(context.Context) (interface{}, error),
-	signatureAlgorithm jose.SignatureAlgorithm,
+	signatureAlgorithm string,
+	issuerURL string,
+	audience []string,
 	opts ...Option,
 ) (*Validator, error) {
 	if keyFunc == nil {
 		return nil, errors.New("keyFunc is required but was nil")
 	}
+	if signatureAlgorithm == "" {
+		return nil, errors.New("signature algorithm is required but was empty")
+	}
+	if issuerURL == "" {
+		return nil, errors.New("issuer url is required but was empty")
+	}
+	if audience == nil {
+		return nil, errors.New("audience is required but was nil")
+	}
 
 	v := &Validator{
-		allowedClockSkew:   0,
 		keyFunc:            keyFunc,
-		signatureAlgorithm: signatureAlgorithm,
-		customClaims:       nil,
-		expectedClaims: func() jwt.Expected {
-			return jwt.Expected{
-				Time: time.Now(),
-			}
+		signatureAlgorithm: jose.SignatureAlgorithm(signatureAlgorithm),
+		expectedClaims: jwt.Expected{
+			Issuer:   issuerURL,
+			Audience: audience,
+			Time:     time.Now(),
 		},
 	}
 
@@ -67,35 +66,6 @@ func New(
 	return v, nil
 }
 
-// WithAllowedClockSkew is an option which sets up the allowed
-// clock skew for the token. Note that in order to use this
-// the expected claims Time field MUST not be time.IsZero().
-// If this option is not used clock skew is not allowed.
-func WithAllowedClockSkew(skew time.Duration) Option {
-	return func(v *Validator) {
-		v.allowedClockSkew = skew
-	}
-}
-
-// WithCustomClaims sets up a function that returns the object
-// CustomClaims that will be unmarshalled into and on which
-// Validate is called on for custom validation. If this option
-// is not used the Validator will do nothing for custom claims.
-func WithCustomClaims(f func() CustomClaims) Option {
-	return func(v *Validator) {
-		v.customClaims = f
-	}
-}
-
-// WithExpectedClaims sets up a function that returns the object
-// used to validate claims. If this option is not used a default
-// jwt.Expected object is used which only validates token time.
-func WithExpectedClaims(f func() jwt.Expected) Option {
-	return func(v *Validator) {
-		v.expectedClaims = f
-	}
-}
-
 // ValidateToken validates the passed in JWT using the jose v2 package.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
 	token, err := jwt.ParseSigned(tokenString)
@@ -103,13 +73,10 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
 
-	signatureAlgorithm := string(v.signatureAlgorithm)
-
-	// If jwt.ParseSigned did not error there will always be at least one header in the token.
-	if signatureAlgorithm != "" && signatureAlgorithm != token.Headers[0].Algorithm {
+	if string(v.signatureAlgorithm) != token.Headers[0].Algorithm {
 		return nil, fmt.Errorf(
 			"expected %q signing algorithm but token specified %q",
-			signatureAlgorithm,
+			v.signatureAlgorithm,
 			token.Headers[0].Algorithm,
 		)
 	}
@@ -121,7 +88,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 
 	claimDest := []interface{}{&jwt.Claims{}}
 	if v.customClaims != nil {
-		claimDest = append(claimDest, v.customClaims())
+		claimDest = append(claimDest, v.customClaims)
 	}
 
 	if err = token.Claims(key, claimDest...); err != nil {
@@ -129,11 +96,10 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	userCtx := &UserContext{
-		CustomClaims:     nil,
 		RegisteredClaims: *claimDest[0].(*jwt.Claims),
 	}
 
-	if err = userCtx.RegisteredClaims.ValidateWithLeeway(v.expectedClaims(), v.allowedClockSkew); err != nil {
+	if err = userCtx.RegisteredClaims.ValidateWithLeeway(v.expectedClaims, v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 

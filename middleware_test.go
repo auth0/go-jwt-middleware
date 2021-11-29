@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
-	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 
 	"github.com/auth0/go-jwt-middleware/validate/josev2"
@@ -32,12 +31,9 @@ func Test_CheckJWT(t *testing.T) {
 		func(_ context.Context) (interface{}, error) {
 			return []byte("secret"), nil
 		},
-		jose.HS256,
-		josev2.WithExpectedClaims(
-			func() jwt.Expected {
-				return jwt.Expected{Issuer: "testing"}
-			},
-		),
+		"HS256",
+		"testing",
+		[]string{},
 	)
 	if err != nil {
 		t.Fatal(err)
