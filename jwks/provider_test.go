@@ -1,4 +1,4 @@
-package josev2
+package jwks
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func Test_JWKSProvider(t *testing.T) {
 	}
 
 	t.Run("It correctly fetches the JWKS after calling the discovery endpoint", func(t *testing.T) {
-		provider := NewJWKSProvider(serverURL)
+		provider := NewProvider(serverURL)
 		actualJWKS, err := provider.KeyFunc(context.Background())
 		if err != nil {
 			t.Fatalf("did not want an error, but got %s", err)
@@ -62,7 +62,7 @@ func Test_JWKSProvider(t *testing.T) {
 			t.Fatalf("did not want an error, but got %s", err)
 		}
 
-		provider := NewJWKSProvider(serverURL, WithCustomJWKSURI(customJWKSURI))
+		provider := NewProvider(serverURL, WithCustomJWKSURI(customJWKSURI))
 		actualJWKS, err := provider.KeyFunc(context.Background())
 		if err != nil {
 			t.Fatalf("did not want an error, but got %s", err)
@@ -78,20 +78,20 @@ func Test_JWKSProvider(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 0)
 		defer cancel()
 
-		provider := NewJWKSProvider(serverURL)
+		provider := NewProvider(serverURL)
 		_, err := provider.KeyFunc(ctx)
 		if !strings.Contains(err.Error(), "context deadline exceeded") {
 			t.Fatalf("was expecting context deadline to exceed but error is: %v", err)
 		}
 	})
 
-	t.Run("It re-caches the JWKS if they have expired when using CachingJWKSProvider", func(t *testing.T) {
+	t.Run("It re-caches the JWKS if they have expired when using CachingProvider", func(t *testing.T) {
 		expiredCachedJWKS, err := generateJWKS()
 		if err != nil {
 			t.Fatalf("did not expect an error but gone one: %v", err)
 		}
 
-		provider := NewCachingJWKSProvider(serverURL, 5*time.Minute)
+		provider := NewCachingProvider(serverURL, 5*time.Minute)
 		provider.cache[serverURL.Hostname()] = cachedJWKS{
 			jwks:      expiredCachedJWKS,
 			expiresAt: time.Now().Add(-10 * time.Minute),
@@ -117,11 +117,11 @@ func Test_JWKSProvider(t *testing.T) {
 	})
 
 	t.Run(
-		"It only calls the API once when multiple requests come in when using the CachingJWKSProvider",
+		"It only calls the API once when multiple requests come in when using the CachingProvider",
 		func(t *testing.T) {
 			requestCount = 0
 
-			provider := NewCachingJWKSProvider(serverURL, 5*time.Minute)
+			provider := NewCachingProvider(serverURL, 5*time.Minute)
 
 			var wg sync.WaitGroup
 			for i := 0; i < 50; i++ {
@@ -139,8 +139,8 @@ func Test_JWKSProvider(t *testing.T) {
 		},
 	)
 
-	t.Run("It sets the caching TTL to 1 if 0 is provided when using the CachingJWKSProvider", func(t *testing.T) {
-		provider := NewCachingJWKSProvider(serverURL, 0)
+	t.Run("It sets the caching TTL to 1 if 0 is provided when using the CachingProvider", func(t *testing.T) {
+		provider := NewCachingProvider(serverURL, 0)
 		if provider.CacheTTL != time.Minute {
 			t.Fatalf("was expecting cache ttl to be 1 minute")
 		}
@@ -154,7 +154,7 @@ func Test_JWKSProvider(t *testing.T) {
 				t.Fatalf("did not want an error, but got %s", err)
 			}
 
-			provider := NewJWKSProvider(malformedURL)
+			provider := NewProvider(malformedURL)
 			_, err = provider.KeyFunc(context.Background())
 			if !strings.Contains(err.Error(), "could not parse JWKS URI from well known endpoints") {
 				t.Fatalf("wanted an error, but got %s", err)

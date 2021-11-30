@@ -1,4 +1,4 @@
-package josev2
+package validator
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"gopkg.in/square/go-jose.v2/jwt"
 )
 
 type testClaims struct {
@@ -31,8 +30,8 @@ func TestValidator_ValidateToken(t *testing.T) {
 		keyFunc         func(context.Context) (interface{}, error)
 		algorithm       string
 		customClaims    CustomClaims
-		expectedError   error
-		expectedContext *UserContext
+		expectedError  error
+		expectedClaims *ValidatedClaims
 	}{
 		{
 			name:  "it successfully validates a token",
@@ -40,11 +39,11 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			expectedContext: &UserContext{
-				RegisteredClaims: jwt.Claims{
+			expectedClaims: &ValidatedClaims{
+				RegisteredClaims: RegisteredClaims{
 					Issuer:   issuer,
 					Subject:  subject,
-					Audience: jwt.Audience{audience},
+					Audience: []string{audience},
 				},
 			},
 		},
@@ -55,11 +54,11 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			customClaims: &testClaims{},
-			expectedContext: &UserContext{
-				RegisteredClaims: jwt.Claims{
+			expectedClaims: &ValidatedClaims{
+				RegisteredClaims: RegisteredClaims{
 					Issuer:   issuer,
 					Subject:  subject,
-					Audience: jwt.Audience{audience},
+					Audience: []string{audience},
 				},
 				CustomClaims: &testClaims{
 					Scope: "read:messages",
@@ -147,10 +146,10 @@ func TestValidator_ValidateToken(t *testing.T) {
 					t.Fatalf("expected not to err but got: %v", err)
 				}
 
-				if !cmp.Equal(testCase.expectedContext, actualContext.(*UserContext)) {
+				if !cmp.Equal(testCase.expectedClaims, actualContext.(*ValidatedClaims)) {
 					t.Fatalf(
 						"user context did not match: %s",
-						cmp.Diff(testCase.expectedContext, actualContext.(*UserContext)),
+						cmp.Diff(testCase.expectedClaims, actualContext.(*ValidatedClaims)),
 					)
 				}
 			}
