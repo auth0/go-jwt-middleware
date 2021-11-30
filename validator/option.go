@@ -1,19 +1,11 @@
 package validator
 
 import (
-	"context"
 	"time"
 )
 
 // Option is how options for the Validator are set up.
 type Option func(*Validator)
-
-// CustomClaims defines any custom data / claims wanted.
-// The Validator will call the Validate function which
-// is where custom validation logic can be defined.
-type CustomClaims interface {
-	Validate(context.Context) error
-}
 
 // WithAllowedClockSkew is an option which sets up the allowed
 // clock skew for the token. Note that in order to use this

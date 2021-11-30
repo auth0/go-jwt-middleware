@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/auth0/go-jwt-middleware"
 	"github.com/auth0/go-jwt-middleware/validator"
+
+	"github.com/auth0/go-jwt-middleware"
 )
 
 // CustomClaimsExample contains custom data we want from the token.
@@ -74,7 +75,7 @@ func main() {
 	//
 	// which is signed with 'secret' and has the data:
 	// {
-	//	 "iss": "go-jwt-middleware-example",
+	//   "iss": "go-jwt-middleware-example",
 	//   "aud": "audience-example",
 	//   "sub": "1234567890",
 	//   "name": "John Doe",
@@ -88,12 +89,12 @@ func main() {
 	//
 	// which is signed with 'secret' and has the data:
 	// {
-	//	 "iss": "go-jwt-middleware-example",
+	//   "iss": "go-jwt-middleware-example",
 	//   "aud": "audience-example",
-	//	 "sub": "1234567890",
+	//   "sub": "1234567890",
 	//   "name": "John Doe",
-	//	 "iat": 1516239022,
-	//	 "username": "user123",
-	//	 "shouldReject": true
+	//   "iat": 1516239022,
+	//   "username": "user123",
+	//   "shouldReject": true
 	// }
 }

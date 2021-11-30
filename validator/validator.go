@@ -19,14 +19,6 @@ type Validator struct {
 	allowedClockSkew   time.Duration                              // Optional.
 }
 
-// ValidatedClaims is the struct that will be inserted into
-// the context for the user. CustomClaims will be nil
-// unless WithCustomClaims is passed to New.
-type ValidatedClaims struct {
-	CustomClaims     CustomClaims
-	RegisteredClaims jwt.Claims
-}
-
 // New sets up a new Validator with the required keyFunc
 // and signatureAlgorithm as well as custom options.
 func New(
@@ -95,20 +87,38 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("could not get token claims: %w", err)
 	}
 
-	userCtx := &ValidatedClaims{
-		RegisteredClaims: *claimDest[0].(*jwt.Claims),
-	}
-
-	if err = userCtx.RegisteredClaims.ValidateWithLeeway(v.expectedClaims, v.allowedClockSkew); err != nil {
+	registeredClaims := *claimDest[0].(*jwt.Claims)
+	if err = registeredClaims.ValidateWithLeeway(v.expectedClaims, v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 
+	validatedClaims := &ValidatedClaims{
+		RegisteredClaims: RegisteredClaims{
+			Issuer:   registeredClaims.Issuer,
+			Subject:  registeredClaims.Subject,
+			Audience: registeredClaims.Audience,
+			ID:       registeredClaims.ID,
+		},
+	}
+
+	if registeredClaims.Expiry != nil {
+		validatedClaims.RegisteredClaims.Expiry = registeredClaims.Expiry.Time().Unix()
+	}
+
+	if registeredClaims.NotBefore != nil {
+		validatedClaims.RegisteredClaims.NotBefore = registeredClaims.NotBefore.Time().Unix()
+	}
+
+	if registeredClaims.IssuedAt != nil {
+		validatedClaims.RegisteredClaims.IssuedAt = registeredClaims.IssuedAt.Time().Unix()
+	}
+
 	if v.customClaims != nil {
-		userCtx.CustomClaims = claimDest[1].(CustomClaims)
-		if err = userCtx.CustomClaims.Validate(ctx); err != nil {
+		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
+		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}
 	}
 
-	return userCtx, nil
+	return validatedClaims, nil
 }
