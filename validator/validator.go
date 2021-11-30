@@ -47,7 +47,6 @@ func New(
 		expectedClaims: jwt.Expected{
 			Issuer:   issuerURL,
 			Audience: audience,
-			Time:     time.Now(),
 		},
 	}
 
@@ -88,6 +87,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	registeredClaims := *claimDest[0].(*jwt.Claims)
+	v.expectedClaims.Time = time.Now()
 	if err = registeredClaims.ValidateWithLeeway(v.expectedClaims, v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
