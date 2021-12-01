@@ -34,7 +34,7 @@ go get github.com/auth0/go-jwt-middleware
 
 ## Usage
 
-```golang
+```go
 package main
 
 import (
@@ -43,15 +43,12 @@ import (
 	"log"
 	"net/http"
 
-	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
-
 	"github.com/auth0/go-jwt-middleware"
 	"github.com/auth0/go-jwt-middleware/validator"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*josev2.UserContext)
+	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
 
 	payload, err := json.Marshal(claims)
 	if err != nil {
@@ -69,26 +66,19 @@ func main() {
 		return []byte("secret"), nil
 	}
 
-	expectedClaimsFunc := func() jwt.Expected {
-		// By setting up expected claims we are saying
-		// a token must have the data we specify.
-		return jwt.Expected{
-			Issuer: "josev2-example",
-		}
-	}
-
-	// Set up the josev2 validator.
-	validator, err := josev2.New(
+	// Set up the validator.
+	jwtValidator, err := validator.New(
 		keyFunc,
-		jose.HS256,
-		josev2.WithExpectedClaims(expectedClaimsFunc),
+		validator.HS256,
+		"https://<issuer-url>/",
+		[]string{"<audience>"},
 	)
 	if err != nil {
-		log.Fatalf("failed to set up the josev2 validator: %v", err)
+		log.Fatalf("failed to set up the validator: %v", err)
 	}
 
 	// Set up the middleware.
-	middleware := jwtmiddleware.New(validator.ValidateToken)
+	middleware := jwtmiddleware.New(jwtValidator.ValidateToken)
 
 	http.ListenAndServe("0.0.0.0:3000", middleware.CheckJWT(handler))
 }
@@ -97,7 +87,7 @@ func main() {
 After running that code (`go run main.go`) you can then curl the http server from another terminal:
 
 ```
-$ curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJpc3MiOiJqb3NldjItZXhhbXBsZSJ9.e0lGglk9-m-n-t07eA5f7qgXGM-nD4ekwJkYVKprIUM" localhost:3000
+$ curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1leGFtcGxlIiwiYXVkIjoiZ28tand0LW1pZGRsZXdhcmUtZXhhbXBsZSJ9.xcnkyPYu_b3qm2yeYuEgr5R5M5t4pN9s04U1ya53-KM" localhost:3000
 ```
 
 That should give you the following response:
@@ -106,7 +96,8 @@ That should give you the following response:
 {
   "CustomClaims": null,
   "RegisteredClaims": {
-    "iss": "josev2-example",
+    "iss": "go-jwt-middleware-example",
+    "aud": "go-jwt-middleware-example",
     "sub": "1234567890",
     "iat": 1516239022
   }
