@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/square/go-jose.v2"
 
 	"github.com/auth0/go-jwt-middleware/internal/oidc"
@@ -27,29 +28,21 @@ func Test_JWKSProvider(t *testing.T) {
 	var requestCount int32
 
 	expectedJWKS, err := generateJWKS()
-	if err != nil {
-		t.Fatalf("did not expect an error but gone one: %v", err)
-	}
+	require.NoError(t, err)
 
 	expectedCustomJWKS, err := generateJWKS()
-	if err != nil {
-		t.Fatalf("did not expect an error but gone one: %v", err)
-	}
+	require.NoError(t, err)
 
-	server := setupTestServer(t, expectedJWKS, expectedCustomJWKS, &requestCount)
-	defer server.Close()
+	testServer := setupTestServer(t, expectedJWKS, expectedCustomJWKS, &requestCount)
+	defer testServer.Close()
 
-	serverURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("did not want an error, but got %s", err)
-	}
+	testServerURL, err := url.Parse(testServer.URL)
+	require.NoError(t, err)
 
 	t.Run("It correctly fetches the JWKS after calling the discovery endpoint", func(t *testing.T) {
-		provider := NewProvider(serverURL)
+		provider := NewProvider(testServerURL)
 		actualJWKS, err := provider.KeyFunc(context.Background())
-		if err != nil {
-			t.Fatalf("did not want an error, but got %s", err)
-		}
+		require.NoError(t, err)
 
 		if !cmp.Equal(expectedJWKS, actualJWKS) {
 			t.Fatalf("jwks did not match: %s", cmp.Diff(expectedJWKS, actualJWKS))
@@ -57,16 +50,12 @@ func Test_JWKSProvider(t *testing.T) {
 	})
 
 	t.Run("It skips the discovery if a custom JWKS_URI is provided", func(t *testing.T) {
-		customJWKSURI, err := url.Parse(server.URL + "/custom/jwks.json")
-		if err != nil {
-			t.Fatalf("did not want an error, but got %s", err)
-		}
+		customJWKSURI, err := url.Parse(testServer.URL + "/custom/jwks.json")
+		require.NoError(t, err)
 
-		provider := NewProvider(serverURL, WithCustomJWKSURI(customJWKSURI))
+		provider := NewProvider(testServerURL, WithCustomJWKSURI(customJWKSURI))
 		actualJWKS, err := provider.KeyFunc(context.Background())
-		if err != nil {
-			t.Fatalf("did not want an error, but got %s", err)
-		}
+		require.NoError(t, err)
 
 		if !cmp.Equal(expectedCustomJWKS, actualJWKS) {
 			t.Fatalf("jwks did not match: %s", cmp.Diff(expectedCustomJWKS, actualJWKS))
@@ -78,7 +67,7 @@ func Test_JWKSProvider(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 0)
 		defer cancel()
 
-		provider := NewProvider(serverURL)
+		provider := NewProvider(testServerURL)
 		_, err := provider.KeyFunc(ctx)
 		if !strings.Contains(err.Error(), "context deadline exceeded") {
 			t.Fatalf("was expecting context deadline to exceed but error is: %v", err)
@@ -87,30 +76,26 @@ func Test_JWKSProvider(t *testing.T) {
 
 	t.Run("It re-caches the JWKS if they have expired when using CachingProvider", func(t *testing.T) {
 		expiredCachedJWKS, err := generateJWKS()
-		if err != nil {
-			t.Fatalf("did not expect an error but gone one: %v", err)
-		}
+		require.NoError(t, err)
 
-		provider := NewCachingProvider(serverURL, 5*time.Minute)
-		provider.cache[serverURL.Hostname()] = cachedJWKS{
+		provider := NewCachingProvider(testServerURL, 5*time.Minute)
+		provider.cache[testServerURL.Hostname()] = cachedJWKS{
 			jwks:      expiredCachedJWKS,
 			expiresAt: time.Now().Add(-10 * time.Minute),
 		}
 
 		actualJWKS, err := provider.KeyFunc(context.Background())
-		if err != nil {
-			t.Fatalf("did not want an error, but got %s", err)
-		}
+		require.NoError(t, err)
 
 		if !cmp.Equal(expectedJWKS, actualJWKS) {
 			t.Fatalf("jwks did not match: %s", cmp.Diff(expectedJWKS, actualJWKS))
 		}
 
-		if !cmp.Equal(expectedJWKS, provider.cache[serverURL.Hostname()].jwks) {
-			t.Fatalf("cached jwks did not match: %s", cmp.Diff(expectedJWKS, provider.cache[serverURL.Hostname()].jwks))
+		if !cmp.Equal(expectedJWKS, provider.cache[testServerURL.Hostname()].jwks) {
+			t.Fatalf("cached jwks did not match: %s", cmp.Diff(expectedJWKS, provider.cache[testServerURL.Hostname()].jwks))
 		}
 
-		cacheExpiresAt := provider.cache[serverURL.Hostname()].expiresAt
+		cacheExpiresAt := provider.cache[testServerURL.Hostname()].expiresAt
 		if !time.Now().Before(cacheExpiresAt) {
 			t.Fatalf("wanted cache item expiration to be in the future but it was not: %s", cacheExpiresAt)
 		}
@@ -121,7 +106,7 @@ func Test_JWKSProvider(t *testing.T) {
 		func(t *testing.T) {
 			requestCount = 0
 
-			provider := NewCachingProvider(serverURL, 5*time.Minute)
+			provider := NewCachingProvider(testServerURL, 5*time.Minute)
 
 			var wg sync.WaitGroup
 			for i := 0; i < 50; i++ {
@@ -140,7 +125,7 @@ func Test_JWKSProvider(t *testing.T) {
 	)
 
 	t.Run("It sets the caching TTL to 1 if 0 is provided when using the CachingProvider", func(t *testing.T) {
-		provider := NewCachingProvider(serverURL, 0)
+		provider := NewCachingProvider(testServerURL, 0)
 		if provider.CacheTTL != time.Minute {
 			t.Fatalf("was expecting cache ttl to be 1 minute")
 		}
@@ -149,10 +134,8 @@ func Test_JWKSProvider(t *testing.T) {
 	t.Run(
 		"It fails to parse the jwks uri after fetching it from the discovery endpoint if malformed",
 		func(t *testing.T) {
-			malformedURL, err := url.Parse(server.URL+"/malformed")
-			if err != nil {
-				t.Fatalf("did not want an error, but got %s", err)
-			}
+			malformedURL, err := url.Parse(testServer.URL+"/malformed")
+			require.NoError(t, err)
 
 			provider := NewProvider(malformedURL)
 			_, err = provider.KeyFunc(context.Background())
@@ -217,22 +200,18 @@ func setupTestServer(
 		switch r.URL.String() {
 		case "/malformed/.well-known/openid-configuration":
 			wk := oidc.WellKnownEndpoints{JWKSURI: ":"}
-			if err := json.NewEncoder(w).Encode(wk); err != nil {
-				t.Fatalf("did not want an error, but got %s", err)
-			}
+			err := json.NewEncoder(w).Encode(wk)
+			require.NoError(t, err)
 		case "/.well-known/openid-configuration":
 			wk := oidc.WellKnownEndpoints{JWKSURI: server.URL + "/.well-known/jwks.json"}
-			if err := json.NewEncoder(w).Encode(wk); err != nil {
-				t.Fatalf("did not want an error, but got %s", err)
-			}
+			err := json.NewEncoder(w).Encode(wk)
+			require.NoError(t, err)
 		case "/.well-known/jwks.json":
-			if err := json.NewEncoder(w).Encode(expectedJWKS); err != nil {
-				t.Fatalf("did not want an error, but got %s", err)
-			}
+			err := json.NewEncoder(w).Encode(expectedJWKS)
+			require.NoError(t, err)
 		case "/custom/jwks.json":
-			if err := json.NewEncoder(w).Encode(expectedCustomJWKS); err != nil {
-				t.Fatalf("did not want an error, but got %s", err)
-			}
+			err := json.NewEncoder(w).Encode(expectedCustomJWKS)
+			require.NoError(t, err)
 		default:
 			t.Fatalf("was not expecting to handle the following url: %s", r.URL.String())
 		}

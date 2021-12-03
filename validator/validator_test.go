@@ -5,7 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testClaims struct {
@@ -25,11 +26,11 @@ func TestValidator_ValidateToken(t *testing.T) {
 	)
 
 	testCases := []struct {
-		name            string
-		token           string
-		keyFunc         func(context.Context) (interface{}, error)
-		algorithm       string
-		customClaims    CustomClaims
+		name           string
+		token          string
+		keyFunc        func(context.Context) (interface{}, error)
+		algorithm      string
+		customClaims   CustomClaims
 		expectedError  error
 		expectedClaims *ValidatedClaims
 	}{
@@ -132,26 +133,15 @@ func TestValidator_ValidateToken(t *testing.T) {
 				[]string{audience},
 				WithCustomClaims(testCase.customClaims),
 			)
-			if err != nil {
-				t.Fatalf("expected not to err but got: %v", err)
-			}
+			require.NoError(t, err)
 
-			actualContext, err := validator.ValidateToken(context.Background(), testCase.token)
+			tokenClaims, err := validator.ValidateToken(context.Background(), testCase.token)
 			if testCase.expectedError != nil {
-				if testCase.expectedError.Error() != err.Error() {
-					t.Fatalf("wanted err: %v, but got: %v", testCase.expectedError, err)
-				}
+				assert.EqualError(t, err, testCase.expectedError.Error())
+				assert.Nil(t, tokenClaims)
 			} else {
-				if err != nil {
-					t.Fatalf("expected not to err but got: %v", err)
-				}
-
-				if !cmp.Equal(testCase.expectedClaims, actualContext.(*ValidatedClaims)) {
-					t.Fatalf(
-						"user context did not match: %s",
-						cmp.Diff(testCase.expectedClaims, actualContext.(*ValidatedClaims)),
-					)
-				}
+				require.NoError(t, err)
+				assert.Exactly(t, testCase.expectedClaims, tokenClaims)
 			}
 		})
 	}
@@ -170,29 +160,21 @@ func TestNewValidator(t *testing.T) {
 
 	t.Run("it throws an error when the keyFunc is nil", func(t *testing.T) {
 		_, err := New(nil, algorithm, issuer, []string{audience})
-		if "keyFunc is required but was nil" != err.Error() {
-			t.Fatalf("wanted err: %q, but got: %v", "keyFunc is required but was nil", err)
-		}
+		assert.EqualError(t, err, "keyFunc is required but was nil")
 	})
 
 	t.Run("it throws an error when the signature algorithm is empty", func(t *testing.T) {
 		_, err := New(keyFunc, "", issuer, []string{audience})
-		if "signature algorithm is required but was empty" != err.Error() {
-			t.Fatalf("wanted err: %q, but got: %v", "signature algorithm is required but was empty", err)
-		}
+		assert.EqualError(t, err, "signature algorithm is required but was empty")
 	})
 
 	t.Run("it throws an error when the issuerURL is empty", func(t *testing.T) {
 		_, err := New(keyFunc, algorithm, "", []string{audience})
-		if "issuer url is required but was empty" != err.Error() {
-			t.Fatalf("wanted err: %q, but got: %v", "issuer url is required but was empty", err)
-		}
+		assert.EqualError(t, err, "issuer url is required but was empty")
 	})
 
 	t.Run("it throws an error when the audience is nil", func(t *testing.T) {
 		_, err := New(keyFunc, algorithm, issuer, nil)
-		if "audience is required but was nil" != err.Error() {
-			t.Fatalf("wanted err: %q, but got: %v", "audience is required but was nil", err)
-		}
+		assert.EqualError(t, err, "audience is required but was nil")
 	})
 }

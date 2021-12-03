@@ -54,17 +54,17 @@ type invalidError struct {
 }
 
 // Is allows the error to support equality to ErrJWTInvalid.
-func (e *invalidError) Is(target error) bool {
+func (e invalidError) Is(target error) bool {
 	return target == ErrJWTInvalid
 }
 
 // Error returns a string representation of the error.
-func (e *invalidError) Error() string {
+func (e invalidError) Error() string {
 	return fmt.Sprintf("%s: %s", ErrJWTInvalid, e.details)
 }
 
 // Unwrap allows the error to support equality to the
 // underlying error and not just ErrJWTInvalid.
-func (e *invalidError) Unwrap() error {
+func (e invalidError) Unwrap() error {
 	return e.details
 }

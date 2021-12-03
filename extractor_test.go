@@ -1,31 +1,15 @@
 package jwtmiddleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
 
-	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-func Test_ParameterTokenExtractor(t *testing.T) {
-	wantToken := "i am token"
-	param := "i-am-param"
-
-	u, err := url.Parse(fmt.Sprintf("http://localhost?%s=%s", param, wantToken))
-	mustErrorMsg(t, "", err)
-	r := &http.Request{URL: u}
-
-	ex := ParameterTokenExtractor(param)
-
-	gotToken, err := ex(r)
-	mustErrorMsg(t, "", err)
-
-	if wantToken != gotToken {
-		t.Fatalf("wanted token: %q, got: %q", wantToken, gotToken)
-	}
-}
 
 func Test_AuthHeaderTokenExtractor(t *testing.T) {
 	testCases := []struct {
@@ -39,27 +23,53 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 			request: &http.Request{},
 		},
 		{
-			name:      "token in header",
-			request:   &http.Request{Header: http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", "i-am-token")}}},
-			wantToken: "i-am-token",
+			name: "token in header",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"Bearer i-am-a-token"},
+				},
+			},
+			wantToken: "i-am-a-token",
 		},
 		{
-			name:      "no bearer",
-			request:   &http.Request{Header: http.Header{"Authorization": []string{"i-am-token"}}},
+			name: "no bearer",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"i-am-a-token"},
+				},
+			},
 			wantError: "Authorization header format must be Bearer {token}",
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			gotToken, gotError := AuthHeaderTokenExtractor(testCase.request)
-			mustErrorMsg(t, testCase.wantError, gotError)
-
-			if testCase.wantToken != gotToken {
-				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
+			gotToken, err := AuthHeaderTokenExtractor(testCase.request)
+			if testCase.wantError != "" {
+				assert.EqualError(t, err, testCase.wantError)
+			} else {
+				require.NoError(t, err)
 			}
+
+			assert.Equal(t, testCase.wantToken, gotToken)
 		})
 	}
+}
+
+func Test_ParameterTokenExtractor(t *testing.T) {
+	wantToken := "i am a token"
+	param := "i-am-param"
+
+	testURL, err := url.Parse(fmt.Sprintf("http://localhost?%s=%s", param, wantToken))
+	require.NoError(t, err)
+
+	request := &http.Request{URL: testURL}
+	tokenExtractor := ParameterTokenExtractor(param)
+
+	gotToken, err := tokenExtractor(request)
+	require.NoError(t, err)
+
+	assert.Equal(t, wantToken, gotToken)
 }
 
 func Test_CookieTokenExtractor(t *testing.T) {
@@ -75,8 +85,8 @@ func Test_CookieTokenExtractor(t *testing.T) {
 		},
 		{
 			name:      "token in cookie",
-			cookie:    &http.Cookie{Name: "token", Value: "i-am-token"},
-			wantToken: "i-am-token",
+			cookie:    &http.Cookie{Name: "token", Value: "i-am-a-token"},
+			wantToken: "i-am-a-token",
 		},
 		{
 			name:   "empty cookie",
@@ -86,78 +96,64 @@ func Test_CookieTokenExtractor(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			req, _ := http.NewRequest("GET", "http://example.com", nil)
+			request, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+			require.NoError(t, err)
 
 			if testCase.cookie != nil {
-				req.AddCookie(testCase.cookie)
+				request.AddCookie(testCase.cookie)
 			}
 
-			gotToken, gotError := CookieTokenExtractor("token")(req)
-			mustErrorMsg(t, testCase.wantError, gotError)
-
-			if testCase.wantToken != gotToken {
-				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
+			gotToken, err := CookieTokenExtractor("token")(request)
+			if testCase.wantError != "" {
+				assert.EqualError(t, err, testCase.wantError)
+			} else {
+				require.NoError(t, err)
 			}
+
+			assert.Equal(t, testCase.wantToken, gotToken)
 		})
 	}
 }
 
 func Test_MultiTokenExtractor(t *testing.T) {
-	t.Run("uses first extractor that replies", func(t *testing.T) {
-		wantToken := "i am token"
+	noopExtractor := func(r *http.Request) (string, error) {
+		return "", nil
+	}
+	extractor := func(r *http.Request) (string, error) {
+		return "i am a token", nil
+	}
+	erringExtractor := func(r *http.Request) (string, error) {
+		return "", errors.New("extraction failure")
+	}
 
-		exNothing := func(r *http.Request) (string, error) {
-			return "", nil
-		}
-		exSomething := func(r *http.Request) (string, error) {
-			return wantToken, nil
-		}
-		exFail := func(r *http.Request) (string, error) {
-			return "", errors.New("should not have hit me")
-		}
+	t.Run("it uses the first extractor that replies", func(t *testing.T) {
+		wantToken := "i am a token"
 
-		ex := MultiTokenExtractor(exNothing, exSomething, exFail)
+		tokenExtractor := MultiTokenExtractor(noopExtractor, extractor, erringExtractor)
 
-		gotToken, err := ex(&http.Request{})
-		mustErrorMsg(t, "", err)
+		gotToken, err := tokenExtractor(&http.Request{})
+		require.NoError(t, err)
 
-		if wantToken != gotToken {
-			t.Fatalf("wanted token: %q, got: %q", wantToken, gotToken)
-		}
+		assert.Equal(t, wantToken, gotToken)
 	})
 
-	t.Run("stops when an extractor fails", func(t *testing.T) {
-		wantErr := "extraction fail"
+	t.Run("it stops when an extractor fails", func(t *testing.T) {
+		wantErr := "extraction failure"
 
-		exNothing := func(r *http.Request) (string, error) {
-			return "", nil
-		}
-		exFail := func(r *http.Request) (string, error) {
-			return "", errors.New(wantErr)
-		}
+		tokenExtractor := MultiTokenExtractor(noopExtractor, erringExtractor)
 
-		ex := MultiTokenExtractor(exNothing, exFail)
+		gotToken, err := tokenExtractor(&http.Request{})
 
-		gotToken, err := ex(&http.Request{})
-		mustErrorMsg(t, wantErr, err)
-
-		if gotToken != "" {
-			t.Fatalf("did not want a token but got: %q", gotToken)
-		}
+		assert.EqualError(t, err, wantErr)
+		assert.Empty(t, gotToken)
 	})
 
-	t.Run("defaults to empty", func(t *testing.T) {
-		exNothing := func(r *http.Request) (string, error) {
-			return "", nil
-		}
+	t.Run("it defaults to empty", func(t *testing.T) {
+		tokenExtractor := MultiTokenExtractor(noopExtractor, noopExtractor, noopExtractor)
 
-		ex := MultiTokenExtractor(exNothing, exNothing, exNothing)
+		gotToken, err := tokenExtractor(&http.Request{})
+		require.NoError(t, err)
 
-		gotToken, err := ex(&http.Request{})
-		mustErrorMsg(t, "", err)
-
-		if "" != gotToken {
-			t.Fatalf("wanted empty token but got: %q", gotToken)
-		}
+		assert.Empty(t, gotToken)
 	})
 }
