@@ -36,7 +36,7 @@ func main() {
 	// Set up the validator.
 	jwtValidator, err := validator.New(
 		provider.KeyFunc,
-		"RS256",
+		validator.RS256,
 		issuerURL.String(),
 		[]string{"<your api identifier>"},
 	)

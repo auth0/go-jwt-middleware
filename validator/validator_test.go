@@ -29,7 +29,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		name           string
 		token          string
 		keyFunc        func(context.Context) (interface{}, error)
-		algorithm      string
+		algorithm      SignatureAlgorithm
 		customClaims   CustomClaims
 		expectedError  error
 		expectedClaims *ValidatedClaims
@@ -72,7 +72,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     "RS256",
+			algorithm:     RS256,
 			expectedError: errors.New(`expected "RS256" signing algorithm but token specified "HS256"`),
 		},
 		{
@@ -123,7 +123,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			if testCase.algorithm == "" {
-				testCase.algorithm = "HS256"
+				testCase.algorithm = HS256
 			}
 
 			validator, err := New(
@@ -151,7 +151,7 @@ func TestNewValidator(t *testing.T) {
 	const (
 		issuer    = "https://go-jwt-middleware.eu.auth0.com/"
 		audience  = "https://go-jwt-middleware-api/"
-		algorithm = "HS256"
+		algorithm = HS256
 	)
 
 	var keyFunc = func(context.Context) (interface{}, error) {
@@ -165,7 +165,12 @@ func TestNewValidator(t *testing.T) {
 
 	t.Run("it throws an error when the signature algorithm is empty", func(t *testing.T) {
 		_, err := New(keyFunc, "", issuer, []string{audience})
-		assert.EqualError(t, err, "signature algorithm is required but was empty")
+		assert.EqualError(t, err, "unsupported signature algorithm")
+	})
+
+	t.Run("it throws an error when the signature algorithm is unsupported", func(t *testing.T) {
+		_, err := New(keyFunc, "none", issuer, []string{audience})
+		assert.EqualError(t, err, "unsupported signature algorithm")
 	})
 
 	t.Run("it throws an error when the issuerURL is empty", func(t *testing.T) {
