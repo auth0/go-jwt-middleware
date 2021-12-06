@@ -53,7 +53,7 @@ func main() {
 	// Set up the validator.
 	jwtValidator, err := validator.New(
 		keyFunc,
-		"HS256",
+		validator.HS256,
 		"go-jwt-middleware-example",
 		[]string{"audience-example"},
 		validator.WithCustomClaims(customClaims),
