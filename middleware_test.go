@@ -2,41 +2,40 @@ package jwtmiddleware
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/auth0/go-jwt-middleware/validator"
 )
 
 func Test_CheckJWT(t *testing.T) {
-	var (
-		validToken        = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.SdU_8KjnZsQChrVtQpYGxS48DxB4rTM9biq6D4haR70"
-		invalidToken      = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
-		validContextToken = &validator.ValidatedClaims{
-			RegisteredClaims: validator.RegisteredClaims{
-				Issuer: "testing",
-			},
-		}
+	const (
+		validToken   = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+		invalidToken = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
+		issuer       = "testIssuer"
+		audience     = "testAudience"
 	)
 
-	jwtValidator, err := validator.New(
-		func(_ context.Context) (interface{}, error) {
-			return []byte("secret"), nil
+	tokenClaims := &validator.ValidatedClaims{
+		RegisteredClaims: validator.RegisteredClaims{
+			Issuer:   issuer,
+			Audience: []string{audience},
 		},
-		"HS256",
-		"testing",
-		[]string{},
-	)
-	if err != nil {
-		t.Fatal(err)
 	}
+
+	keyFunc := func(context.Context) (interface{}, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(keyFunc, "HS256", issuer, []string{audience})
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name           string
@@ -49,43 +48,43 @@ func Test_CheckJWT(t *testing.T) {
 		wantBody       string
 	}{
 		{
-			name:           "happy path",
+			name:           "it can successfully validate a token",
 			validateToken:  jwtValidator.ValidateToken,
 			token:          validToken,
-			wantToken:      validContextToken,
+			wantToken:      tokenClaims,
 			wantStatusCode: http.StatusOK,
 			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
-			name:           "validate on options",
+			name:           "it can validate on options",
 			validateToken:  jwtValidator.ValidateToken,
 			method:         http.MethodOptions,
 			token:          validToken,
-			wantToken:      validContextToken,
+			wantToken:      tokenClaims,
 			wantStatusCode: http.StatusOK,
 			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
-			name:           "bad token format",
+			name:           "it fails to validate a token with a bad format",
 			token:          "bad",
 			wantStatusCode: http.StatusInternalServerError,
 			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
 		},
 		{
-			name:           "credentials not optional",
+			name:           "it fails to validate if token is missing and credentials are not optional",
 			token:          "",
 			wantStatusCode: http.StatusBadRequest,
 			wantBody:       `{"message":"JWT is missing."}`,
 		},
 		{
-			name:           "validate token errors",
+			name:           "it fails to validate an invalid token",
 			validateToken:  jwtValidator.ValidateToken,
 			token:          invalidToken,
 			wantStatusCode: http.StatusUnauthorized,
 			wantBody:       `{"message":"JWT is invalid."}`,
 		},
 		{
-			name: "validateOnOptions set to false",
+			name: "it skips validation on OPTIONS if validateOnOptions is set to false",
 			options: []Option{
 				WithValidateOnOptions(false),
 			},
@@ -95,7 +94,7 @@ func Test_CheckJWT(t *testing.T) {
 			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
-			name: "tokenExtractor errors",
+			name: "it fails validation if there are errors with the token extractor",
 			options: []Option{
 				WithTokenExtractor(func(r *http.Request) (string, error) {
 					return "", errors.New("token extractor error")
@@ -116,7 +115,8 @@ func Test_CheckJWT(t *testing.T) {
 			wantBody:       `{"message":"Authenticated."}`,
 		},
 		{
-			name: "credentialsOptional false",
+			name: "it fails validation if we do not receive any token from " +
+				"a custom extractor and credentialsOptional is false",
 			options: []Option{
 				WithCredentialsOptional(false),
 				WithTokenExtractor(func(r *http.Request) (string, error) {
@@ -136,240 +136,39 @@ func Test_CheckJWT(t *testing.T) {
 
 			middleware := New(testCase.validateToken, testCase.options...)
 
-			var actualContextToken interface{}
-			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				actualContextToken = r.Context().Value(ContextKey{})
+			var actualValidatedClaims interface{}
+			var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				actualValidatedClaims = r.Context().Value(ContextKey{})
 
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{"message":"Authenticated."}`))
 			})
 
-			testServer := httptest.NewServer(middleware.CheckJWT(testHandler))
+			testServer := httptest.NewServer(middleware.CheckJWT(handler))
 			defer testServer.Close()
 
 			request, err := http.NewRequest(testCase.method, testServer.URL, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			if testCase.token != "" {
 				request.Header.Add("Authorization", testCase.token)
 			}
 
 			response, err := testServer.Client().Do(request)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			body, err := ioutil.ReadAll(response.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			defer response.Body.Close()
 
-			if want, got := testCase.wantStatusCode, response.StatusCode; want != got {
-				t.Fatalf("want status code %d, got %d", want, got)
-			}
+			assert.Equal(t, testCase.wantStatusCode, response.StatusCode)
+			assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
+			assert.Equal(t, testCase.wantBody, string(body))
 
-			if want, got := "application/json", response.Header.Get("Content-Type"); want != got {
-				t.Fatalf("want Content-Type %s, got %s", want, got)
-			}
-
-			if want, got := testCase.wantBody, string(body); !cmp.Equal(want, got) {
-				t.Fatal(cmp.Diff(want, got))
-			}
-
-			if want, got := testCase.wantToken, actualContextToken; !cmp.Equal(want, got) {
+			if want, got := testCase.wantToken, actualValidatedClaims; !cmp.Equal(want, got) {
 				t.Fatal(cmp.Diff(want, got))
 			}
 		})
-	}
-}
-
-func Test_invalidError(t *testing.T) {
-	t.Run("Is", func(t *testing.T) {
-		e := invalidError{details: errors.New("error details")}
-
-		if !errors.Is(&e, ErrJWTInvalid) {
-			t.Fatal("expected invalidError to be ErrJWTInvalid via errors.Is, but it was not")
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		e := invalidError{details: errors.New("error details")}
-
-		mustErrorMsg(t, "jwt invalid: error details", &e)
-	})
-
-	t.Run("Unwrap", func(t *testing.T) {
-		expectedErr := errors.New("expected err")
-		e := invalidError{details: expectedErr}
-
-		// under the hood errors.Is is unwrapping the invalidError via
-		// Unwrap().
-		if !errors.Is(&e, expectedErr) {
-			t.Fatal("expected invalidError to be expectedErr via errors.Is, but it was not")
-		}
-	})
-}
-
-func Test_MultiTokenExtractor(t *testing.T) {
-	t.Run("uses first extractor that replies", func(t *testing.T) {
-		wantToken := "i am token"
-
-		exNothing := func(r *http.Request) (string, error) {
-			return "", nil
-		}
-		exSomething := func(r *http.Request) (string, error) {
-			return wantToken, nil
-		}
-		exFail := func(r *http.Request) (string, error) {
-			return "", errors.New("should not have hit me")
-		}
-
-		ex := MultiTokenExtractor(exNothing, exSomething, exFail)
-
-		gotToken, err := ex(&http.Request{})
-		mustErrorMsg(t, "", err)
-
-		if wantToken != gotToken {
-			t.Fatalf("wanted token: %q, got: %q", wantToken, gotToken)
-		}
-	})
-
-	t.Run("stops when an extractor fails", func(t *testing.T) {
-		wantErr := "extraction fail"
-
-		exNothing := func(r *http.Request) (string, error) {
-			return "", nil
-		}
-		exFail := func(r *http.Request) (string, error) {
-			return "", errors.New(wantErr)
-		}
-
-		ex := MultiTokenExtractor(exNothing, exFail)
-
-		gotToken, err := ex(&http.Request{})
-		mustErrorMsg(t, wantErr, err)
-
-		if gotToken != "" {
-			t.Fatalf("did not want a token but got: %q", gotToken)
-		}
-	})
-
-	t.Run("defaults to empty", func(t *testing.T) {
-		exNothing := func(r *http.Request) (string, error) {
-			return "", nil
-		}
-
-		ex := MultiTokenExtractor(exNothing, exNothing, exNothing)
-
-		gotToken, err := ex(&http.Request{})
-		mustErrorMsg(t, "", err)
-
-		if "" != gotToken {
-			t.Fatalf("wanted empty token but got: %q", gotToken)
-		}
-	})
-}
-
-func Test_ParameterTokenExtractor(t *testing.T) {
-	wantToken := "i am token"
-	param := "i-am-param"
-
-	u, err := url.Parse(fmt.Sprintf("http://localhost?%s=%s", param, wantToken))
-	mustErrorMsg(t, "", err)
-	r := &http.Request{URL: u}
-
-	ex := ParameterTokenExtractor(param)
-
-	gotToken, err := ex(r)
-	mustErrorMsg(t, "", err)
-
-	if wantToken != gotToken {
-		t.Fatalf("wanted token: %q, got: %q", wantToken, gotToken)
-	}
-}
-
-func Test_AuthHeaderTokenExtractor(t *testing.T) {
-	testCases := []struct {
-		name      string
-		request   *http.Request
-		wantToken string
-		wantError string
-	}{
-		{
-			name:    "empty / no header",
-			request: &http.Request{},
-		},
-		{
-			name:      "token in header",
-			request:   &http.Request{Header: http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", "i-am-token")}}},
-			wantToken: "i-am-token",
-		},
-		{
-			name:      "no bearer",
-			request:   &http.Request{Header: http.Header{"Authorization": []string{"i-am-token"}}},
-			wantError: "Authorization header format must be Bearer {token}",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			gotToken, gotError := AuthHeaderTokenExtractor(testCase.request)
-			mustErrorMsg(t, testCase.wantError, gotError)
-
-			if testCase.wantToken != gotToken {
-				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
-			}
-		})
-	}
-}
-
-func Test_CookieTokenExtractor(t *testing.T) {
-	testCases := []struct {
-		name      string
-		cookie    *http.Cookie
-		wantToken string
-		wantError string
-	}{
-		{
-			name:      "no cookie",
-			wantError: "http: named cookie not present",
-		},
-		{
-			name:      "token in cookie",
-			cookie:    &http.Cookie{Name: "token", Value: "i-am-token"},
-			wantToken: "i-am-token",
-		},
-		{
-			name:   "empty cookie",
-			cookie: &http.Cookie{Name: "token"},
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			req, _ := http.NewRequest("GET", "http://example.com", nil)
-
-			if testCase.cookie != nil {
-				req.AddCookie(testCase.cookie)
-			}
-
-			gotToken, gotError := CookieTokenExtractor("token")(req)
-			mustErrorMsg(t, testCase.wantError, gotError)
-
-			if testCase.wantToken != gotToken {
-				t.Fatalf("wanted token: %q, got: %q", testCase.wantToken, gotToken)
-			}
-		})
-	}
-}
-
-func mustErrorMsg(t testing.TB, want string, got error) {
-	if (want == "" && got != nil) ||
-		(want != "" && (got == nil || got.Error() != want)) {
-		t.Fatalf("want error: %s, got %v", want, got)
 	}
 }
