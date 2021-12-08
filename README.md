@@ -1,12 +1,12 @@
 # GO JWT Middleware
 
-[![GoDoc](https://pkg.go.dev/badge/github.com/auth0/go-jwt-middleware.svg)](https://pkg.go.dev/github.com/auth0/go-jwt-middleware)
-[![License](https://img.shields.io/github/license/auth0/go-jwt-middleware.svg)](https://github.com/auth0/go-jwt-middleware/blob/master/LICENSE)
-[![Release](https://img.shields.io/github/v/release/auth0/go-jwt-middleware)](https://github.com/auth0/go-jwt-middleware/releases/latest)
-[![Codecov](https://codecov.io/gh/auth0/go-jwt-middleware/branch/master/graph/badge.svg?token=fs2WrOXe9H)](https://codecov.io/gh/auth0/go-jwt-middleware)
-[![Tests](https://github.com/auth0/go-jwt-middleware/actions/workflows/test.yaml/badge.svg)](https://github.com/auth0/go-jwt-middleware/actions/workflows/test.yaml?query=branch%3Amaster)
-[![Stars](https://img.shields.io/github/stars/auth0/go-jwt-middleware.svg)](https://github.com/auth0/go-jwt-middleware/stargazers)
-[![Contributors](https://img.shields.io/github/contributors/auth0/go-jwt-middleware)](https://github.com/auth0/go-jwt-middleware/graphs/contributors)
+[![GoDoc](https://pkg.go.dev/badge/github.com/auth0/go-jwt-middleware.svg)](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v2)
+[![License](https://img.shields.io/github/license/auth0/go-jwt-middleware.svg?style=flat-square)](https://github.com/auth0/go-jwt-middleware/blob/master/LICENSE)
+[![Release](https://img.shields.io/github/v/release/auth0/go-jwt-middleware?include_prereleases&style=flat-square)](https://github.com/auth0/go-jwt-middleware/releases)
+[![Codecov](https://img.shields.io/codecov/c/github/auth0/go-jwt-middleware?style=flat-square&token=fs2WrOXe9H)](https://codecov.io/gh/auth0/go-jwt-middleware)
+[![Tests](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fauth0%2Fgo-jwt-middleware%2Fbadge%3Fref%3Dmaster&style=flat-square)](https://github.com/auth0/go-jwt-middleware/actions?query=branch%3Amaster)
+[![Stars](https://img.shields.io/github/stars/auth0/go-jwt-middleware.svg?style=flat-square)](https://github.com/auth0/go-jwt-middleware/stargazers)
+[![Contributors](https://img.shields.io/github/contributors/auth0/go-jwt-middleware?style=flat-square)](https://github.com/auth0/go-jwt-middleware/graphs/contributors)
 
 **WARNING**: This branch is a major _BETA_ release that includes breaking changes and thus not production ready - use at your 
 own risk. Please see [MIGRATION_GUIDE](MIGRATION_GUIDE.md) before upgrading. This release will require changes to your
