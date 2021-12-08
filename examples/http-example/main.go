@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/auth0/go-jwt-middleware"
-	"github.com/auth0/go-jwt-middleware/validator"
+	"github.com/auth0/go-jwt-middleware/v2"
+	"github.com/auth0/go-jwt-middleware/v2/validator"
 )
 
 // CustomClaimsExample contains custom data we want from the token.

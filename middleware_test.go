@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/auth0/go-jwt-middleware/validator"
+	"github.com/auth0/go-jwt-middleware/v2/validator"
 )
 
 func Test_CheckJWT(t *testing.T) {

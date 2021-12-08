@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/square/go-jose.v2"
 
-	"github.com/auth0/go-jwt-middleware/internal/oidc"
+	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
 )
 
 func Test_JWKSProvider(t *testing.T) {
