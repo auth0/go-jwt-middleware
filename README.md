@@ -8,6 +8,12 @@
 [![Stars](https://img.shields.io/github/stars/auth0/go-jwt-middleware.svg)](https://github.com/auth0/go-jwt-middleware/stargazers)
 [![Contributors](https://img.shields.io/github/contributors/auth0/go-jwt-middleware)](https://github.com/auth0/go-jwt-middleware/graphs/contributors)
 
+**WARNING**: This branch is a major _BETA_ release that includes breaking changes and thus not production ready - use at your 
+own risk. Please see [MIGRATION_GUIDE](MIGRATION_GUIDE.md) before upgrading. This release will require changes to your
+application.
+
+---
+
 Golang middleware to check and validate [JWTs](jwt.io) in the request and add the valid token contents to the request 
 context.
 
@@ -27,7 +33,7 @@ context.
 ## Installation
 
 ```shell
-go get github.com/auth0/go-jwt-middleware
+go get github.com/auth0/go-jwt-middleware@v2.0.0-beta
 ```
 
 [[table of contents]](#table-of-contents)
