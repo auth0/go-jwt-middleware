@@ -44,6 +44,8 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			gotToken, err := AuthHeaderTokenExtractor(testCase.request)
 			if testCase.wantError != "" {
 				assert.EqualError(t, err, testCase.wantError)
@@ -96,6 +98,8 @@ func Test_CookieTokenExtractor(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			request, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
 			require.NoError(t, err)
 

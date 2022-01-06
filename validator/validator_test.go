@@ -30,7 +30,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		token          string
 		keyFunc        func(context.Context) (interface{}, error)
 		algorithm      SignatureAlgorithm
-		customClaims   CustomClaims
+		customClaims   func() CustomClaims
 		expectedError  error
 		expectedClaims *ValidatedClaims
 	}{
@@ -40,6 +40,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
+			algorithm: HS256,
 			expectedClaims: &ValidatedClaims{
 				RegisteredClaims: RegisteredClaims{
 					Issuer:   issuer,
@@ -54,7 +55,10 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			customClaims: &testClaims{},
+			algorithm: HS256,
+			customClaims: func() CustomClaims {
+				return &testClaims{}
+			},
 			expectedClaims: &ValidatedClaims{
 				RegisteredClaims: RegisteredClaims{
 					Issuer:   issuer,
@@ -81,6 +85,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
+			algorithm:     HS256,
 			expectedError: errors.New("could not parse the token: square/go-jose: compact JWS format must have three parts"),
 		},
 		{
@@ -89,6 +94,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return nil, errors.New("key func error message")
 			},
+			algorithm:     HS256,
 			expectedError: errors.New("error getting the keys from the key func: key func error message"),
 		},
 		{
@@ -97,6 +103,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
+			algorithm:     HS256,
 			expectedError: errors.New("could not get token claims: square/go-jose: error in cryptographic primitive"),
 		},
 		{
@@ -105,6 +112,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
+			algorithm:     HS256,
 			expectedError: errors.New("expected claims not validated: square/go-jose/jwt: validation failed, invalid audience claim (aud)"),
 		},
 		{
@@ -113,8 +121,11 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			customClaims: &testClaims{
-				ReturnError: errors.New("custom claims error message"),
+			algorithm: HS256,
+			customClaims: func() CustomClaims {
+				return &testClaims{
+					ReturnError: errors.New("custom claims error message"),
+				}
 			},
 			expectedError: errors.New("custom claims not validated: custom claims error message"),
 		},
@@ -122,9 +133,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			if testCase.algorithm == "" {
-				testCase.algorithm = HS256
-			}
+			t.Parallel()
 
 			validator, err := New(
 				testCase.keyFunc,

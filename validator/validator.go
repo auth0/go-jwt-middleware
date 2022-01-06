@@ -31,7 +31,7 @@ type Validator struct {
 	keyFunc            func(context.Context) (interface{}, error) // Required.
 	signatureAlgorithm SignatureAlgorithm                         // Required.
 	expectedClaims     jwt.Expected                               // Internal.
-	customClaims       CustomClaims                               // Optional.
+	customClaims       func() CustomClaims                        // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
 }
 
@@ -114,7 +114,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 
 	claimDest := []interface{}{&jwt.Claims{}}
 	if v.customClaims != nil {
-		claimDest = append(claimDest, v.customClaims)
+		claimDest = append(claimDest, v.customClaims())
 	}
 
 	if err = token.Claims(key, claimDest...); err != nil {
@@ -122,8 +122,9 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	registeredClaims := *claimDest[0].(*jwt.Claims)
-	v.expectedClaims.Time = time.Now()
-	if err = registeredClaims.ValidateWithLeeway(v.expectedClaims, v.allowedClockSkew); err != nil {
+	expectedClaims := v.expectedClaims
+	expectedClaims.Time = time.Now()
+	if err = registeredClaims.ValidateWithLeeway(expectedClaims, v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 

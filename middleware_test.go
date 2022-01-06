@@ -51,6 +51,7 @@ func Test_CheckJWT(t *testing.T) {
 			name:           "it can successfully validate a token",
 			validateToken:  jwtValidator.ValidateToken,
 			token:          validToken,
+			method:         http.MethodGet,
 			wantToken:      tokenClaims,
 			wantStatusCode: http.StatusOK,
 			wantBody:       `{"message":"Authenticated."}`,
@@ -67,12 +68,14 @@ func Test_CheckJWT(t *testing.T) {
 		{
 			name:           "it fails to validate a token with a bad format",
 			token:          "bad",
+			method:         http.MethodGet,
 			wantStatusCode: http.StatusInternalServerError,
 			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
 		},
 		{
 			name:           "it fails to validate if token is missing and credentials are not optional",
 			token:          "",
+			method:         http.MethodGet,
 			wantStatusCode: http.StatusBadRequest,
 			wantBody:       `{"message":"JWT is missing."}`,
 		},
@@ -80,6 +83,7 @@ func Test_CheckJWT(t *testing.T) {
 			name:           "it fails to validate an invalid token",
 			validateToken:  jwtValidator.ValidateToken,
 			token:          invalidToken,
+			method:         http.MethodGet,
 			wantStatusCode: http.StatusUnauthorized,
 			wantBody:       `{"message":"JWT is invalid."}`,
 		},
@@ -100,6 +104,7 @@ func Test_CheckJWT(t *testing.T) {
 					return "", errors.New("token extractor error")
 				}),
 			},
+			method:         http.MethodGet,
 			wantStatusCode: http.StatusInternalServerError,
 			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
 		},
@@ -111,6 +116,7 @@ func Test_CheckJWT(t *testing.T) {
 					return "", nil
 				}),
 			},
+			method:         http.MethodGet,
 			wantStatusCode: http.StatusOK,
 			wantBody:       `{"message":"Authenticated."}`,
 		},
@@ -123,6 +129,7 @@ func Test_CheckJWT(t *testing.T) {
 					return "", nil
 				}),
 			},
+			method:         http.MethodGet,
 			wantStatusCode: http.StatusBadRequest,
 			wantBody:       `{"message":"JWT is missing."}`,
 		},
@@ -130,9 +137,7 @@ func Test_CheckJWT(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			if testCase.method == "" {
-				testCase.method = http.MethodGet
-			}
+			t.Parallel()
 
 			middleware := New(testCase.validateToken, testCase.options...)
 
