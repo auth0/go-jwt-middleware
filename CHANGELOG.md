@@ -1,6 +1,15 @@
 # Change Log
 
 
+<a name="v2.0.0-beta.1"></a>
+## [v2.0.0-beta.1](https://github.com/auth0/go-jwt-middleware/tree/v2.0.0-beta.1) (2022-01-06)
+
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.0.0-beta...v2.0.0-beta.1)
+
+### Changed
+
+* Improved how we pass CustomClaims to Validator for concurrent scenarios ([#134](https://github.com/auth0/go-jwt-middleware/pull/134))
+
 <a name="v2.0.0-beta"></a>
 ## [v2.0.0-beta](https://github.com/auth0/go-jwt-middleware/tree/v2.0.0-beta) (2021-12-08)
 
