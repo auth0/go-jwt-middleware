@@ -2,7 +2,7 @@
 
 .PHONY: test
 test: ## Run tests.
-	go test -cover -covermode=atomic -coverprofile=coverage.out ./...
+	go test -race -cover -covermode=atomic -coverprofile=coverage.out ./...
 
 .PHONY: lint
 lint: ## Run golangci-lint.

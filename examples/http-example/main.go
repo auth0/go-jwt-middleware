@@ -48,7 +48,9 @@ func main() {
 
 	// We want this struct to be filled in with
 	// our custom claims from the token.
-	customClaims := &CustomClaimsExample{}
+	customClaims := func() validator.CustomClaims {
+		return &CustomClaimsExample{}
+	}
 
 	// Set up the validator.
 	jwtValidator, err := validator.New(

@@ -21,8 +21,8 @@ func WithAllowedClockSkew(skew time.Duration) Option {
 // CustomClaims that will be unmarshalled into and on which
 // Validate is called on for custom validation. If this option
 // is not used the Validator will do nothing for custom claims.
-func WithCustomClaims(c CustomClaims) Option {
+func WithCustomClaims(f func() CustomClaims) Option {
 	return func(v *Validator) {
-		v.customClaims = c
+		v.customClaims = f
 	}
 }
