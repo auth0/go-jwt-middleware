@@ -1,6 +1,45 @@
 # Change Log
 
 
+<a name="v2.0.0"></a>
+## [v2.0.0](https://github.com/auth0/go-jwt-middleware/tree/v2.0.0) (2022-01-19)
+
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v1.0.1...v2.0.0)
+
+**BEFORE YOU UPGRADE**
+
+- This is a major release that includes breaking changes. Please see [MIGRATION_GUIDE](MIGRATION_GUIDE.md) before
+  upgrading. This release will require changes to your application.
+
+### Added
+
+* Use github.com/pkg/errors ([#98](https://github.com/auth0/go-jwt-middleware/issues/98))
+* Add a migration guide ([#99](https://github.com/auth0/go-jwt-middleware/issues/99))
+* Add cookie token extractor ([#93](https://github.com/auth0/go-jwt-middleware/issues/93), [#63](https://github.com/auth0/go-jwt-middleware/issues/63))
+* Add token validator using square/go-jose.v2 ([#84](https://github.com/auth0/go-jwt-middleware/issues/84), [#81](https://github.com/auth0/go-jwt-middleware/issues/81), [#79](https://github.com/auth0/go-jwt-middleware/issues/79), [#74](https://github.com/auth0/go-jwt-middleware/issues/74), [#53](https://github.com/auth0/go-jwt-middleware/issues/53))
+* Add allowed signing algorithms in validator ([#128](https://github.com/auth0/go-jwt-middleware/pull/128))
+* Add issuer and audience as required params in validator ([#119](https://github.com/auth0/go-jwt-middleware/pull/119))
+* Add support for jwks
+
+### Changed
+
+* Update docs ([#72](https://github.com/auth0/go-jwt-middleware/issues/72))
+* Reorganize imports across the project
+* Reorder fields to use less memory
+* Split jwtmiddleware into multiple files
+
+### Breaking
+
+* Simplify JWT library functionality into an interface ([#77](https://github.com/auth0/go-jwt-middleware/issues/77))
+* Rename Claims to RegisteredClaims in validator pkg
+* Refactor main middleware ([#90](https://github.com/auth0/go-jwt-middleware/issues/90), [#51](https://github.com/auth0/go-jwt-middleware/issues/51), [#51](https://github.com/auth0/go-jwt-middleware/issues/52))
+* Write back error messages on DefaultErrorHandler
+
+### Fixed
+
+* Fix code smells and code style
+
+
 <a name="v2.0.0-beta.1"></a>
 ## [v2.0.0-beta.1](https://github.com/auth0/go-jwt-middleware/tree/v2.0.0-beta.1) (2022-01-06)
 
