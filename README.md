@@ -33,7 +33,7 @@ context.
 ## Installation
 
 ```shell
-go get github.com/auth0/go-jwt-middleware/v2@v2.0.0-beta
+go get github.com/auth0/go-jwt-middleware/v2
 ```
 
 [[table of contents]](#table-of-contents)
