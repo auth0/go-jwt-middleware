@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ContextKey is the key used in the request
@@ -89,4 +91,51 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		r = r.Clone(context.WithValue(r.Context(), ContextKey{}, validToken))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// CheckJWTGin is the main JWTMiddleware function which performs the main logic with Gin support. It
+// is passed a http.Handler which will be called if the JWT passes validation.
+func (m *JWTMiddleware) CheckJWTGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		w, r := c.Writer, c.Request
+		// If we don't validate on OPTIONS and this is OPTIONS
+		// then continue onto next without validating.
+		if !m.validateOnOptions && r.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
+
+		token, err := m.tokenExtractor(r)
+		if err != nil {
+			// This is not ErrJWTMissing because an error here means that the
+			// tokenExtractor had an error and _not_ that the token was missing.
+			m.errorHandler(w, r, fmt.Errorf("error extracting token: %w", err))
+			return
+		}
+
+		if token == "" {
+			// If credentials are optional continue
+			// onto next without validating.
+			if m.credentialsOptional {
+				c.Next()
+				return
+			}
+
+			// Credentials were not optional so we error.
+			m.errorHandler(w, r, ErrJWTMissing)
+			return
+		}
+
+		// Validate the token using the token validator.
+		validToken, err := m.validateToken(r.Context(), token)
+		if err != nil {
+			m.errorHandler(w, r, &invalidError{details: err})
+			return
+		}
+
+		// No err means we have a valid token, so set
+		// it into the context and continue onto next.
+		r = r.Clone(context.WithValue(r.Context(), ContextKey{}, validToken))
+		c.Next()
+	}
 }

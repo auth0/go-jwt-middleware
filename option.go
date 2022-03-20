@@ -44,3 +44,30 @@ func WithTokenExtractor(e TokenExtractor) Option {
 		m.tokenExtractor = e
 	}
 }
+
+// Option is how options for the JWTMiddleware are set up.
+type GinOption func(*GinJWTMiddleware)
+
+func GinWithCredentialsOptional(value bool) GinOption {
+	return func(m *GinJWTMiddleware) {
+		m.credentialsOptional = value
+	}
+}
+
+func GinWithValidateOnOptions(value bool) GinOption {
+	return func(m *GinJWTMiddleware) {
+		m.validateOnOptions = value
+	}
+}
+
+func GinWithErrorHandler(h GinErrorHandler) GinOption {
+	return func(m *GinJWTMiddleware) {
+		m.errorHandler = h
+	}
+}
+
+func GinWithTokenExtractor(e TokenExtractor) GinOption {
+	return func(m *GinJWTMiddleware) {
+		m.tokenExtractor = e
+	}
+}
