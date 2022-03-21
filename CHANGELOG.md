@@ -1,5 +1,14 @@
 # Change Log
 
+<a name="v2.0.1"></a>
+## [v2.0.1](https://github.com/auth0/go-jwt-middleware/tree/v2.0.1) (2022-03-21)
+
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.0.0...v2.0.1)
+
+### Security
+
+* Update Crypto dependency ([#146](https://github.com/auth0/go-jwt-middleware/pull/146))
+
 
 <a name="v2.0.0"></a>
 ## [v2.0.0](https://github.com/auth0/go-jwt-middleware/tree/v2.0.0) (2022-01-19)
