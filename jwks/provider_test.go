@@ -62,6 +62,16 @@ func Test_JWKSProvider(t *testing.T) {
 		}
 	})
 
+	t.Run("It uses the specified custom client", func(t *testing.T) {
+		client := &http.Client{
+			Timeout: time.Hour, // unused value. We only need this to have a client different than the default
+		}
+		provider := NewProvider(testServerURL, WithCustomClient(client))
+		if !cmp.Equal(client, provider.Client) {
+			t.Fatalf("expected custom client %#v to be configured. Got: %#v", client, provider.Client)
+		}
+	})
+
 	t.Run("It tells the provider to cancel fetching the JWKS if request is cancelled", func(t *testing.T) {
 		ctx := context.Background()
 		ctx, cancel := context.WithTimeout(ctx, 0)
@@ -134,7 +144,7 @@ func Test_JWKSProvider(t *testing.T) {
 	t.Run(
 		"It fails to parse the jwks uri after fetching it from the discovery endpoint if malformed",
 		func(t *testing.T) {
-			malformedURL, err := url.Parse(testServer.URL+"/malformed")
+			malformedURL, err := url.Parse(testServer.URL + "/malformed")
 			require.NoError(t, err)
 
 			provider := NewProvider(malformedURL)

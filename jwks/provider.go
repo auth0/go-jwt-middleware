@@ -51,6 +51,13 @@ func WithCustomJWKSURI(jwksURI *url.URL) ProviderOption {
 	}
 }
 
+// WithCustomClient will set a custom *http.Client on the *Provider
+func WithCustomClient(c *http.Client) ProviderOption {
+	return func(p *Provider) {
+		p.Client = c
+	}
+}
+
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
