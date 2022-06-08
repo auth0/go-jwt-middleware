@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ContextKey is the key used in the request
@@ -11,12 +14,14 @@ import (
 // validated JWT will be stored.
 type ContextKey struct{}
 
+// JWTMiddleware is an HTTP middleware for authentication using JWT
 type JWTMiddleware struct {
 	validateToken       ValidateToken
 	errorHandler        ErrorHandler
 	tokenExtractor      TokenExtractor
 	credentialsOptional bool
 	validateOnOptions   bool
+	tracer              trace.Tracer
 }
 
 // ValidateToken takes in a string JWT and makes sure it is valid and
@@ -36,6 +41,7 @@ func New(validateToken ValidateToken, opts ...Option) *JWTMiddleware {
 		credentialsOptional: false,
 		tokenExtractor:      AuthHeaderTokenExtractor,
 		validateOnOptions:   true,
+		tracer:              otel.Tracer("auth0"),
 	}
 
 	for _, opt := range opts {
@@ -49,9 +55,15 @@ func New(validateToken ValidateToken, opts ...Option) *JWTMiddleware {
 // is passed a http.Handler which will be called if the JWT passes validation.
 func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := m.tracer.Start(r.Context(), "CheckJWT")
+		defer span.End()
+
 		// If we don't validate on OPTIONS and this is OPTIONS
 		// then continue onto next without validating.
 		if !m.validateOnOptions && r.Method == http.MethodOptions {
+			// Force-finish the span so it doesn't run in the following middleware
+			span.End()
+
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -68,6 +80,9 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 			// If credentials are optional continue
 			// onto next without validating.
 			if m.credentialsOptional {
+				// Force-finish the span so it doesn't run in the following middleware
+				span.End()
+
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -78,7 +93,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// Validate the token using the token validator.
-		validToken, err := m.validateToken(r.Context(), token)
+		validToken, err := m.validateToken(ctx, token)
 		if err != nil {
 			m.errorHandler(w, r, &invalidError{details: err})
 			return
@@ -87,6 +102,10 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		// No err means we have a valid token, so set
 		// it into the context and continue onto next.
 		r = r.Clone(context.WithValue(r.Context(), ContextKey{}, validToken))
+
+		// Force-finish the span so it doesn't run in the following middleware
+		span.End()
+
 		next.ServeHTTP(w, r)
 	})
 }

@@ -2,6 +2,8 @@ package validator
 
 import (
 	"time"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Option is how options for the Validator are set up.
@@ -24,5 +26,12 @@ func WithAllowedClockSkew(skew time.Duration) Option {
 func WithCustomClaims(f func() CustomClaims) Option {
 	return func(v *Validator) {
 		v.customClaims = f
+	}
+}
+
+// WithTracer sets a custom OpenTelemetry tracer
+func WithTracer(tracer trace.Tracer) Option {
+	return func(v *Validator) {
+		v.tracer = tracer
 	}
 }

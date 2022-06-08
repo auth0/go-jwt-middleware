@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
 
@@ -33,6 +35,7 @@ type Validator struct {
 	expectedClaims     jwt.Expected                               // Internal.
 	customClaims       func() CustomClaims                        // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
+	tracer             trace.Tracer                               //Optional.
 }
 
 // SignatureAlgorithm is a signature algorithm.
@@ -83,6 +86,7 @@ func New(
 			Issuer:   issuerURL,
 			Audience: audience,
 		},
+		tracer: otel.Tracer("auth0"),
 	}
 
 	for _, opt := range opts {
@@ -94,6 +98,9 @@ func New(
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
+	ctx, span := v.tracer.Start(ctx, "validator.validate_token")
+	defer span.End()
+
 	token, err := jwt.ParseSigned(tokenString)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)

@@ -1,5 +1,7 @@
 package jwtmiddleware
 
+import "go.opentelemetry.io/otel/trace"
+
 // Option is how options for the JWTMiddleware are set up.
 type Option func(*JWTMiddleware)
 
@@ -42,5 +44,14 @@ func WithErrorHandler(h ErrorHandler) Option {
 func WithTokenExtractor(e TokenExtractor) Option {
 	return func(m *JWTMiddleware) {
 		m.tokenExtractor = e
+	}
+}
+
+// WithTracer sets up a custom OpenTelemetry tracer
+//
+// Default value: `otel.Tracer("auth0")`
+func WithTracer(tracer trace.Tracer) Option {
+	return func(m *JWTMiddleware) {
+		m.tracer = tracer
 	}
 }

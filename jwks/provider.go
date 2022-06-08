@@ -9,6 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/square/go-jose.v2"
 
 	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
@@ -23,6 +26,7 @@ type Provider struct {
 	IssuerURL     *url.URL // Required.
 	CustomJWKSURI *url.URL // Optional.
 	Client        *http.Client
+	tracer        trace.Tracer
 }
 
 // ProviderOption is how options for the Provider are set up.
@@ -32,7 +36,10 @@ type ProviderOption func(*Provider)
 func NewProvider(issuerURL *url.URL, opts ...ProviderOption) *Provider {
 	p := &Provider{
 		IssuerURL: issuerURL,
-		Client:    &http.Client{},
+		Client: &http.Client{
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		},
+		tracer: otel.Tracer("auth0"),
 	}
 
 	for _, opt := range opts {
@@ -58,10 +65,20 @@ func WithCustomClient(c *http.Client) ProviderOption {
 	}
 }
 
+// WithTracer sets a custom OpenTelemetry tracer
+func WithTracer(tracer trace.Tracer) ProviderOption {
+	return func(p *Provider) {
+		p.tracer = tracer
+	}
+}
+
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
+	ctx, span := p.tracer.Start(ctx, "jwks.provider.key_func")
+	defer span.End()
+
 	jwksURI := p.CustomJWKSURI
 	if jwksURI == nil {
 		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.Client, *p.IssuerURL)
@@ -127,6 +144,9 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...Prov
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
+	ctx, span := c.tracer.Start(ctx, "jwks.caching_provider.key_func")
+	defer span.End()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
