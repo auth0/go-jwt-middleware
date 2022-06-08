@@ -11,6 +11,7 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/square/go-jose.v2"
 
@@ -76,35 +77,49 @@ func WithTracer(tracer trace.Tracer) ProviderOption {
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
-	ctx, span := p.tracer.Start(ctx, "jwks.provider.key_func")
+	ctx, span := p.tracer.Start(
+		ctx,
+		"jwks.provider.key_func",
+		trace.WithAttributes(
+			attribute.String("issuer_url", p.IssuerURL.String()),
+		))
 	defer span.End()
 
 	jwksURI := p.CustomJWKSURI
 	if jwksURI == nil {
 		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.Client, *p.IssuerURL)
 		if err != nil {
+			span.RecordError(err)
 			return nil, err
 		}
 
 		jwksURI, err = url.Parse(wkEndpoints.JWKSURI)
 		if err != nil {
+			span.RecordError(err)
 			return nil, fmt.Errorf("could not parse JWKS URI from well known endpoints: %w", err)
 		}
 	}
 
+	span.SetAttributes(
+		attribute.String("jwks_uri", jwksURI.String()),
+	)
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI.String(), nil)
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("could not build request to get JWKS: %w", err)
 	}
 
 	response, err := p.Client.Do(request)
 	if err != nil {
+		span.RecordError(err)
 		return nil, err
 	}
 	defer response.Body.Close()
 
 	var jwks jose.JSONWebKeySet
 	if err := json.NewDecoder(response.Body).Decode(&jwks); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("could not decode jwks: %w", err)
 	}
 
@@ -119,6 +134,7 @@ type CachingProvider struct {
 	CacheTTL time.Duration
 	mu       sync.Mutex
 	cache    map[string]cachedJWKS
+	tracer   trace.Tracer
 }
 
 type cachedJWKS struct {
@@ -137,6 +153,7 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...Prov
 		Provider: NewProvider(issuerURL, opts...),
 		CacheTTL: cacheTTL,
 		cache:    map[string]cachedJWKS{},
+		tracer:   otel.Tracer("auth0"),
 	}
 }
 
@@ -144,7 +161,13 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...Prov
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
-	ctx, span := c.tracer.Start(ctx, "jwks.caching_provider.key_func")
+	ctx, span := c.tracer.Start(
+		ctx,
+		"jwks.caching_provider.key_func",
+		trace.WithAttributes(
+			attribute.String("cache_ttl", c.CacheTTL.String()),
+		),
+	)
 	defer span.End()
 
 	c.mu.Lock()
@@ -153,20 +176,31 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	issuer := c.IssuerURL.Hostname()
 
 	if cached, ok := c.cache[issuer]; ok {
+		span.AddEvent("has_cache", trace.WithAttributes(
+			attribute.String("expires_at", cached.expiresAt.String()),
+		))
 		if !time.Now().After(cached.expiresAt) {
+			span.AddEvent("cache_hit")
 			return cached.jwks, nil
 		}
+		span.AddEvent("cache_expired")
 	}
+	span.AddEvent("cache_miss")
 
 	jwks, err := c.Provider.KeyFunc(ctx)
 	if err != nil {
+		span.RecordError(err)
 		return nil, err
 	}
 
+	expiresAt := time.Now().Add(c.CacheTTL)
 	c.cache[issuer] = cachedJWKS{
 		jwks:      jwks.(*jose.JSONWebKeySet),
-		expiresAt: time.Now().Add(c.CacheTTL),
+		expiresAt: expiresAt,
 	}
+	span.AddEvent("cache_saved", trace.WithAttributes(
+		attribute.String("expires_at", expiresAt.String()),
+	))
 
 	return jwks, nil
 }
