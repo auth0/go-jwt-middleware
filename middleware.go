@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -55,12 +56,22 @@ func New(validateToken ValidateToken, opts ...Option) *JWTMiddleware {
 // is passed a http.Handler which will be called if the JWT passes validation.
 func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, span := m.tracer.Start(r.Context(), "CheckJWT")
+		ctx, span := m.tracer.Start(
+			r.Context(),
+			"CheckJWT",
+			trace.WithAttributes(
+				attribute.Bool("validate_on_options", m.validateOnOptions),
+				attribute.Bool("credentials_optional", m.credentialsOptional),
+			),
+		)
 		defer span.End()
 
 		// If we don't validate on OPTIONS and this is OPTIONS
 		// then continue onto next without validating.
 		if !m.validateOnOptions && r.Method == http.MethodOptions {
+			span.AddEvent("skip", trace.WithAttributes(
+				attribute.String("reason", "Validation skipped on OPTIONS method"),
+			))
 			// Force-finish the span so it doesn't run in the following middleware
 			span.End()
 
@@ -72,14 +83,22 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		if err != nil {
 			// This is not ErrJWTMissing because an error here means that the
 			// tokenExtractor had an error and _not_ that the token was missing.
+			span.RecordError(err)
 			m.errorHandler(w, r, fmt.Errorf("error extracting token: %w", err))
 			return
 		}
+
+		span.SetAttributes(
+			attribute.Int("token_length", len(token)),
+		)
 
 		if token == "" {
 			// If credentials are optional continue
 			// onto next without validating.
 			if m.credentialsOptional {
+				span.AddEvent("skip", trace.WithAttributes(
+					attribute.String("reason", "Credentials optional"),
+				))
 				// Force-finish the span so it doesn't run in the following middleware
 				span.End()
 
@@ -88,6 +107,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 			}
 
 			// Credentials were not optional so we error.
+			span.RecordError(ErrJWTMissing)
 			m.errorHandler(w, r, ErrJWTMissing)
 			return
 		}
@@ -95,6 +115,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		// Validate the token using the token validator.
 		validToken, err := m.validateToken(ctx, token)
 		if err != nil {
+			span.RecordError(err)
 			m.errorHandler(w, r, &invalidError{details: err})
 			return
 		}
