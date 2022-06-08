@@ -7,6 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
@@ -98,15 +99,29 @@ func New(
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
-	ctx, span := v.tracer.Start(ctx, "validator.validate_token")
+	ctx, span := v.tracer.Start(
+		ctx,
+		"validator.validate_token",
+		trace.WithAttributes(
+			attribute.String("issuer", v.expectedClaims.Issuer),
+			attribute.StringSlice("audience", v.expectedClaims.Audience),
+			attribute.String("signature_algorithm", string(v.signatureAlgorithm)),
+			attribute.Int("allowed_clock_skew", int(v.allowedClockSkew)),
+		),
+	)
 	defer span.End()
 
 	token, err := jwt.ParseSigned(tokenString)
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
 
 	if string(v.signatureAlgorithm) != token.Headers[0].Algorithm {
+		span.RecordError(errors.New("signature and token algorithms mismatch"), trace.WithAttributes(
+			attribute.String("signature_algorithm", string(v.signatureAlgorithm)),
+			attribute.String("token_algorithm", token.Headers[0].Algorithm),
+		))
 		return nil, fmt.Errorf(
 			"expected %q signing algorithm but token specified %q",
 			v.signatureAlgorithm,
@@ -116,6 +131,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 
 	key, err := v.keyFunc(ctx)
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
 	}
 
@@ -125,6 +141,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	if err = token.Claims(key, claimDest...); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("could not get token claims: %w", err)
 	}
 
@@ -132,6 +149,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	expectedClaims := v.expectedClaims
 	expectedClaims.Time = time.Now()
 	if err = registeredClaims.ValidateWithLeeway(expectedClaims, v.allowedClockSkew); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 
@@ -156,9 +174,20 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		validatedClaims.RegisteredClaims.IssuedAt = registeredClaims.IssuedAt.Time().Unix()
 	}
 
+	span.AddEvent("validated_claims", trace.WithAttributes(
+		attribute.String("issuer", validatedClaims.RegisteredClaims.Issuer),
+		attribute.String("subject", validatedClaims.RegisteredClaims.Subject),
+		attribute.StringSlice("audience", validatedClaims.RegisteredClaims.Audience),
+		attribute.String("id", validatedClaims.RegisteredClaims.ID),
+		attribute.Int64("expiry", validatedClaims.RegisteredClaims.Expiry),
+		attribute.Int64("not_before", validatedClaims.RegisteredClaims.NotBefore),
+		attribute.Int64("issued_at", validatedClaims.RegisteredClaims.IssuedAt),
+	))
+
 	if v.customClaims != nil {
 		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
 		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
+			span.RecordError(err)
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}
 	}
