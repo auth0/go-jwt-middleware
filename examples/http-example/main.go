@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -24,8 +25,11 @@ type CustomClaimsExample struct {
 	ShouldReject bool   `json:"shouldReject,omitempty"`
 }
 
-// Validate does nothing for this example.
+// Validate errors out if `ShouldReject` is true.
 func (c *CustomClaimsExample) Validate(ctx context.Context) error {
+	if c.ShouldReject {
+		return errors.New("should reject was set to true")
+	}
 	return nil
 }
 
