@@ -46,7 +46,7 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(customClaims.Username) == 0 {
-		http.Error(w, "user name in JWT claims was empty", http.StatusBadRequest)
+		http.Error(w, "username in JWT claims was empty", http.StatusBadRequest)
 	}
 
 	payload, err := json.Marshal(claims)
