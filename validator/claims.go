@@ -29,4 +29,5 @@ type RegisteredClaims struct {
 // is where custom validation logic can be defined.
 type CustomClaims interface {
 	Validate(context.Context) error
+	AddScopeToContext(ctx *context.Context) error
 }

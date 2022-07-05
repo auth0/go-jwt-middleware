@@ -153,6 +153,8 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
 		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
+		} else if err = validatedClaims.CustomClaims.AddScopeToContext(&ctx); err != nil {
+			return nil, fmt.Errorf("could not add scope to context: %w", err)
 		}
 	}
 
