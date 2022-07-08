@@ -2,11 +2,11 @@ name: test
 on:
   push:
     branches:
-      - 'master'
+      - "master"
   pull_request:
     type: [created, synchronize, reopened]
     branches:
-      - '*'
+      - "*"
 jobs:
   test:
     strategy:
@@ -23,7 +23,7 @@ jobs:
       - name: test
         run: make test
       - name: upload coverage to codecov
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v3
         with:
           file: coverage.out
           fail_ci_if_error: true
