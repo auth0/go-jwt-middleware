@@ -150,7 +150,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	if v.customClaims != nil {
-		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
+		validatedClaims.CustomClaims, _ = claimDest[1].(CustomClaims)
 		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}

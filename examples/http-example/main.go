@@ -28,7 +28,7 @@ func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 }
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+	claims, _ := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
 
 	payload, err := json.Marshal(claims)
 	if err != nil {
