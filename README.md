@@ -50,8 +50,12 @@ import (
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims, _ := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-
+	claims, ok := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+	if !ok {
+		http.Error(w, "failed to get validated claims", http.StatusInternalServerError)
+		return
+	}
+	
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
