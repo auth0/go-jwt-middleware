@@ -113,7 +113,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	claimDest := []interface{}{&jwt.Claims{}}
-	if v.customClaims != nil {
+	if v.customClaims != nil && v.customClaims() != nil {
 		claimDest = append(claimDest, v.customClaims())
 	}
 
@@ -150,7 +150,8 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	if v.customClaims != nil {
-		validatedClaims.CustomClaims, _ = claimDest[1].(CustomClaims)
+		// The second argument is not receive because it is guaranteed in L.116.
+		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
 		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}
