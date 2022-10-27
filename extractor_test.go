@@ -84,16 +84,18 @@ func Test_CookieTokenExtractor(t *testing.T) {
 	}{
 		{
 			name:      "no cookie",
-			wantError: "http: named cookie not present",
+			cookie:    nil,
+			wantToken: "",
 		},
 		{
-			name:      "token in cookie",
+			name:      "cookie has a token",
 			cookie:    &http.Cookie{Name: "token", Value: "i-am-a-token"},
 			wantToken: "i-am-a-token",
 		},
 		{
-			name:   "empty cookie",
-			cookie: &http.Cookie{Name: "token"},
+			name:      "cookie has no token",
+			cookie:    &http.Cookie{Name: "token"},
+			wantToken: "",
 		},
 	}
 
