@@ -1,53 +1,42 @@
-## Description
+<!--
+❗ For general support or usage questions, use the Auth0 Community forums or raise a support ticket.
 
-<!--- 
-Describe the purpose of this PR along with any background information and the impacts of the proposed change. 
-For the benefit of the community, please do not assume prior context.
-
-Provide details that support your chosen implementation, including: 
-- breaking changes
-- alternatives considered
-- changes to the API
-- demos (screenshots, videos) if you find that useful
-- etc.
+By submitting a pull request to this repository, you agree to the terms within the Auth0 Code of Conduct: https://github.com/auth0/open-source-template/blob/master/CODE-OF-CONDUCT.md.
 -->
 
+### 🔧 Changes
 
-## References
+<!--
+Describe both what is changing and why this is important. Include:
 
-<!--- 
-Include any links supporting this change such as a:
+- Types and methods added, deleted, deprecated, or changed
+- A summary of usage if this is a new feature or a change to a public API
+-->
 
-- GitHub Issue/PR number addressed or fixed
+### 📚 References
+
+<!--
+Add relevant links supporting this change, such as:
+
+- GitHub issue/PR number addressed or fixed
 - Auth0 Community post
-- StackOverflow post
-- Support forum thread
-- Related pull requests/issues from other repos
+- StackOverflow answer
+- Related pull requests/issues from other repositories
 
 If there are no references, simply delete this section.
 -->
 
+### 🔬 Testing
 
-## Testing
-
-<!--- 
-Describe how this can be tested by reviewers. Be specific about anything not tested and reasons why. 
-If this library has unit and/or integration testing, tests should be added for new functionality and 
-existing tests should complete without errors.
+<!--
+Describe how this can be tested by reviewers. Be specific about anything not tested and why. Include any manual steps for testing end-to-end, or for testing functionality not covered by unit tests.
 -->
 
-- [ ] This change adds test coverage for new/changed/fixed functionality
+### 📝 Checklist
 
+- [ ] All new/changed/fixed functionality is covered by tests (or N/A)
+- [ ] I have added documentation for all new/changed functionality (or N/A)
 
-## Checklist
-
-<!---
-Tick with "x" the boxes that apply. You can also fill these out after creating the PR.
+<!--
+❗ All the above items are required. Pull requests with an incomplete or missing checklist will be closed.
 -->
-
-- [x] I have read and agreed to the terms within the [Auth0 Code of Conduct](https://github.com/auth0/open-source-template/blob/master/CODE-OF-CONDUCT.md).
-- [x] I have read the [Auth0 General Contribution Guidelines](https://github.com/auth0/open-source-template/blob/master/GENERAL-CONTRIBUTING.md).
-- [ ] I have reviewed my own code beforehand.
-- [ ] I have added documentation for new/changed functionality in this PR.
-- [ ] All active GitHub checks for tests, formatting, and security are passing.
-- [ ] The correct base branch is being used, if not `master`.

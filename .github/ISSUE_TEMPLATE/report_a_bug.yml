@@ -1,0 +1,74 @@
+name: 🐛 Report a bug
+description: Have you found a bug or issue? Create a bug report for this SDK
+labels: [ "bug" ]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+  - type: markdown
+    attributes:
+      value: |
+        **Please do not report security vulnerabilities here**. The [Responsible Disclosure Program](https://auth0.com/responsible-disclosure-policy) details the procedure for disclosing security issues.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have looked into the [README](https://github.com/auth0/go-jwt-middleware#readme) and have not found a suitable solution or answer.
+          required: true
+        - label: I have looked into the [documentation](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v2) and have not found a suitable solution or answer.
+          required: true
+        - label: I have searched the [issues](https://github.com/auth0/go-jwt-middleware/issues) and have not found a suitable solution or answer.
+          required: true
+        - label: I have upgraded to the [latest version](https://github.com/auth0/go-jwt-middleware/releases/latest) of this SDK and the issue still persists.
+          required: true
+        - label: I have searched the [Auth0 Community](https://community.auth0.com/c/sdks/5) forums and have not found a suitable solution or answer.
+          required: true
+        - label: I agree to the terms within the [Auth0 Code of Conduct](https://github.com/auth0/open-source-template/blob/master/CODE-OF-CONDUCT.md).
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Provide a clear and concise description of the issue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expectation
+    attributes:
+      label: Expectation
+      description: Tell us about the behavior you expected to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Detail the steps taken to reproduce this error and, ideally, share a repo of a minimal reproducible example. State whether this issue can be reproduced consistently or if it is intermittent.
+      placeholder: |
+        1. Given...
+        2. When...
+        3. Then...
+    validations:
+      required: true
+
+  - type: input
+    id: environment-sdk-version
+    attributes:
+      label: Go JWT Middleware version
+    validations:
+      required: true
+
+  - type: input
+    id: environment-go-version
+    attributes:
+      label: Go version
+    validations:
+      required: true
