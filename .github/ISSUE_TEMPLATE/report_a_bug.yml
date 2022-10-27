@@ -33,15 +33,7 @@ body:
     id: description
     attributes:
       label: Description
-      description: Provide a clear and concise description of the issue.
-    validations:
-      required: true
-
-  - type: textarea
-    id: expectation
-    attributes:
-      label: Expectation
-      description: Tell us about the behavior you expected to see.
+      description: Provide a clear and concise description of the issue, including the behavior you expected to see.
     validations:
       required: true
 

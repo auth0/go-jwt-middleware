@@ -4,6 +4,15 @@
 By submitting a pull request to this repository, you agree to the terms within the Auth0 Code of Conduct: https://github.com/auth0/open-source-template/blob/master/CODE-OF-CONDUCT.md.
 -->
 
+### 📝 Checklist
+
+- [ ] All new/changed/fixed functionality is covered by tests (or N/A)
+- [ ] I have added documentation for all new/changed functionality (or N/A)
+
+<!--
+❗ All the above items are required. Pull requests with an incomplete or missing checklist will be closed.
+-->
+
 ### 🔧 Changes
 
 <!--
@@ -30,13 +39,4 @@ If there are no references, simply delete this section.
 
 <!--
 Describe how this can be tested by reviewers. Be specific about anything not tested and why. Include any manual steps for testing end-to-end, or for testing functionality not covered by unit tests.
--->
-
-### 📝 Checklist
-
-- [ ] All new/changed/fixed functionality is covered by tests (or N/A)
-- [ ] I have added documentation for all new/changed functionality (or N/A)
-
-<!--
-❗ All the above items are required. Pull requests with an incomplete or missing checklist will be closed.
 -->
