@@ -64,7 +64,7 @@ func Test_JWKSProvider(t *testing.T) {
 
 	t.Run("It uses the specified custom client", func(t *testing.T) {
 		client := &http.Client{
-			Timeout: time.Hour, // unused value. We only need this to have a client different than the default
+			Timeout: time.Hour, // Unused value. We only need this to have a client different from the default.
 		}
 		provider := NewProvider(testServerURL, WithCustomClient(client))
 		if !cmp.Equal(client, provider.Client) {

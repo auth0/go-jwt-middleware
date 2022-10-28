@@ -8,9 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
+
+	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
 )
 
 func buildJWTForTesting(t *testing.T, jwk *jose.JSONWebKey, issuer, subject string, audience []string) string {
