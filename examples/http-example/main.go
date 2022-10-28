@@ -12,6 +12,12 @@ import (
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 )
 
+var (
+	signingKey = []byte("secret")
+	issuer     = "go-jwt-middleware-example"
+	audience   = []string{"audience-example"}
+)
+
 // CustomClaimsExample contains custom data we want from the token.
 type CustomClaimsExample struct {
 	Name         string `json:"name"`
@@ -19,7 +25,7 @@ type CustomClaimsExample struct {
 	ShouldReject bool   `json:"shouldReject,omitempty"`
 }
 
-// Validate does nothing for this example.
+// Validate errors out if `ShouldReject` is true.
 func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 	if c.ShouldReject {
 		return errors.New("should reject was set to true")
@@ -34,6 +40,15 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	customClaims, ok := claims.CustomClaims.(*CustomClaimsExample)
+	if !ok {
+		http.Error(w, "could not cast custom claims to specific type", http.StatusInternalServerError)
+	}
+
+	if len(customClaims.Username) == 0 {
+		http.Error(w, "username in JWT claims was empty", http.StatusBadRequest)
+	}
+
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -44,10 +59,10 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	w.Write(payload)
 })
 
-func main() {
+func setupHandler() http.Handler {
 	keyFunc := func(ctx context.Context) (interface{}, error) {
 		// Our token must be signed using this data.
-		return []byte("secret"), nil
+		return signingKey, nil
 	}
 
 	// We want this struct to be filled in with
@@ -60,8 +75,8 @@ func main() {
 	jwtValidator, err := validator.New(
 		keyFunc,
 		validator.HS256,
-		"go-jwt-middleware-example",
-		[]string{"audience-example"},
+		issuer,
+		audience,
 		validator.WithCustomClaims(customClaims),
 		validator.WithAllowedClockSkew(30*time.Second),
 	)
@@ -69,10 +84,12 @@ func main() {
 		log.Fatalf("failed to set up the validator: %v", err)
 	}
 
-	// Set up the middleware.
-	middleware := jwtmiddleware.New(jwtValidator.ValidateToken)
+	return jwtmiddleware.New(jwtValidator.ValidateToken).CheckJWT(handler)
+}
 
-	http.ListenAndServe("0.0.0.0:3000", middleware.CheckJWT(handler))
+func main() {
+	mainHandler := setupHandler()
+	http.ListenAndServe("0.0.0.0:3000", mainHandler)
 
 	// Try it out with:
 	//
