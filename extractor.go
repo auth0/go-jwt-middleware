@@ -35,15 +35,11 @@ func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 func CookieTokenExtractor(cookieName string) TokenExtractor {
 	return func(r *http.Request) (string, error) {
 		cookie, err := r.Cookie(cookieName)
-		if err != nil {
-			return "", err
+		if err == http.ErrNoCookie {
+			return "", nil // No cookie, then no JWT, so no error.
 		}
 
-		if cookie != nil {
-			return cookie.Value, nil
-		}
-
-		return "", nil // No error, just no JWT.
+		return cookie.Value, nil
 	}
 }
 
