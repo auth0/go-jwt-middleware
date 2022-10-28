@@ -113,7 +113,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	}
 
 	claimDest := []interface{}{&jwt.Claims{}}
-	if v.customClaims != nil {
+	if v.customClaims != nil && v.customClaims() != nil {
 		claimDest = append(claimDest, v.customClaims())
 	}
 
@@ -149,7 +149,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		validatedClaims.RegisteredClaims.IssuedAt = registeredClaims.IssuedAt.Time().Unix()
 	}
 
-	if v.customClaims != nil {
+	if v.customClaims != nil && v.customClaims() != nil {
 		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
 		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
