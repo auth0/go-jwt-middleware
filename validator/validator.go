@@ -149,8 +149,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		validatedClaims.RegisteredClaims.IssuedAt = registeredClaims.IssuedAt.Time().Unix()
 	}
 
-	if v.customClaims != nil {
-		// The second argument is not receive because it is guaranteed in L.116.
+	if v.customClaims != nil && v.customClaims() != nil {
 		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
 		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)

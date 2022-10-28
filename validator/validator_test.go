@@ -129,6 +129,43 @@ func TestValidator_ValidateToken(t *testing.T) {
 			},
 			expectedError: errors.New("custom claims not validated: custom claims error message"),
 		},
+		{
+			name:  "it successfully validates a token even if customClaims() returns nil",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJzY29wZSI6InJlYWQ6bWVzc2FnZXMifQ.oqtUZQ-Q8un4CPduUBdGVq5gXpQVIFT_QSQjkOXFT5I",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			algorithm: HS256,
+			customClaims: func() CustomClaims {
+				return nil
+			},
+			expectedClaims: &ValidatedClaims{
+				RegisteredClaims: RegisteredClaims{
+					Issuer:   issuer,
+					Subject:  subject,
+					Audience: []string{audience},
+				},
+				CustomClaims: nil,
+			},
+		},
+		{
+			name:  "it successfully validates a token with exp, nbf and iat",
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJpYXQiOjE2NjY5Mzc2ODYsIm5iZiI6MTY2NjkzOTAwMCwiZXhwIjoxNjY3OTM3Njg2fQ.36iSr7w8Q6b9iJoJo-swmfgAfm23w8SlX92NHIHGX2s",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			algorithm: HS256,
+			expectedClaims: &ValidatedClaims{
+				RegisteredClaims: RegisteredClaims{
+					Issuer:    issuer,
+					Subject:   subject,
+					Audience:  []string{audience},
+					Expiry:    1667937686,
+					NotBefore: 1666939000,
+					IssuedAt:  1666937686,
+				},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
