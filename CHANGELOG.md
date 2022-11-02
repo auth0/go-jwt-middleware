@@ -1,5 +1,23 @@
 # Change Log
 
+<a name="v2.1.0"></a>
+## [v2.1.0](https://github.com/auth0/go-jwt-middleware/tree/v2.1.0) (2022-11-02)
+
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.0.1...v2.1.0)
+
+### Added
+
+* Allow setting a custom `http.Client` on the `jwks.Provider` ([#151](https://github.com/auth0/go-jwt-middleware/pull/146))
+* Add example tests ([#157](https://github.com/auth0/go-jwt-middleware/pull/157))
+* Add example for the `gin` web framework ([#175](https://github.com/auth0/go-jwt-middleware/pull/175))
+
+### Fixed
+
+* Fix `CookieTokenExtractor` to not throw error when no cookie present ([#172](https://github.com/auth0/go-jwt-middleware/pull/172))
+* Fix panic threat when using type-cast for `customClaims` in `validator` ([#165](https://github.com/auth0/go-jwt-middleware/pull/165))
+* Fix authentication error when setting multiple audiences on `validator` ([#176](https://github.com/auth0/go-jwt-middleware/pull/176)) 
+
+
 <a name="v2.0.1"></a>
 ## [v2.0.1](https://github.com/auth0/go-jwt-middleware/tree/v2.0.1) (2022-03-21)
 
