@@ -99,62 +99,114 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
 
-	if string(v.signatureAlgorithm) != token.Headers[0].Algorithm {
-		return nil, fmt.Errorf(
-			"expected %q signing algorithm but token specified %q",
-			v.signatureAlgorithm,
-			token.Headers[0].Algorithm,
-		)
+	if err = validateSigningMethod(string(v.signatureAlgorithm), token.Headers[0].Algorithm); err != nil {
+		return nil, fmt.Errorf("signing method is invalid: %w", err)
 	}
 
-	key, err := v.keyFunc(ctx)
+	registeredClaims, customClaims, err := v.deserializeClaims(ctx, token)
 	if err != nil {
-		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
+		return nil, fmt.Errorf("failed to deserialize token claims: %w", err)
 	}
 
-	claimDest := []interface{}{&jwt.Claims{}}
-	if v.customClaims != nil && v.customClaims() != nil {
-		claimDest = append(claimDest, v.customClaims())
-	}
-
-	if err = token.Claims(key, claimDest...); err != nil {
-		return nil, fmt.Errorf("could not get token claims: %w", err)
-	}
-
-	registeredClaims := *claimDest[0].(*jwt.Claims)
-	expectedClaims := v.expectedClaims
-	expectedClaims.Time = time.Now()
-	if err = registeredClaims.ValidateWithLeeway(expectedClaims, v.allowedClockSkew); err != nil {
+	if err = validateClaimsWithLeeway(registeredClaims, v.expectedClaims, v.allowedClockSkew); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 
-	validatedClaims := &ValidatedClaims{
-		RegisteredClaims: RegisteredClaims{
-			Issuer:   registeredClaims.Issuer,
-			Subject:  registeredClaims.Subject,
-			Audience: registeredClaims.Audience,
-			ID:       registeredClaims.ID,
-		},
-	}
-
-	if registeredClaims.Expiry != nil {
-		validatedClaims.RegisteredClaims.Expiry = registeredClaims.Expiry.Time().Unix()
-	}
-
-	if registeredClaims.NotBefore != nil {
-		validatedClaims.RegisteredClaims.NotBefore = registeredClaims.NotBefore.Time().Unix()
-	}
-
-	if registeredClaims.IssuedAt != nil {
-		validatedClaims.RegisteredClaims.IssuedAt = registeredClaims.IssuedAt.Time().Unix()
-	}
-
-	if v.customClaims != nil && v.customClaims() != nil {
-		validatedClaims.CustomClaims = claimDest[1].(CustomClaims)
-		if err = validatedClaims.CustomClaims.Validate(ctx); err != nil {
+	if customClaims != nil {
+		if err = customClaims.Validate(ctx); err != nil {
 			return nil, fmt.Errorf("custom claims not validated: %w", err)
 		}
 	}
 
+	validatedClaims := &ValidatedClaims{
+		RegisteredClaims: RegisteredClaims{
+			Issuer:    registeredClaims.Issuer,
+			Subject:   registeredClaims.Subject,
+			Audience:  registeredClaims.Audience,
+			ID:        registeredClaims.ID,
+			Expiry:    numericDateToUnixTime(registeredClaims.Expiry),
+			NotBefore: numericDateToUnixTime(registeredClaims.NotBefore),
+			IssuedAt:  numericDateToUnixTime(registeredClaims.IssuedAt),
+		},
+		CustomClaims: customClaims,
+	}
+
 	return validatedClaims, nil
+}
+
+func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, leeway time.Duration) error {
+	expectedClaims := expected
+	expectedClaims.Time = time.Now()
+
+	if actualClaims.Issuer != expectedClaims.Issuer {
+		return jwt.ErrInvalidIssuer
+	}
+
+	foundAudience := false
+	for _, value := range expectedClaims.Audience {
+		if actualClaims.Audience.Contains(value) {
+			foundAudience = true
+			break
+		}
+	}
+	if !foundAudience {
+		return jwt.ErrInvalidAudience
+	}
+
+	if actualClaims.NotBefore != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.NotBefore.Time()) {
+		return jwt.ErrNotValidYet
+	}
+
+	if actualClaims.Expiry != nil && expectedClaims.Time.Add(-leeway).After(actualClaims.Expiry.Time()) {
+		return jwt.ErrExpired
+	}
+
+	if actualClaims.IssuedAt != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.IssuedAt.Time()) {
+		return jwt.ErrIssuedInTheFuture
+	}
+
+	return nil
+}
+
+func validateSigningMethod(validAlg, tokenAlg string) error {
+	if validAlg != tokenAlg {
+		return fmt.Errorf("expected %q signing algorithm but token specified %q", validAlg, tokenAlg)
+	}
+	return nil
+}
+
+func (v *Validator) customClaimsExist() bool {
+	return v.customClaims != nil && v.customClaims() != nil
+}
+
+func (v *Validator) deserializeClaims(ctx context.Context, token *jwt.JSONWebToken) (jwt.Claims, CustomClaims, error) {
+	key, err := v.keyFunc(ctx)
+	if err != nil {
+		return jwt.Claims{}, nil, fmt.Errorf("error getting the keys from the key func: %w", err)
+	}
+
+	claims := []interface{}{&jwt.Claims{}}
+	if v.customClaimsExist() {
+		claims = append(claims, v.customClaims())
+	}
+
+	if err = token.Claims(key, claims...); err != nil {
+		return jwt.Claims{}, nil, fmt.Errorf("could not get token claims: %w", err)
+	}
+
+	registeredClaims := *claims[0].(*jwt.Claims)
+
+	var customClaims CustomClaims
+	if len(claims) > 1 {
+		customClaims = claims[1].(CustomClaims)
+	}
+
+	return registeredClaims, customClaims, nil
+}
+
+func numericDateToUnixTime(date *jwt.NumericDate) int64 {
+	if date != nil {
+		return date.Time().Unix()
+	}
+	return 0
 }

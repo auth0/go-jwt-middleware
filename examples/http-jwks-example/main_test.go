@@ -73,12 +73,12 @@ func TestHandler(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			token := buildJWTForTesting(t, jwk, testServer.URL, test.subject, []string{})
+			token := buildJWTForTesting(t, jwk, testServer.URL, test.subject, []string{"my-audience"})
 			req.Header.Set("Authorization", "Bearer "+token)
 
 			rr := httptest.NewRecorder()
 
-			mainHandler := setupHandler(testServer.URL, []string{})
+			mainHandler := setupHandler(testServer.URL, []string{"my-audience"})
 			mainHandler.ServeHTTP(rr, req)
 
 			if want, got := test.wantStatusCode, rr.Code; want != got {
