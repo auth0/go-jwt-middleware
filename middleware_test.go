@@ -2,7 +2,7 @@ package jwtmiddleware
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -164,7 +164,7 @@ func Test_CheckJWT(t *testing.T) {
 			response, err := testServer.Client().Do(request)
 			require.NoError(t, err)
 
-			body, err := ioutil.ReadAll(response.Body)
+			body, err := io.ReadAll(response.Body)
 			require.NoError(t, err)
 			defer response.Body.Close()
 
