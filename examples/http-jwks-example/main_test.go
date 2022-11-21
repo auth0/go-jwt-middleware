@@ -10,46 +10,10 @@ import (
 
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
-
-	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
 )
 
-func buildJWTForTesting(t *testing.T, jwk *jose.JSONWebKey, issuer, subject string, audience []string) string {
-	t.Helper()
-
-	key := jose.SigningKey{
-		Algorithm: jose.SignatureAlgorithm(jwk.Algorithm),
-		Key:       jwk,
-	}
-	signer, err := jose.NewSigner(key, (&jose.SignerOptions{}).WithType("JWT"))
-	if err != nil {
-		t.Fatalf("could not build signer: %s", err.Error())
-	}
-
-	claims := jwt.Claims{
-		Issuer:   issuer,
-		Audience: audience,
-		Subject:  subject,
-	}
-
-	token, err := jwt.Signed(signer).
-		Claims(claims).
-		CompactSerialize()
-
-	if err != nil {
-		t.Fatalf("could not build token: %s", err.Error())
-	}
-
-	return token
-}
-
 func TestHandler(t *testing.T) {
-	jwk := generateJWK(t)
-
-	testServer := setupTestServer(t, jwk)
-	defer testServer.Close()
-
-	tests := []struct {
+	testCases := []struct {
 		name           string
 		subject        string
 		wantStatusCode int
@@ -66,22 +30,27 @@ func TestHandler(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
+	jwk := generateJWK(t)
+
+	testServer := setupTestServer(t, jwk)
+	defer testServer.Close()
+
+	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodGet, "", nil)
+			request, err := http.NewRequest(http.MethodGet, "", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			token := buildJWTForTesting(t, jwk, testServer.URL, test.subject, []string{"my-audience"})
-			req.Header.Set("Authorization", "Bearer "+token)
+			request.Header.Set("Authorization", "Bearer "+token)
 
-			rr := httptest.NewRecorder()
+			responseRecorder := httptest.NewRecorder()
 
 			mainHandler := setupHandler(testServer.URL, []string{"my-audience"})
-			mainHandler.ServeHTTP(rr, req)
+			mainHandler.ServeHTTP(responseRecorder, request)
 
-			if want, got := test.wantStatusCode, rr.Code; want != got {
+			if want, got := test.wantStatusCode, responseRecorder.Code; want != got {
 				t.Fatalf("wanted status code %d, but got status code %d", want, got)
 			}
 		})
@@ -104,25 +73,24 @@ func generateJWK(t *testing.T) *jose.JSONWebKey {
 	}
 }
 
-func setupTestServer(
-	t *testing.T,
-	jwk *jose.JSONWebKey,
-) (server *httptest.Server) {
+func setupTestServer(t *testing.T, jwk *jose.JSONWebKey) (server *httptest.Server) {
 	t.Helper()
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.String() {
 		case "/.well-known/openid-configuration":
-			wk := oidc.WellKnownEndpoints{JWKSURI: server.URL + "/.well-known/jwks.json"}
-			err := json.NewEncoder(w).Encode(wk)
-			if err != nil {
+			wk := struct {
+				JWKSURI string `json:"jwks_uri"`
+			}{
+				JWKSURI: server.URL + "/.well-known/jwks.json",
+			}
+			if err := json.NewEncoder(w).Encode(wk); err != nil {
 				t.Fatal(err)
 			}
 		case "/.well-known/jwks.json":
-			err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{
+			if err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{
 				Keys: []jose.JSONWebKey{jwk.Public()},
-			})
-			if err != nil {
+			}); err != nil {
 				t.Fatal(err)
 			}
 		default:
@@ -131,4 +99,31 @@ func setupTestServer(
 	})
 
 	return httptest.NewServer(handler)
+}
+
+func buildJWTForTesting(t *testing.T, jwk *jose.JSONWebKey, issuer, subject string, audience []string) string {
+	t.Helper()
+
+	key := jose.SigningKey{
+		Algorithm: jose.SignatureAlgorithm(jwk.Algorithm),
+		Key:       jwk,
+	}
+
+	signer, err := jose.NewSigner(key, (&jose.SignerOptions{}).WithType("JWT"))
+	if err != nil {
+		t.Fatalf("could not build signer: %s", err.Error())
+	}
+
+	claims := jwt.Claims{
+		Issuer:   issuer,
+		Audience: audience,
+		Subject:  subject,
+	}
+
+	token, err := jwt.Signed(signer).Claims(claims).CompactSerialize()
+	if err != nil {
+		t.Fatalf("could not build token: %s", err.Error())
+	}
+
+	return token
 }
