@@ -267,6 +267,11 @@ func TestNewValidator(t *testing.T) {
 
 	t.Run("it throws an error when the audience is nil", func(t *testing.T) {
 		_, err := New(keyFunc, algorithm, issuer, nil)
-		assert.EqualError(t, err, "audience is required but was nil")
+		assert.EqualError(t, err, "audience is required but was empty")
+	})
+
+	t.Run("it throws an error when the audience is empty", func(t *testing.T) {
+		_, err := New(keyFunc, algorithm, issuer, []string{})
+		assert.EqualError(t, err, "audience is required but was empty")
 	})
 }

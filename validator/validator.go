@@ -69,8 +69,8 @@ func New(
 	if issuerURL == "" {
 		return nil, errors.New("issuer url is required but was empty")
 	}
-	if audience == nil {
-		return nil, errors.New("audience is required but was nil")
+	if len(audience) == 0 {
+		return nil, errors.New("audience is required but was empty")
 	}
 	if _, ok := allowedSigningAlgorithms[signatureAlgorithm]; !ok {
 		return nil, errors.New("unsupported signature algorithm")
