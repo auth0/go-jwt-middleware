@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 )
 
 // ContextKey is the key used in the request
@@ -28,11 +27,6 @@ type JWTMiddlewares []*JWTMiddleware
 // Inside ValidateToken things like key and alg checking can happen.
 // In the default implementation we can add safe defaults for those.
 type ValidateToken func(context.Context, string) (interface{}, error)
-
-func IsDebug() bool {
-	_, exists := os.LookupEnv("DEBUG")
-	return exists
-}
 
 // New constructs a new JWTMiddleware instance with the supplied options.
 // It requires a ValidateToken function to be passed in, so it can
@@ -103,18 +97,9 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 // is passed a http.Handler which will be called if the JWT passes validation for one
 // of the JWTMiddleware configs in a slice.
 func (mm JWTMiddlewares) CheckJWTMulti(next http.Handler) http.Handler {
-	if IsDebug() {
-		fmt.Println("CheckJWTMulti")
-		fmt.Println(mm)
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		broken := false
 		for i := 0; i < len(mm); i++ {
 			m := mm[i]
-			if IsDebug() {
-				fmt.Println("\ncurrent conf:")
-				fmt.Println(m.validateToken)
-			}
 			isLast := true
 			if (i + 1) == len(mm) {
 				isLast = true
@@ -125,8 +110,7 @@ func (mm JWTMiddlewares) CheckJWTMulti(next http.Handler) http.Handler {
 			// then continue onto next without validating.
 			if !m.validateOnOptions && r.Method == http.MethodOptions {
 				next.ServeHTTP(w, r)
-				broken = true
-				break
+				return
 			}
 
 			token, err := m.tokenExtractor(r)
@@ -134,8 +118,7 @@ func (mm JWTMiddlewares) CheckJWTMulti(next http.Handler) http.Handler {
 				// This is not ErrJWTMissing because an error here means that the
 				// tokenExtractor had an error and _not_ that the token was missing.
 				m.errorHandler(w, r, fmt.Errorf("error extracting token: %w", err))
-				broken = true
-				break
+				return
 			}
 
 			if token == "" {
@@ -143,60 +126,32 @@ func (mm JWTMiddlewares) CheckJWTMulti(next http.Handler) http.Handler {
 				// onto next without validating.
 				if m.credentialsOptional {
 					next.ServeHTTP(w, r)
-					broken = true
-					break
+					return
 				}
 
 				if !isLast {
-					if IsDebug() {
-						fmt.Println("token empty, but not last m")
-					}
 					continue
-				} else {
-					if IsDebug() {
-						fmt.Println("token empty, is last m")
-					}
 				}
 				// Credentials were not optional so we error.
 				m.errorHandler(w, r, ErrJWTMissing)
-				broken = true
-				break
+				return
 			}
 
 			// Validate the token using the token validator.
 			validToken, err := m.validateToken(r.Context(), token)
 			if err != nil {
 				if !isLast {
-					if IsDebug() {
-						fmt.Println("\ntoken not valid, but not last m")
-					}
 					continue
-				} else {
-					if IsDebug() {
-						fmt.Println("\ntoken not valid, is last m")
-					}
 				}
 				m.errorHandler(w, r, &invalidError{details: err})
-				broken = true
-				break
+				return
 			}
 
 			// No err means we have a valid token, so set
 			// it into the context and continue onto next.
 			r = r.Clone(context.WithValue(r.Context(), ContextKey{}, validToken))
 			next.ServeHTTP(w, r)
-			broken = true
-			break
-		}
-		if broken {
-			if IsDebug() {
-				fmt.Println("break")
-			}
 			return
-		} else {
-			if IsDebug() {
-				fmt.Println("not break")
-			}
 		}
 	})
 }
