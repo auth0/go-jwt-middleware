@@ -1,10 +1,9 @@
 package jwtmiddleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-
-	"github.com/pkg/errors"
 )
 
 var (

@@ -2,10 +2,10 @@ package validator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
 
