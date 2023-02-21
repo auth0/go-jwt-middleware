@@ -4,9 +4,8 @@ on:
   pull_request_target: {}
   push:
     branches: [master]
-
-schedule:
-  - cron: '30 0 1,15 * *'
+  schedule:
+    - cron: '30 0 1,15 * *'
 
 jobs:
   govulncheck:
