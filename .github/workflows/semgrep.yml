@@ -18,7 +18,7 @@ jobs:
     # Skip any PR created by dependabot to avoid permission issues
     if: (github.actor != 'dependabot[bot]')
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@main
       - name: Run Semgrep to check for vulnerabilities
         run: semgrep ci
         env:
