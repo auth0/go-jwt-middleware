@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@main
       - name: Scan for Vulnerabilities in Code
-        uses: Templum/govulncheck-action@<version>
+        uses: Templum/govulncheck-action@main
         with:
           go-version: 1.18
           vulncheck-version: latest
