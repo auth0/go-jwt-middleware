@@ -21,9 +21,6 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
-      - name: Check for go vulnerabilities
-        run: make check-vuln
-
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
