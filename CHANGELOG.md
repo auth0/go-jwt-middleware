@@ -1,15 +1,5 @@
 # Change Log
 
-<a name="v2.2.0"></a>
-
-## [v2.1.0](https://github.com/auth0/go-jwt-middleware/tree/v2.2.0) (2023-02-20)
-
-[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.1.0...v2.2.0)
-
-### Removed
-
-* Remove the use of the deprecated `github.com/pkg/errors` in favor of [Go's](https://pkg.go.dev/errors) standard library ([#189](https://github.com/auth0/go-jwt-middleware/pull/189))
-
 <a name="v2.1.0"></a>
 ## [v2.1.0](https://github.com/auth0/go-jwt-middleware/tree/v2.1.0) (2022-11-02)
 
