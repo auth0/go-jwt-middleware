@@ -1,11 +1,11 @@
 module github.com/auth0/go-jwt-middleware/v2
 
-go 1.17
+go 1.19
 
 require (
 	github.com/google/go-cmp v0.5.9
-	github.com/stretchr/testify v1.8.1
-	gopkg.in/square/go-jose.v2 v2.6.0
+	github.com/stretchr/testify v1.8.2
+	gopkg.in/go-jose/go-jose.v2 v2.6.1
 )
 
 require (

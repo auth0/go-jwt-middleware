@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/square/go-jose.v2/jwt"
+	"gopkg.in/go-jose/go-jose.v2/jwt"
 )
 
 type testClaims struct {
@@ -89,7 +89,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("could not parse the token: square/go-jose: compact JWS format must have three parts"),
+			expectedError: errors.New("could not parse the token: go-jose/go-jose: compact JWS format must have three parts"),
 		},
 		{
 			name:  "it throws an error when it fails to fetch the keys from the key func",
@@ -107,7 +107,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("failed to deserialize token claims: could not get token claims: square/go-jose: error in cryptographic primitive"),
+			expectedError: errors.New("failed to deserialize token claims: could not get token claims: go-jose/go-jose: error in cryptographic primitive"),
 		},
 		{
 			name:  "it throws an error when it fails to validate the registered claims",
@@ -116,7 +116,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("expected claims not validated: square/go-jose/jwt: validation failed, invalid audience claim (aud)"),
+			expectedError: errors.New("expected claims not validated: go-jose/go-jose/jwt: validation failed, invalid audience claim (aud)"),
 		},
 		{
 			name:  "it throws an error when it fails to validate the custom claims",
