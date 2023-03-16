@@ -1,10 +1,9 @@
 package jwtmiddleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
-
-	"github.com/pkg/errors"
 )
 
 // TokenExtractor is a function that takes a request as input and returns
