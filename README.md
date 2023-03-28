@@ -14,9 +14,9 @@
 
 ## Documentation
 
-- [Godoc](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v2) - explore the go-jwt-middleware documentation
+- [Godoc](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v2) - explore the go-jwt-middleware documentation.
 - [Docs site](https://www.auth0.com/docs) — explore our docs site and learn more about Auth0.
-- [Quickstart](https://auth0.com/docs/quickstart/backend/golang/interactive) -
+- [Quickstart](https://auth0.com/docs/quickstart/backend/golang/interactive) - our guide for adding go-jwt-middleware to your app.
 
 ## Getting started
 

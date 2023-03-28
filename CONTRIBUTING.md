@@ -11,7 +11,7 @@ This project uses [golangci-lint](https://github.com/golangci/golangci-lint) to 
 
 ## Running the tests
 
-Test can be ran using `make test`. To run a specific test pass the `FILTER` var, e.g. `make test FILTER="Test_invalidError"`
+Tests can be ran using `make test`. To run a specific test pass the `FILTER` var, for example `make test FILTER="Test_invalidError"`.
 
 ## Running the examples
 
@@ -23,4 +23,4 @@ To run these examples:
 * Install dependencies using `go mod vendor`
 * Run the sample using `run main.go`
 
-Each folder also contains a `README.md` file that details any specifics on how to run the project.
+Each folder also contains a `README.md` file that details any specifics on how to run the example.
