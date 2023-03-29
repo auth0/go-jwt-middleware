@@ -1,4 +1,6 @@
-# GO JWT Middleware
+![Go JWT Middleware](https://cdn.auth0.com/website/sdks/banners/go-jwt-middleware.png)
+
+<div align="center">
 
 [![GoDoc](https://pkg.go.dev/badge/github.com/auth0/go-jwt-middleware.svg)](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/auth0/go-jwt-middleware/v2?style=flat-square)](https://goreportcard.com/report/github.com/auth0/go-jwt-middleware/v2)
@@ -6,36 +8,31 @@
 [![Release](https://img.shields.io/github/v/release/auth0/go-jwt-middleware?include_prereleases&style=flat-square)](https://github.com/auth0/go-jwt-middleware/releases)
 [![Codecov](https://img.shields.io/codecov/c/github/auth0/go-jwt-middleware?logo=codecov&style=flat-square&token=fs2WrOXe9H)](https://codecov.io/gh/auth0/go-jwt-middleware)
 [![Tests](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fauth0%2Fgo-jwt-middleware%2Fbadge%3Fref%3Dmaster&style=flat-square)](https://github.com/auth0/go-jwt-middleware/actions?query=branch%3Amaster)
-[![Stars](https://img.shields.io/github/stars/auth0/go-jwt-middleware.svg?style=flat-square)](https://github.com/auth0/go-jwt-middleware/stargazers)
-[![Contributors](https://img.shields.io/github/contributors/auth0/go-jwt-middleware?style=flat-square)](https://github.com/auth0/go-jwt-middleware/graphs/contributors)
 
----
+📚 [Documentation](#documentation) • 🚀 [Getting Started](#getting-started) • 💬 [Feedback](#feedback)
+</div>
 
-Golang middleware to check and validate [JWTs](jwt.io) in the request and add the valid token contents to the request 
-context.
+## Documentation
 
--------------------------------------
+- [Godoc](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v2) - explore the go-jwt-middleware documentation.
+- [Docs site](https://www.auth0.com/docs) — explore our docs site and learn more about Auth0.
+- [Quickstart](https://auth0.com/docs/quickstart/backend/golang/interactive) - our guide for adding go-jwt-middleware to your app.
 
-## Table of Contents
+## Getting started
 
-- [Installation](#installation)
-- [Usage](#usage)
-- [Migration Guide](#migration-guide)
-- [Issue Reporting](#issue-reporting)
-- [Author](#author)
-- [License](#license)
+### Requirements
 
--------------------------------------
+This library follows the [same support policy as Go](https://go.dev/doc/devel/release#policy). The last two major Go releases are actively supported and compatibility issues will be fixed. While you may find that older versions of Go may work, we will not actively test and fix compatibility issues with these versions.
 
-## Installation
+- Go 1.19+
+
+### Installation
 
 ```shell
 go get github.com/auth0/go-jwt-middleware/v2
 ```
 
-[[table of contents]](#table-of-contents)
-
-## Usage
+### Usage
 
 ```go
 package main
@@ -131,28 +128,34 @@ That should give you the following response:
 
 For more examples please check the [examples](./examples) folder.
 
-[[table of contents]](#table-of-contents)
+## Feedback
 
-## Migration Guide
+### Contributing
 
-If you are moving from v1 to v2 please check our [migration guide](MIGRATION_GUIDE.md).
+We appreciate feedback and contribution to this repo! Before you get started, please see the following:
 
-[[table of contents]](#table-of-contents)
+- [Contribution Guide](./CONTRIBUTING.md)
+- [Auth0's General Contribution Guidelines](https://github.com/auth0/open-source-template/blob/master/GENERAL-CONTRIBUTING.md)
+- [Auth0's Code of Conduct Guidelines](https://github.com/auth0/open-source-template/blob/master/CODE-OF-CONDUCT.md)
 
-## Issue Reporting
+### Raise an issue
 
-If you have found a bug or if you have a feature request, please report them at this repository issues section. Please do not report security vulnerabilities on the public GitHub issue tracker. The [Responsible Disclosure Program](https://auth0.com/whitehat) details the procedure for disclosing security issues.
+To provide feedback or report a bug, [please raise an issue on our issue tracker](https://github.com/auth0/go-jwt-middleware/issues).
 
-[[table of contents]](#table-of-contents)
+### Vulnerability Reporting
 
-## Author
+Please do not report security vulnerabilities on the public Github issue tracker. The [Responsible Disclosure Program](https://auth0.com/responsible-disclosure-policy) details the procedure for disclosing security issues.
 
-[Auth0](https://auth0.com/)
+---
 
-[[table of contents]](#table-of-contents)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="https://cdn.auth0.com/website/sdks/logos/auth0_light_mode.png" width="150">
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.auth0.com/website/sdks/logos/auth0_dark_mode.png" width="150">
+    <img alt="Auth0 Logo" src="https://cdn.auth0.com/website/sdks/logos/auth0_light_mode.png" width="150">
+  </picture>
+</p>
 
-## License
+<p align="center">Auth0 is an easy to implement, adaptable authentication and authorization platform.<br />To learn more checkout <a href="https://auth0.com/why-auth0">Why Auth0?</a></p>
 
-This project is licensed under the MIT license. See the [LICENSE](LICENSE) file for more info.
-
-[[table of contents]](#table-of-contents)
+<p align="center">This project is licensed under the MIT license. See the <a href="./LICENSE.md"> LICENSE</a> file for more info.</p>
