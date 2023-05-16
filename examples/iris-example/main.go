@@ -68,8 +68,8 @@ func main() {
 			)
 			return
 		}
-		log.Println(claims)
-		ctx.JSON(http.StatusOK)
+
+		ctx.JSON(claims)
 	})
 
 	log.Print("Server listening on http://localhost:3000")
