@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/google/go-cmp v0.5.9
-	github.com/stretchr/testify v1.8.3
+	github.com/stretchr/testify v1.8.4
 	gopkg.in/go-jose/go-jose.v2 v2.6.1
 )
 
