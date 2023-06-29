@@ -1,4 +1,4 @@
-# Gin example
+# Echo example
 
 This is an example of how to use the middleware with the [echo web framework](https://github.com/labstack/echo).
 
