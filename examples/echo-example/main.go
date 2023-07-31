@@ -1,11 +1,12 @@
 package main
 
 import (
+	"log"
+	"net/http"
+
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"github.com/labstack/echo/v4"
-	"log"
-	"net/http"
 )
 
 // Try it out with:
@@ -61,7 +62,7 @@ func main() {
 			return nil
 		}
 
-		if len(customClaims.Username) != 0 {
+		if len(customClaims.Username) == 0 {
 			ctx.JSON(
 				http.StatusBadRequest,
 				map[string]string{"message": "Username in JWT claims was empty."},
