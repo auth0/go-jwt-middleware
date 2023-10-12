@@ -12,7 +12,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@main
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
       - name: Scan for Vulnerabilities in Code
         uses: Templum/govulncheck-action@435a35e28c7e56076f6daf838b81c1aa76ee0c95 # pin@0.10.1
         with:
