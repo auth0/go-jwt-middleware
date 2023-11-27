@@ -100,7 +100,7 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 type CachingProvider struct {
 	*Provider
 	CacheTTL time.Duration
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	cache    map[string]cachedJWKS
 }
 
@@ -127,16 +127,24 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...Prov
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
 
 	issuer := c.IssuerURL.Hostname()
 
 	if cached, ok := c.cache[issuer]; ok {
 		if !time.Now().After(cached.expiresAt) {
+			c.mu.RUnlock()
 			return cached.jwks, nil
 		}
 	}
+
+	c.mu.RUnlock()
+	return c.refreshKey(ctx, issuer)
+}
+
+func (c *CachingProvider) refreshKey(ctx context.Context, issuer string) (interface{}, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	jwks, err := c.Provider.KeyFunc(ctx)
 	if err != nil {
