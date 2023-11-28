@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/semaphore"
 	"gopkg.in/go-jose/go-jose.v2"
 
 	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
@@ -97,11 +98,16 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 // CachingProvider handles getting JWKS from the specified IssuerURL
 // and caching them for CacheTTL time. It exposes KeyFunc which adheres
 // to the keyFunc signature that the Validator requires.
+// When the CacheTTL value has been reached, a JWKS refresh will be triggered
+// in the background and the existing cached JWKS will be returned until the
+// JWKS cache is updated, or if the request errors then it will be evicted from
+// the cache.
 type CachingProvider struct {
 	*Provider
 	CacheTTL time.Duration
 	mu       sync.RWMutex
 	cache    map[string]cachedJWKS
+	sem      semaphore.Weighted
 }
 
 type cachedJWKS struct {
@@ -120,6 +126,7 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...Prov
 		Provider: NewProvider(issuerURL, opts...),
 		CacheTTL: cacheTTL,
 		cache:    map[string]cachedJWKS{},
+		sem:      *semaphore.NewWeighted(1),
 	}
 }
 
@@ -132,10 +139,22 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	issuer := c.IssuerURL.Hostname()
 
 	if cached, ok := c.cache[issuer]; ok {
-		if !time.Now().After(cached.expiresAt) {
-			c.mu.RUnlock()
-			return cached.jwks, nil
+		if time.Now().After(cached.expiresAt) && c.sem.TryAcquire(1) {
+			go func() {
+				defer c.sem.Release(1)
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				_, err := c.refreshKey(refreshCtx, issuer)
+
+				if err != nil {
+					c.mu.Lock()
+					delete(c.cache, issuer)
+					c.mu.Unlock()
+				}
+			}()
 		}
+		c.mu.RUnlock()
+		return cached.jwks, nil
 	}
 
 	c.mu.RUnlock()
