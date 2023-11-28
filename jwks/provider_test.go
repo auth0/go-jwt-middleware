@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/go-jose/go-jose.v2"
 
@@ -84,7 +85,8 @@ func Test_JWKSProvider(t *testing.T) {
 		}
 	})
 
-	t.Run("It re-caches the JWKS if they have expired when using CachingProvider", func(t *testing.T) {
+	t.Run("It eventually re-caches the JWKS if they have expired when using CachingProvider", func(t *testing.T) {
+		requestCount = 0
 		expiredCachedJWKS, err := generateJWKS()
 		require.NoError(t, err)
 
@@ -94,16 +96,20 @@ func Test_JWKSProvider(t *testing.T) {
 			expiresAt: time.Now().Add(-10 * time.Minute),
 		}
 
-		actualJWKS, err := provider.KeyFunc(context.Background())
+		returnedJWKS, err := provider.KeyFunc(context.Background())
 		require.NoError(t, err)
 
-		if !cmp.Equal(expectedJWKS, actualJWKS) {
-			t.Fatalf("jwks did not match: %s", cmp.Diff(expectedJWKS, actualJWKS))
+		if !cmp.Equal(expiredCachedJWKS, returnedJWKS) {
+			t.Fatalf("jwks did not match: %s", cmp.Diff(expiredCachedJWKS, returnedJWKS))
 		}
 
-		if !cmp.Equal(expectedJWKS, provider.cache[testServerURL.Hostname()].jwks) {
-			t.Fatalf("cached jwks did not match: %s", cmp.Diff(expectedJWKS, provider.cache[testServerURL.Hostname()].jwks))
-		}
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			returnedJWKS, err := provider.KeyFunc(context.Background())
+			require.NoError(t, err)
+
+			assert.True(c, cmp.Equal(expectedJWKS, returnedJWKS))
+			assert.Equal(c, int32(2), requestCount)
+		}, 1*time.Second, 250*time.Millisecond, "JWKS did not update")
 
 		cacheExpiresAt := provider.cache[testServerURL.Hostname()].expiresAt
 		if !time.Now().Before(cacheExpiresAt) {
@@ -154,6 +160,86 @@ func Test_JWKSProvider(t *testing.T) {
 			}
 		},
 	)
+
+	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with expired cache", func(t *testing.T) {
+		initialJWKS, err := generateJWKS()
+		require.NoError(t, err)
+		requestCount = 0
+
+		provider := NewCachingProvider(testServerURL, 5*time.Minute)
+		provider.cache[testServerURL.Hostname()] = cachedJWKS{
+			jwks:      initialJWKS,
+			expiresAt: time.Now(),
+		}
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				_, _ = provider.KeyFunc(context.Background())
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			returnedJWKS, err := provider.KeyFunc(context.Background())
+			require.NoError(t, err)
+
+			assert.True(c, cmp.Equal(expectedJWKS, returnedJWKS))
+			assert.Equal(c, int32(2), requestCount)
+		}, 1*time.Second, 250*time.Millisecond, "JWKS did not update")
+	})
+
+	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with no cache", func(t *testing.T) {
+		provider := NewCachingProvider(testServerURL, 5*time.Minute)
+		requestCount = 0
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				_, _ = provider.KeyFunc(context.Background())
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
+		if requestCount != 2 {
+			t.Fatalf("only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
+		}
+	})
+
+	t.Run("Should delete cache entry if the refresh request fails", func(t *testing.T) {
+		malformedURL, err := url.Parse(testServer.URL + "/malformed")
+		require.NoError(t, err)
+
+		expiredCachedJWKS, err := generateJWKS()
+		require.NoError(t, err)
+
+		provider := NewCachingProvider(malformedURL, 5*time.Minute)
+		provider.cache[malformedURL.Hostname()] = cachedJWKS{
+			jwks:      expiredCachedJWKS,
+			expiresAt: time.Now().Add(-10 * time.Minute),
+		}
+
+		// Trigger the refresh of the JWKS, which should return the cached JWKS
+		returnedJWKS, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, expiredCachedJWKS, returnedJWKS)
+
+		// Eventually it should return a nil JWKS
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			returnedJWKS, err := provider.KeyFunc(context.Background())
+			require.Error(t, err)
+
+			assert.Nil(c, returnedJWKS)
+
+			cachedJWKS := provider.cache[malformedURL.Hostname()].jwks
+
+			assert.Nil(t, cachedJWKS)
+		}, 1*time.Second, 250*time.Millisecond, "JWKS did not get uncached")
+	})
 }
 
 func generateJWKS() (*jose.JSONWebKeySet, error) {

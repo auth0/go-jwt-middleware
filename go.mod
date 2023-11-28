@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/google/go-cmp v0.6.0
 	github.com/stretchr/testify v1.8.4
+	golang.org/x/sync v0.5.0
 	gopkg.in/go-jose/go-jose.v2 v2.6.1
 )
 
