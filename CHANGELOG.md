@@ -1,5 +1,18 @@
 # Change Log
 
+## [v2.2.0](https://github.com/auth0/go-jwt-middleware/tree/v2.2.0) (2023-12-01)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.1.0...v2.2.0)
+
+**Added**
+- add echo example [\#208](https://github.com/auth0/go-jwt-middleware/pull/208) ([mehulgohil](https://github.com/mehulgohil))
+- added example for iris web framework [\#199](https://github.com/auth0/go-jwt-middleware/pull/199) ([mehulgohil](https://github.com/mehulgohil))
+
+**Changed**
+- ESD-32688: Improve locking and blocking associated with key retrieval [\#225](https://github.com/auth0/go-jwt-middleware/pull/225) ([ewanharris](https://github.com/ewanharris))
+- Replace deprecated pkg/errors in favor of Go's standard library [\#189](https://github.com/auth0/go-jwt-middleware/pull/189) ([molaga](https://github.com/molaga))
+- Replace square/go-jose with go-jose/go-jose [\#188](https://github.com/auth0/go-jwt-middleware/pull/188) ([sergiught](https://github.com/sergiught))
+- Fail to instantiate validator when audience is an empty string [\#183](https://github.com/auth0/go-jwt-middleware/pull/183) ([sergiught](https://github.com/sergiught))
+
 <a name="v2.1.0"></a>
 ## [v2.1.0](https://github.com/auth0/go-jwt-middleware/tree/v2.1.0) (2022-11-02)
 
