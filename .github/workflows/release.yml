@@ -1,0 +1,19 @@
+name: Create Release
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+### TODO: Replace instances of './.github/workflow/' w/ `auth0/dx-sdk-actions/` and append `@latest` after the common `dx-sdk-actions` repo is made public.
+### TODO: Also remove `get-prerelease`, `get-version`, `release-create`, `tag-create` and `tag-exists` actions from this repo's .github/actions folder and `go-release` from `./github/workflows` once the repo is public.
+
+jobs:
+  release:
+    uses: ./.github/workflows/go-release.yml
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
