@@ -1,5 +1,12 @@
 # Change Log
 
+## [v2.2.1](https://github.com/auth0/go-jwt-middleware/tree/v2.2.1) (2024-01-22)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.2.0...v2.2.1)
+
+**Security**
+- Bump golang.org/x/crypto from 0.4.0 to 0.17.0 [\#234](https://github.com/auth0/go-jwt-middleware/pull/234) ([dependabot[bot]](https://github.com/apps/dependabot))
+- Bump gopkg.in/go-jose/go-jose.v2 from 2.6.1 to 2.6.2 [\#229](https://github.com/auth0/go-jwt-middleware/pull/229) ([dependabot[bot]](https://github.com/apps/dependabot))
+
 ## [v2.2.0](https://github.com/auth0/go-jwt-middleware/tree/v2.2.0) (2023-12-01)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.1.0...v2.2.0)
 
