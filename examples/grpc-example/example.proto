@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package main;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/auth0/go-jwt-middleware/examples/grpc-example;grpc";
+
+service ExampleService {
+  rpc DoTheThing(DoTheThingRequest) returns (DoTheThingResponse) {
+    option (google.api.http) = {
+      get: "/ping",
+      body: "*",
+    };
+  }
+}
+
+message DoTheThingRequest {}
+
+message DoTheThingResponse {}
