@@ -1,5 +1,6 @@
 {
     "files": {
-        "README.md": []
+        "README.md": [],
+        ".version": []
     }
 }
