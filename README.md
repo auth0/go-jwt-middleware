@@ -45,6 +45,7 @@ import (
 
 	"github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
