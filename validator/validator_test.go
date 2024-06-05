@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-jose/go-jose/v4"
 	"testing"
 	"time"
 
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/go-jose/go-jose.v2/jwt"
 )
 
 type testClaims struct {
@@ -32,7 +33,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		name           string
 		token          string
 		keyFunc        func(context.Context) (interface{}, error)
-		algorithm      SignatureAlgorithm
+		algorithm      jose.SignatureAlgorithm
 		customClaims   func() CustomClaims
 		expectedError  error
 		expectedClaims *ValidatedClaims

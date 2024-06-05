@@ -9,10 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/semaphore"
-	"gopkg.in/go-jose/go-jose.v2"
-
 	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
+	"github.com/go-jose/go-jose/v4"
+	"golang.org/x/sync/semaphore"
 )
 
 // Provider handles getting JWKS from the specified IssuerURL and exposes
