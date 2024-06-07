@@ -10,6 +10,7 @@ require (
 replace github.com/auth0/go-jwt-middleware/v2 => ./../../
 
 require (
+	github.com/go-jose/go-jose/v4 v4.0.2 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
