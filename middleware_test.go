@@ -17,7 +17,7 @@ import (
 
 func Test_CheckJWT(t *testing.T) {
 	const (
-		validToken   = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+		validToken   = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Gyy_wLVaXohXo-QB1dgJWw-FbiS80mKw1OrTwmffvNo"
 		invalidToken = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
 		issuer       = "testIssuer"
 		audience     = "testAudience"
@@ -30,8 +30,9 @@ func Test_CheckJWT(t *testing.T) {
 		},
 	}
 
+	secret := []byte("abcdefghijklmnopqrstuvwxyz012345")
 	keyFunc := func(context.Context) (interface{}, error) {
-		return []byte("secret"), nil
+		return secret, nil
 	}
 
 	jwtValidator, err := validator.New(keyFunc, validator.HS256, issuer, []string{audience})
