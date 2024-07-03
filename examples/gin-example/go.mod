@@ -4,7 +4,8 @@ go 1.23.0
 
 require (
 	github.com/auth0/go-jwt-middleware/v2 v2.2.2
-	github.com/gin-gonic/gin v1.9.1
+	github.com/gin-gonic/gin v1.10.0
+	github.com/go-jose/go-jose/v4 v4.0.4
 )
 
 replace github.com/auth0/go-jwt-middleware/v2 => ./../../
