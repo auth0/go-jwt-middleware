@@ -2,8 +2,9 @@ package validator
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/pkg/errors"
+	"strings"
 	"time"
 
 	"gopkg.in/go-jose/go-jose.v2/jwt"
@@ -30,7 +31,7 @@ const (
 type Validator struct {
 	keyFunc            func(context.Context) (interface{}, error) // Required.
 	signatureAlgorithm SignatureAlgorithm                         // Required.
-	expectedClaims     jwt.Expected                               // Internal.
+	expectedClaims     []jwt.Expected                             // Internal.
 	customClaims       func() CustomClaims                        // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
 }
@@ -66,11 +67,61 @@ func New(
 	if keyFunc == nil {
 		return nil, errors.New("keyFunc is required but was nil")
 	}
-	if issuerURL == "" {
-		return nil, errors.New("issuer url is required but was empty")
+	if _, ok := allowedSigningAlgorithms[signatureAlgorithm]; !ok {
+		return nil, errors.New("unsupported signature algorithm")
 	}
-	if len(audience) == 0 {
+
+	v := &Validator{
+		keyFunc:            keyFunc,
+		signatureAlgorithm: signatureAlgorithm,
+		expectedClaims:     make([]jwt.Expected, 0),
+	}
+
+	for _, opt := range opts {
+		opt(v)
+	}
+
+	if len(v.expectedClaims) == 0 && issuerURL == "" {
+		return nil, errors.New("issuer url is required but was empty")
+	} else if len(v.expectedClaims) == 0 && len(audience) == 0 {
 		return nil, errors.New("audience is required but was empty")
+	} else if len(issuerURL) > 0 && len(audience) > 0 {
+		v.expectedClaims = append(v.expectedClaims, jwt.Expected{
+			Issuer:   issuerURL,
+			Audience: audience,
+		})
+	}
+
+	if len(v.expectedClaims) == 0 {
+		return nil, errors.New("expected claims but none provided")
+	}
+
+	for i, expected := range v.expectedClaims {
+		if expected.Issuer == "" {
+			return nil, fmt.Errorf("issuer url %d is required but was empty", i)
+		}
+		if len(expected.Audience) == 0 {
+			return nil, fmt.Errorf("audience %d is required but was empty", i)
+		}
+	}
+
+	return v, nil
+}
+
+// NewValidator sets up a new Validator with the required keyFunc
+// and signatureAlgorithm as well as custom options.
+// This function has been added to provide an alternate function without the required issuer or audience parameters
+// so they can be included in the opts parameter via WithExpectedClaims
+// This function operates exactly like New with the exception of the two parameters issuer and audience and this function
+// expects the inclusion of WithExpectedClaims with at least one valid expected claim.
+// A valid expected claim would include an issuer and at least one audience
+func NewValidator(
+	keyFunc func(context.Context) (interface{}, error),
+	signatureAlgorithm SignatureAlgorithm,
+	opts ...Option,
+) (*Validator, error) {
+	if keyFunc == nil {
+		return nil, errors.New("keyFunc is required but was nil")
 	}
 	if _, ok := allowedSigningAlgorithms[signatureAlgorithm]; !ok {
 		return nil, errors.New("unsupported signature algorithm")
@@ -79,14 +130,24 @@ func New(
 	v := &Validator{
 		keyFunc:            keyFunc,
 		signatureAlgorithm: signatureAlgorithm,
-		expectedClaims: jwt.Expected{
-			Issuer:   issuerURL,
-			Audience: audience,
-		},
+		expectedClaims:     make([]jwt.Expected, 0),
 	}
 
 	for _, opt := range opts {
 		opt(v)
+	}
+
+	if len(v.expectedClaims) == 0 {
+		return nil, errors.New("expected claims but none provided")
+	}
+
+	for i, expected := range v.expectedClaims {
+		if expected.Issuer == "" {
+			return nil, fmt.Errorf("issuer url %d is required but was empty", i)
+		}
+		if len(expected.Audience) == 0 {
+			return nil, fmt.Errorf("audience %d is required but was empty", i)
+		}
 	}
 
 	return v, nil
@@ -134,38 +195,74 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	return validatedClaims, nil
 }
 
-func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, leeway time.Duration) error {
-	expectedClaims := expected
-	expectedClaims.Time = time.Now()
+func validateClaimsWithLeeway(actualClaims jwt.Claims, expectedIn []jwt.Expected, leeway time.Duration) error {
+	now := time.Now()
+	var currentError error
+	for _, expected := range expectedIn {
+		expectedClaims := expected
+		expectedClaims.Time = now
 
-	if actualClaims.Issuer != expectedClaims.Issuer {
-		return jwt.ErrInvalidIssuer
-	}
-
-	foundAudience := false
-	for _, value := range expectedClaims.Audience {
-		if actualClaims.Audience.Contains(value) {
-			foundAudience = true
-			break
+		if actualClaims.Issuer != expectedClaims.Issuer {
+			currentError = createOrWrapError(currentError, jwt.ErrInvalidIssuer, actualClaims.Issuer, expectedClaims.Issuer)
+			continue
 		}
-	}
-	if !foundAudience {
-		return jwt.ErrInvalidAudience
+
+		foundAudience := false
+		for _, value := range expectedClaims.Audience {
+			if actualClaims.Audience.Contains(value) {
+				foundAudience = true
+				break
+			}
+		}
+		if !foundAudience {
+			currentError = createOrWrapError(
+				currentError,
+				jwt.ErrInvalidAudience,
+				strings.Join(actualClaims.Audience, ","),
+				strings.Join(expectedClaims.Audience, ","),
+			)
+			continue
+		}
+
+		if actualClaims.NotBefore != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.NotBefore.Time()) {
+			return createOrWrapError(
+				currentError,
+				jwt.ErrNotValidYet,
+				actualClaims.NotBefore.Time().String(),
+				expectedClaims.Time.Add(leeway).String(),
+			)
+		}
+
+		if actualClaims.Expiry != nil && expectedClaims.Time.Add(-leeway).After(actualClaims.Expiry.Time()) {
+			return createOrWrapError(
+				currentError,
+				jwt.ErrExpired,
+				actualClaims.Expiry.Time().String(),
+				expectedClaims.Time.Add(leeway).String(),
+			)
+		}
+
+		if actualClaims.IssuedAt != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.IssuedAt.Time()) {
+			return createOrWrapError(
+				currentError,
+				jwt.ErrIssuedInTheFuture,
+				actualClaims.IssuedAt.Time().String(),
+				expectedClaims.Time.Add(leeway).String(),
+			)
+		}
+
+		return nil
 	}
 
-	if actualClaims.NotBefore != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.NotBefore.Time()) {
-		return jwt.ErrNotValidYet
+	return currentError
+}
+
+func createOrWrapError(base, current error, actual, expected string) error {
+	if base == nil {
+		return current
 	}
 
-	if actualClaims.Expiry != nil && expectedClaims.Time.Add(-leeway).After(actualClaims.Expiry.Time()) {
-		return jwt.ErrExpired
-	}
-
-	if actualClaims.IssuedAt != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.IssuedAt.Time()) {
-		return jwt.ErrIssuedInTheFuture
-	}
-
-	return nil
+	return errors.Wrapf(base, errors.Errorf("%v: %s vs %s", current, actual, expected).Error())
 }
 
 func validateSigningMethod(validAlg, tokenAlg string) error {

@@ -39,9 +39,29 @@ import (
 //	  "username": "user123",
 //	  "shouldReject": true
 //	}
+//
+// You can also try out the /multiple endpoint. This endpoint accepts tokens signed by multiple issuers. Try the
+// token below which has a different issuer:
+//
+// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1tdWx0aXBsZS1leGFtcGxlIiwiYXVkIjoiYXVkaWVuY2UtbXVsdGlwbGUtZXhhbXBsZSIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJpYXQiOjE1MTYyMzkwMjIsInVzZXJuYW1lIjoidXNlcjEyMyJ9.9zV_bY1wAmQlMCPlXOppx1Y9_z_T_wNng9-yfQk4I0c
+//
+// which is signed with 'secret' and has the data:
+//
+//	{
+//		"iss": "go-jwt-middleware-multiple-example",
+//		"aud": "audience-multiple-example",
+//		"sub": "1234567890",
+//		"name": "John Doe",
+//		"iat": 1516239022,
+//		"username": "user123"
+//	}
+//
+// You can also try the previous tokens with the /multiple endpoint. The first token will be valid the second will fail because
+// the custom validator rejects it (shouldReject: true)
 
 func main() {
 	router := gin.Default()
+
 	router.GET("/", checkJWT(), func(ctx *gin.Context) {
 		claims, ok := ctx.Request.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
 		if !ok {
@@ -52,7 +72,7 @@ func main() {
 			return
 		}
 
-		customClaims, ok := claims.CustomClaims.(*CustomClaimsExample)
+		localCustomClaims, ok := claims.CustomClaims.(*CustomClaimsExample)
 		if !ok {
 			ctx.AbortWithStatusJSON(
 				http.StatusInternalServerError,
@@ -61,7 +81,37 @@ func main() {
 			return
 		}
 
-		if len(customClaims.Username) == 0 {
+		if len(localCustomClaims.Username) == 0 {
+			ctx.AbortWithStatusJSON(
+				http.StatusBadRequest,
+				map[string]string{"message": "Username in JWT claims was empty."},
+			)
+			return
+		}
+
+		ctx.JSON(http.StatusOK, claims)
+	})
+
+	router.GET("/multiple", checkJWTMultiple(), func(ctx *gin.Context) {
+		claims, ok := ctx.Request.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+		if !ok {
+			ctx.AbortWithStatusJSON(
+				http.StatusInternalServerError,
+				map[string]string{"message": "Failed to get validated JWT claims."},
+			)
+			return
+		}
+
+		localCustomClaims, ok := claims.CustomClaims.(*CustomClaimsExample)
+		if !ok {
+			ctx.AbortWithStatusJSON(
+				http.StatusInternalServerError,
+				map[string]string{"message": "Failed to cast custom JWT claims to specific type."},
+			)
+			return
+		}
+
+		if len(localCustomClaims.Username) == 0 {
 			ctx.AbortWithStatusJSON(
 				http.StatusBadRequest,
 				map[string]string{"message": "Username in JWT claims was empty."},
