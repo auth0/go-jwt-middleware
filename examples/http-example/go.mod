@@ -1,12 +1,14 @@
 module example.com/http
 
-go 1.19
+go 1.22.3
+
+toolchain go1.22.4
 
 require (
 	github.com/auth0/go-jwt-middleware/v2 v2.1.0
-	gopkg.in/go-jose/go-jose.v2 v2.6.2
+	gopkg.in/go-jose/go-jose.v2 v2.6.3
 )
 
 replace github.com/auth0/go-jwt-middleware/v2 => ./../../
 
-require golang.org/x/crypto v0.17.0 // indirect
+require golang.org/x/crypto v0.19.0 // indirect
