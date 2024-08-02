@@ -13,7 +13,7 @@ import (
 
 var (
 	// The signing key for the token.
-	signingKey = []byte("secret")
+	signingKey = []byte("your-256-bit-secret-is-just-enough")
 
 	// The issuer of our token.
 	issuer = "go-jwt-middleware-example"

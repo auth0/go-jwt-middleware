@@ -4,41 +4,39 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-jose/go-jose/v4"
 	"time"
 
-	"gopkg.in/go-jose/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
 
 // Signature algorithms
 const (
-	EdDSA = SignatureAlgorithm("EdDSA")
-	HS256 = SignatureAlgorithm("HS256") // HMAC using SHA-256
-	HS384 = SignatureAlgorithm("HS384") // HMAC using SHA-384
-	HS512 = SignatureAlgorithm("HS512") // HMAC using SHA-512
-	RS256 = SignatureAlgorithm("RS256") // RSASSA-PKCS-v1.5 using SHA-256
-	RS384 = SignatureAlgorithm("RS384") // RSASSA-PKCS-v1.5 using SHA-384
-	RS512 = SignatureAlgorithm("RS512") // RSASSA-PKCS-v1.5 using SHA-512
-	ES256 = SignatureAlgorithm("ES256") // ECDSA using P-256 and SHA-256
-	ES384 = SignatureAlgorithm("ES384") // ECDSA using P-384 and SHA-384
-	ES512 = SignatureAlgorithm("ES512") // ECDSA using P-521 and SHA-512
-	PS256 = SignatureAlgorithm("PS256") // RSASSA-PSS using SHA256 and MGF1-SHA256
-	PS384 = SignatureAlgorithm("PS384") // RSASSA-PSS using SHA384 and MGF1-SHA384
-	PS512 = SignatureAlgorithm("PS512") // RSASSA-PSS using SHA512 and MGF1-SHA512
+	EdDSA = jose.EdDSA
+	HS256 = jose.HS256 // HMAC using SHA-256
+	HS384 = jose.HS384 // HMAC using SHA-384
+	HS512 = jose.HS512 // HMAC using SHA-512
+	RS256 = jose.RS256 // RSASSA-PKCS-v1.5 using SHA-256
+	RS384 = jose.RS384 // RSASSA-PKCS-v1.5 using SHA-384
+	RS512 = jose.RS512 // RSASSA-PKCS-v1.5 using SHA-512
+	ES256 = jose.ES256 // ECDSA using P-256 and SHA-256
+	ES384 = jose.ES384 // ECDSA using P-384 and SHA-384
+	ES512 = jose.ES512 // ECDSA using P-521 and SHA-512
+	PS256 = jose.PS256 // RSASSA-PSS using SHA256 and MGF1-SHA256
+	PS384 = jose.PS384 // RSASSA-PSS using SHA384 and MGF1-SHA384
+	PS512 = jose.PS512 // RSASSA-PSS using SHA512 and MGF1-SHA512
 )
 
 // Validator to use with the jose v2 package.
 type Validator struct {
 	keyFunc            func(context.Context) (interface{}, error) // Required.
-	signatureAlgorithm SignatureAlgorithm                         // Required.
+	signatureAlgorithm jose.SignatureAlgorithm                    // Required.
 	expectedClaims     jwt.Expected                               // Internal.
 	customClaims       func() CustomClaims                        // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
 }
 
-// SignatureAlgorithm is a signature algorithm.
-type SignatureAlgorithm string
-
-var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
+var allowedSigningAlgorithms = map[jose.SignatureAlgorithm]bool{
 	EdDSA: true,
 	HS256: true,
 	HS384: true,
@@ -58,7 +56,7 @@ var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
 // and signatureAlgorithm as well as custom options.
 func New(
 	keyFunc func(context.Context) (interface{}, error),
-	signatureAlgorithm SignatureAlgorithm,
+	signatureAlgorithm jose.SignatureAlgorithm,
 	issuerURL string,
 	audience []string,
 	opts ...Option,
@@ -80,8 +78,8 @@ func New(
 		keyFunc:            keyFunc,
 		signatureAlgorithm: signatureAlgorithm,
 		expectedClaims: jwt.Expected{
-			Issuer:   issuerURL,
-			Audience: audience,
+			Issuer:      issuerURL,
+			AnyAudience: audience,
 		},
 	}
 
@@ -94,7 +92,7 @@ func New(
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
-	token, err := jwt.ParseSigned(tokenString)
+	token, err := jwt.ParseSigned(tokenString, []jose.SignatureAlgorithm{v.signatureAlgorithm})
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
@@ -143,7 +141,7 @@ func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, le
 	}
 
 	foundAudience := false
-	for _, value := range expectedClaims.Audience {
+	for _, value := range expectedClaims.AnyAudience {
 		if actualClaims.Audience.Contains(value) {
 			foundAudience = true
 			break

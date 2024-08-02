@@ -17,8 +17,8 @@ import (
 
 func Test_CheckJWT(t *testing.T) {
 	const (
-		validToken   = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
-		invalidToken = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.eM1Jd7VA7nFSI09FlmLmtuv7cLnv8qicZ8s76-jTOoE"
+		validToken   = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.PObulEU1cVh-gXvE9p9X7ljwqj_ySgPLOcdyVaWkBZ0"
+		invalidToken = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0aW5nIn0.7weA6mqBZrF5BFggsul_iB_69E5B1PptE7XIteygHZM"
 		issuer       = "testIssuer"
 		audience     = "testAudience"
 	)
@@ -31,7 +31,7 @@ func Test_CheckJWT(t *testing.T) {
 	}
 
 	keyFunc := func(context.Context) (interface{}, error) {
-		return []byte("secret"), nil
+		return []byte("your-256-bit-secret-is-just-enough"), nil
 	}
 
 	jwtValidator, err := validator.New(keyFunc, validator.HS256, issuer, []string{audience})
