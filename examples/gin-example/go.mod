@@ -1,6 +1,6 @@
 module example.com/gin
 
-go 1.19
+go 1.22
 
 require (
 	github.com/auth0/go-jwt-middleware/v2 v2.1.0
