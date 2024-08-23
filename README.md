@@ -24,7 +24,7 @@
 
 This library follows the [same support policy as Go](https://go.dev/doc/devel/release#policy). The last two major Go releases are actively supported and compatibility issues will be fixed. While you may find that older versions of Go may work, we will not actively test and fix compatibility issues with these versions.
 
-- Go 1.19+
+- Go 1.22+
 
 ### Installation
 
