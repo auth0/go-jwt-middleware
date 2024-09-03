@@ -29,13 +29,14 @@ func TestValidator_ValidateToken(t *testing.T) {
 	)
 
 	testCases := []struct {
-		name           string
-		token          string
-		keyFunc        func(context.Context) (interface{}, error)
-		algorithm      SignatureAlgorithm
-		customClaims   func() CustomClaims
-		expectedError  error
-		expectedClaims *ValidatedClaims
+		name                      string
+		token                     string
+		keyFunc                   func(context.Context) (interface{}, error)
+		algorithm                 SignatureAlgorithm
+		customClaims              func() CustomClaims
+		expectedError             error
+		expectedClaims            *ValidatedClaims
+		skipIssuerURLVerification bool
 	}{
 		{
 			name:  "it successfully validates a token",
@@ -205,6 +206,25 @@ func TestValidator_ValidateToken(t *testing.T) {
 			algorithm:     HS256,
 			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrInvalidIssuer),
 		},
+		{
+			name:                      "it successfully validates a token when token issuer is invalid but skip issuer url verification is true",
+			token:                     "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczovL2hhY2tlZC1qd3QtbWlkZGxld2FyZS5ldS5hdXRoMC5jb20vIiwiaWF0IjoxNzI1MzUyNzQ0LCJleHAiOjE3NTY4ODg4MDAsImF1ZCI6Imh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyIsInN1YiI6IjEyMzQ1Njc4OTAifQ.-ruuyhRkx4T_1HZUQw3eKNWIhV3utPO_e7FagciLk50",
+			skipIssuerURLVerification: true,
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			algorithm: HS256,
+			expectedClaims: &ValidatedClaims{
+				RegisteredClaims: RegisteredClaims{
+					Issuer:    "https://hacked-jwt-middleware.eu.auth0.com/",
+					Subject:   subject,
+					Audience:  []string{audience},
+					Expiry:    1756888800,
+					NotBefore: 0,
+					IssuedAt:  1725352744,
+				},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -221,6 +241,8 @@ func TestValidator_ValidateToken(t *testing.T) {
 				WithAllowedClockSkew(time.Second),
 			)
 			require.NoError(t, err)
+
+			validator.skipIssuerURLVerification = testCase.skipIssuerURLVerification
 
 			tokenClaims, err := validator.ValidateToken(context.Background(), testCase.token)
 			if testCase.expectedError != nil {
