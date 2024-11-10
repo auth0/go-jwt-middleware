@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-jose/go-jose/v4"
 	"time"
 
-	"gopkg.in/go-jose/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
 
 // Signature algorithms
@@ -36,7 +37,8 @@ type Validator struct {
 }
 
 // SignatureAlgorithm is a signature algorithm.
-type SignatureAlgorithm string
+type SignatureAlgorithm jose.SignatureAlgorithm
+type SignatureAlgorithms []jose.SignatureAlgorithm
 
 var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
 	EdDSA: true,
@@ -80,8 +82,8 @@ func New(
 		keyFunc:            keyFunc,
 		signatureAlgorithm: signatureAlgorithm,
 		expectedClaims: jwt.Expected{
-			Issuer:   issuerURL,
-			Audience: audience,
+			Issuer:      issuerURL,
+			AnyAudience: audience,
 		},
 	}
 
@@ -94,7 +96,7 @@ func New(
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
-	token, err := jwt.ParseSigned(tokenString)
+	token, err := jwt.ParseSigned(tokenString, signatureAlgorithms(v.signatureAlgorithm))
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
@@ -143,7 +145,7 @@ func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, le
 	}
 
 	foundAudience := false
-	for _, value := range expectedClaims.Audience {
+	for _, value := range expectedClaims.AnyAudience {
 		if actualClaims.Audience.Contains(value) {
 			foundAudience = true
 			break
@@ -209,4 +211,13 @@ func numericDateToUnixTime(date *jwt.NumericDate) int64 {
 		return date.Time().Unix()
 	}
 	return 0
+}
+
+func signatureAlgorithms(algs ...SignatureAlgorithm) SignatureAlgorithms {
+	js := make(SignatureAlgorithms, len(algs))
+	for i, alg := range algs {
+		js[i] = jose.SignatureAlgorithm(alg)
+	}
+
+	return js
 }

@@ -1,8 +1,12 @@
 package jwtmiddleware
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net/http"
 )
 
@@ -28,7 +32,7 @@ type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 // DefaultErrorHandler is the default error handler implementation for the
 // JWTMiddleware. If an error handler is not provided via the WithErrorHandler
 // option this will be used.
-func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
 	w.Header().Set("Content-Type", "application/json")
 
 	switch {
@@ -66,4 +70,49 @@ func (e invalidError) Error() string {
 // underlying error and not just ErrJWTInvalid.
 func (e invalidError) Unwrap() error {
 	return e.details
+}
+
+type GrpcErrorHandler struct {
+	GrpcUnaryErrorHandler
+	GrpcStreamErrorHandler
+}
+
+type GrpcUnaryErrorHandler func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler, err error) (any, error)
+type GrpcStreamErrorHandler func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler, err error) error
+
+func DefaultGrpcErrorHandler() GrpcErrorHandler {
+	return GrpcErrorHandler{
+		GrpcUnaryErrorHandler:  DefaultGrpcUnaryErrorHandler,
+		GrpcStreamErrorHandler: DefaultGrpcStreamErrorHandler,
+	}
+}
+
+func DefaultGrpcUnaryErrorHandler(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler, err error) (any, error) {
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrJWTMissing):
+			return nil, status.Errorf(codes.InvalidArgument, "%s", ErrJWTMissing.Error())
+		case errors.Is(err, ErrJWTInvalid):
+			return nil, status.Errorf(codes.Unauthenticated, "%s", ErrJWTInvalid.Error())
+		default:
+			return nil, status.Errorf(codes.Internal, "%s", err.Error())
+		}
+	}
+
+	return handler(ctx, req)
+}
+
+func DefaultGrpcStreamErrorHandler(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler, err error) error {
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrJWTMissing):
+			return status.Errorf(codes.InvalidArgument, "%s", ErrJWTMissing.Error())
+		case errors.Is(err, ErrJWTInvalid):
+			return status.Errorf(codes.Unauthenticated, "%s", ErrJWTInvalid.Error())
+		default:
+			return status.Errorf(codes.Internal, "%s", err.Error())
+		}
+	}
+
+	return handler(srv, newWrappedStream(ss))
 }

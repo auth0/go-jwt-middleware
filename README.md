@@ -45,7 +45,6 @@ import (
 
 	"github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +67,7 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 func main() {
 	keyFunc := func(ctx context.Context) (interface{}, error) {
 		// Our token must be signed using this data.
-		return []byte("secret"), nil
+		return []byte("abcdefghijklmnopqrstuvwxyz012345"), nil
 	}
 
 	// Set up the validator.
@@ -92,7 +91,7 @@ func main() {
 After running that code (`go run main.go`) you can then curl the http server from another terminal:
 
 ```
-$ curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1leGFtcGxlIiwiYXVkIjoiZ28tand0LW1pZGRsZXdhcmUtZXhhbXBsZSJ9.xcnkyPYu_b3qm2yeYuEgr5R5M5t4pN9s04U1ya53-KM" localhost:3000
+$ curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1leGFtcGxlIiwiYXVkIjoiZ28tand0LW1pZGRsZXdhcmUtZXhhbXBsZSJ9.Wkxc3JFClh8CVeGpZlsW4vhlcvCQpyTGkL8ezcp-V-A" localhost:3000
 ```
 
 That should give you the following response:
@@ -109,7 +108,7 @@ That should give you the following response:
 }
 ```
 
-The JWT included in the Authorization header above is signed with `secret`.
+The JWT included in the Authorization header above is signed with `abcdefghijklmnopqrstuvwxyz012345`.
 
 To test how the response would look like with an invalid token:
 

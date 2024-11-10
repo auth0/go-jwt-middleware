@@ -44,3 +44,43 @@ func WithTokenExtractor(e TokenExtractor) Option {
 		m.tokenExtractor = e
 	}
 }
+
+type GrpcOption func(*GrpcMiddleware)
+
+// WithContextTokenExtractor sets up the function which extracts
+// the JWT to be validated from the request.
+//
+// Default value: GrpcTokenExtractor.
+func WithContextTokenExtractor(e ContextTokenExtractor) GrpcOption {
+	return func(m *GrpcMiddleware) {
+		m.tokenExtractor = e
+	}
+}
+
+// WithGrpcErrorHandler sets the handler which is called
+// when we encounter errors in the GrpcMiddleware.
+// See the GrpcErrorHandler type for more information.
+//
+// Default value: DefaultGrpcErrorHandler.
+func WithGrpcErrorHandler(h GrpcErrorHandler) GrpcOption {
+	return func(m *GrpcMiddleware) {
+		if h.GrpcStreamErrorHandler == nil {
+			h.GrpcStreamErrorHandler = DefaultGrpcStreamErrorHandler
+		}
+		if h.GrpcUnaryErrorHandler == nil {
+			h.GrpcUnaryErrorHandler = DefaultGrpcUnaryErrorHandler
+		}
+		m.errorHandler = h
+	}
+}
+
+// WithGrpcCredentialsOptional sets up if credentials are
+// optional or not. If set to true then an empty token
+// will be considered valid.
+//
+// Default value: false.
+func WithGrpcCredentialsOptional(value bool) GrpcOption {
+	return func(m *GrpcMiddleware) {
+		m.credentialsOptional = value
+	}
+}
