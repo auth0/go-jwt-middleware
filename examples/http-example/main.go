@@ -10,11 +10,10 @@ import (
 
 	"github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 )
 
 var (
-	signingKey = []byte("secret")
+	signingKey = []byte("abcdefghijklmnopqrstuvwxyz012345")
 	issuer     = "go-jwt-middleware-example"
 	audience   = []string{"audience-example"}
 )
@@ -94,9 +93,9 @@ func main() {
 
 	// Try it out with:
 	//
-	// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1leGFtcGxlIiwiYXVkIjoiYXVkaWVuY2UtZXhhbXBsZSIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJpYXQiOjE1MTYyMzkwMjIsInVzZXJuYW1lIjoidXNlcjEyMyJ9.XFhrzWzntyINkgoRt2mb8dES84dJcuOoORdzKfwUX70
+	// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1leGFtcGxlIiwiYXVkIjoiYXVkaWVuY2UtZXhhbXBsZSIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJpYXQiOjE1MTYyMzkwMjIsInVzZXJuYW1lIjoidXNlcjEyMyJ9.DSY4NlpZZ2mOqaKuXvJkOrgZA3nD5HuGaf1wB9-0OVw
 	//
-	// which is signed with 'secret' and has the data:
+	// which is signed with 'abcdefghijklmnopqrstuvwxyz012345' and has the data:
 	// {
 	//   "iss": "go-jwt-middleware-example",
 	//   "aud": "audience-example",
@@ -108,9 +107,9 @@ func main() {
 	//
 	// You can also try out the custom validation with:
 	//
-	// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1leGFtcGxlIiwiYXVkIjoiYXVkaWVuY2UtZXhhbXBsZSIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJpYXQiOjE1MTYyMzkwMjIsInVzZXJuYW1lIjoidXNlcjEyMyIsInNob3VsZFJlamVjdCI6dHJ1ZX0.Jf13PY_Oyu2x3Gx1JQ0jXRiWaCOb5T2RbKOrTPBNHJA
+	// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnby1qd3QtbWlkZGxld2FyZS1leGFtcGxlIiwiYXVkIjoiYXVkaWVuY2UtZXhhbXBsZSIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJpYXQiOjE1MTYyMzkwMjIsInVzZXJuYW1lIjoidXNlcjEyMyIsInNob3VsZFJlamVjdCI6dHJ1ZX0.qjjJBgKNomlbEQrCobpEU9ASgvSpLQhQBryRkp6-RQc
 	//
-	// which is signed with 'secret' and has the data:
+	// which is signed with 'abcdefghijklmnopqrstuvwxyz012345' and has the data:
 	// {
 	//   "iss": "go-jwt-middleware-example",
 	//   "aud": "audience-example",

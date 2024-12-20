@@ -1,7 +1,11 @@
 package jwtmiddleware
 
 import (
+	"context"
 	"errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"net/http"
 	"strings"
 )
@@ -23,7 +27,7 @@ func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 
 	authHeaderParts := strings.Fields(authHeader)
 	if len(authHeaderParts) != 2 || strings.ToLower(authHeaderParts[0]) != "bearer" {
-		return "", errors.New("Authorization header format must be Bearer {token}")
+		return "", errors.New("authorization header format must be Bearer {token}")
 	}
 
 	return authHeaderParts[1], nil
@@ -34,7 +38,7 @@ func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 func CookieTokenExtractor(cookieName string) TokenExtractor {
 	return func(r *http.Request) (string, error) {
 		cookie, err := r.Cookie(cookieName)
-		if err == http.ErrNoCookie {
+		if errors.Is(err, http.ErrNoCookie) {
 			return "", nil // No cookie, then no JWT, so no error.
 		}
 
@@ -66,5 +70,24 @@ func MultiTokenExtractor(extractors ...TokenExtractor) TokenExtractor {
 			}
 		}
 		return "", nil
+	}
+}
+
+type ContextTokenExtractor func(ctx context.Context) (string, error)
+
+func GrpcTokenExtractor() ContextTokenExtractor {
+	return func(ctx context.Context) (string, error) {
+		// get metadata object
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return "", status.Error(codes.Unauthenticated, "metadata is not provided")
+		}
+
+		token := md["authorization"]
+		if len(token) == 0 {
+			return "", status.Error(codes.Unauthenticated, "authorization token is not provided")
+		}
+
+		return token[0], nil
 	}
 }
