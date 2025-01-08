@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
       - name: Scan for Vulnerabilities in Code
-        uses: Templum/govulncheck-action@6bb063b41d78c53c2fc7f5589828e30ad7c697ee # pin@1.0.0
+        uses: Templum/govulncheck-action@0eeca9d81f01facc00829cc99a14e44ce59ce80f # pin@1.0.2
         with:
           go-version: 1.21
           package: ./...
