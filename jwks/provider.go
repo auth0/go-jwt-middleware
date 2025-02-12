@@ -104,10 +104,11 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 // the cache.
 type CachingProvider struct {
 	*Provider
-	CacheTTL time.Duration
-	mu       sync.RWMutex
-	cache    map[string]cachedJWKS
-	sem      semaphore.Weighted
+	CacheTTL        time.Duration
+	mu              sync.RWMutex
+	cache           map[string]cachedJWKS
+	sem             semaphore.Weighted
+	blockingRefresh bool
 }
 
 type cachedJWKS struct {
@@ -123,10 +124,11 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...Prov
 	}
 
 	return &CachingProvider{
-		Provider: NewProvider(issuerURL, opts...),
-		CacheTTL: cacheTTL,
-		cache:    map[string]cachedJWKS{},
-		sem:      *semaphore.NewWeighted(1),
+		Provider:        NewProvider(issuerURL, opts...),
+		CacheTTL:        cacheTTL,
+		cache:           map[string]cachedJWKS{},
+		sem:             *semaphore.NewWeighted(1),
+		blockingRefresh: true,
 	}
 }
 
@@ -140,18 +142,24 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 
 	if cached, ok := c.cache[issuer]; ok {
 		if time.Now().After(cached.expiresAt) && c.sem.TryAcquire(1) {
-			go func() {
-				defer c.sem.Release(1)
-				refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				_, err := c.refreshKey(refreshCtx, issuer)
+			if c.blockingRefresh {
+				go func() {
+					defer c.sem.Release(1)
+					refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+					_, err := c.refreshKey(refreshCtx, issuer)
 
-				if err != nil {
-					c.mu.Lock()
-					delete(c.cache, issuer)
-					c.mu.Unlock()
-				}
-			}()
+					if err != nil {
+						c.mu.Lock()
+						delete(c.cache, issuer)
+						c.mu.Unlock()
+					}
+				}()
+			} else {
+				defer c.sem.Release(1)
+				c.mu.RUnlock()
+				return cached.jwks, nil
+			}
 		}
 		c.mu.RUnlock()
 		return cached.jwks, nil

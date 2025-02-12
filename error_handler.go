@@ -28,7 +28,7 @@ type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 // DefaultErrorHandler is the default error handler implementation for the
 // JWTMiddleware. If an error handler is not provided via the WithErrorHandler
 // option this will be used.
-func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
 	w.Header().Set("Content-Type", "application/json")
 
 	switch {
