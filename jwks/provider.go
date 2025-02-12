@@ -143,7 +143,7 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...inte
 		CacheTTL:        cacheTTL,
 		cache:           map[string]cachedJWKS{},
 		sem:             semaphore.NewWeighted(1),
-		blockingRefresh: true,
+		blockingRefresh: false,
 	}
 
 	for _, opt := range cachingOpts {
@@ -163,7 +163,7 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 
 	if cached, ok := c.cache[issuer]; ok {
 		if time.Now().After(cached.expiresAt) && c.sem.TryAcquire(1) {
-			if c.blockingRefresh {
+			if !c.blockingRefresh {
 				go func() {
 					defer c.sem.Release(1)
 					refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -176,10 +176,12 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 						c.mu.Unlock()
 					}
 				}()
+				c.mu.RUnlock()
+				return cached.jwks, nil
 			} else {
 				defer c.sem.Release(1)
 				c.mu.RUnlock()
-				return cached.jwks, nil
+				return c.refreshKey(ctx, issuer)
 			}
 		}
 		c.mu.RUnlock()
