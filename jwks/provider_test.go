@@ -267,7 +267,7 @@ func Test_JWKSProvider(t *testing.T) {
 		assert.True(t, cmp.Equal(expectedJWKS, returnedJWKS))
 
 		// Non-blocking behavior may allow extra API calls before the cache updates.
-		assert.Equal(t, requestCount, int32(2), "Expected at least 2 requests but got fewer")
+		assert.Equal(t, requestCount, int32(2), "only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
 	})
 
 	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with no cache (WithSynchronousRefresh)", func(t *testing.T) {
@@ -285,7 +285,7 @@ func Test_JWKSProvider(t *testing.T) {
 		wg.Wait()
 
 		if requestCount != 2 {
-			t.Fatalf("Expected at least 2 requests, but got %d", requestCount)
+			t.Fatalf("only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
 		}
 	})
 }
