@@ -134,9 +134,10 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...inte
 			providerOpts = append(providerOpts, o)
 		case CachingProviderOption:
 			cachingOpts = append(cachingOpts, o)
+		default:
+			panic(fmt.Sprintf("invalid option type: %T", o))
 		}
 	}
-
 	cp := &CachingProvider{
 		Provider:        NewProvider(issuerURL, providerOpts...),
 		CacheTTL:        cacheTTL,
