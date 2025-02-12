@@ -240,6 +240,54 @@ func Test_JWKSProvider(t *testing.T) {
 			assert.Nil(t, cachedJWKS)
 		}, 1*time.Second, 250*time.Millisecond, "JWKS did not get uncached")
 	})
+	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with expired cache (WithSynchronousRefresh)", func(t *testing.T) {
+		initialJWKS, err := generateJWKS()
+		require.NoError(t, err)
+		requestCount = 0
+
+		provider := NewCachingProvider(testServerURL, 5*time.Minute, WithSynchronousRefresh(true))
+		provider.cache[testServerURL.Hostname()] = cachedJWKS{
+			jwks:      initialJWKS,
+			expiresAt: time.Now(),
+		}
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				_, _ = provider.KeyFunc(context.Background())
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
+		// No need for Eventually since we're not blocking on refresh.
+		returnedJWKS, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		assert.True(t, cmp.Equal(expectedJWKS, returnedJWKS))
+
+		// Non-blocking behavior may allow extra API calls before the cache updates.
+		assert.Equal(t, requestCount, int32(2), "Expected at least 2 requests but got fewer")
+	})
+
+	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with no cache (WithSynchronousRefresh)", func(t *testing.T) {
+		provider := NewCachingProvider(testServerURL, 5*time.Minute, WithSynchronousRefresh(true))
+		requestCount = 0
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				_, _ = provider.KeyFunc(context.Background())
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
+		if requestCount != 2 {
+			t.Fatalf("Expected at least 2 requests, but got %d", requestCount)
+		}
+	})
 }
 
 func generateJWKS() (*jose.JSONWebKeySet, error) {

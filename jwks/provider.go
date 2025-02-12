@@ -104,11 +104,11 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 // the cache.
 type CachingProvider struct {
 	*Provider
-	CacheTTL       time.Duration
-	mu             sync.RWMutex
-	cache          map[string]cachedJWKS
-	sem            *semaphore.Weighted
-	blockOnRefresh bool
+	CacheTTL           time.Duration
+	mu                 sync.RWMutex
+	cache              map[string]cachedJWKS
+	sem                *semaphore.Weighted
+	synchronousRefresh bool
 }
 
 type cachedJWKS struct {
@@ -139,11 +139,11 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...inte
 		}
 	}
 	cp := &CachingProvider{
-		Provider:       NewProvider(issuerURL, providerOpts...),
-		CacheTTL:       cacheTTL,
-		cache:          map[string]cachedJWKS{},
-		sem:            semaphore.NewWeighted(1),
-		blockOnRefresh: false,
+		Provider:           NewProvider(issuerURL, providerOpts...),
+		CacheTTL:           cacheTTL,
+		cache:              map[string]cachedJWKS{},
+		sem:                semaphore.NewWeighted(1),
+		synchronousRefresh: false,
 	}
 
 	for _, opt := range cachingOpts {
@@ -163,7 +163,7 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 
 	if cached, ok := c.cache[issuer]; ok {
 		if time.Now().After(cached.expiresAt) && c.sem.TryAcquire(1) {
-			if !c.blockOnRefresh {
+			if !c.synchronousRefresh {
 				go func() {
 					defer c.sem.Release(1)
 					refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -192,12 +192,12 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	return c.refreshKey(ctx, issuer)
 }
 
-// WithBlockOnRefresh sets whether the CachingProvider blocks on refresh.
+// WithSynchronousRefresh sets whether the CachingProvider blocks on refresh.
 // If set to true, it will block and wait for the refresh to complete.
 // If set to false (default), it will return the cached JWKS and trigger a background refresh.
-func WithBlockOnRefresh(blocking bool) CachingProviderOption {
+func WithSynchronousRefresh(blocking bool) CachingProviderOption {
 	return func(cp *CachingProvider) {
-		cp.blockOnRefresh = blocking
+		cp.synchronousRefresh = blocking
 	}
 }
 
