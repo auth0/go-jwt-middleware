@@ -107,7 +107,7 @@ type CachingProvider struct {
 	CacheTTL        time.Duration
 	mu              sync.RWMutex
 	cache           map[string]cachedJWKS
-	sem             semaphore.Weighted
+	sem             *semaphore.Weighted
 	blockingRefresh bool
 }
 
@@ -116,20 +116,40 @@ type cachedJWKS struct {
 	expiresAt time.Time
 }
 
+type CachingProviderOption func(*CachingProvider)
+
 // NewCachingProvider builds and returns a new CachingProvider.
 // If cacheTTL is zero then a default value of 1 minute will be used.
-func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...ProviderOption) *CachingProvider {
+func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...interface{}) *CachingProvider {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Minute
 	}
 
-	return &CachingProvider{
-		Provider:        NewProvider(issuerURL, opts...),
+	var providerOpts []ProviderOption
+	var cachingOpts []CachingProviderOption
+
+	for _, opt := range opts {
+		switch o := opt.(type) {
+		case ProviderOption:
+			providerOpts = append(providerOpts, o)
+		case CachingProviderOption:
+			cachingOpts = append(cachingOpts, o)
+		}
+	}
+
+	cp := &CachingProvider{
+		Provider:        NewProvider(issuerURL, providerOpts...),
 		CacheTTL:        cacheTTL,
 		cache:           map[string]cachedJWKS{},
-		sem:             *semaphore.NewWeighted(1),
+		sem:             semaphore.NewWeighted(1),
 		blockingRefresh: true,
 	}
+
+	for _, opt := range cachingOpts {
+		opt(cp)
+	}
+
+	return cp
 }
 
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
@@ -167,6 +187,16 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 
 	c.mu.RUnlock()
 	return c.refreshKey(ctx, issuer)
+}
+
+// WithBlockingRefresh will set the CachingProvider to block on a refresh
+// request if the cache has expired. If set to false, it will return the
+// cached JWKS and trigger a background refresh.
+// WithBlockingRefresh sets whether the CachingProvider blocks on refresh.
+func WithBlockingRefresh(blocking bool) CachingProviderOption {
+	return func(cp *CachingProvider) {
+		cp.blockingRefresh = blocking
+	}
 }
 
 func (c *CachingProvider) refreshKey(ctx context.Context, issuer string) (interface{}, error) {
