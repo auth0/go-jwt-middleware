@@ -104,11 +104,11 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 // the cache.
 type CachingProvider struct {
 	*Provider
-	CacheTTL        time.Duration
-	mu              sync.RWMutex
-	cache           map[string]cachedJWKS
-	sem             *semaphore.Weighted
-	blockingRefresh bool
+	CacheTTL       time.Duration
+	mu             sync.RWMutex
+	cache          map[string]cachedJWKS
+	sem            *semaphore.Weighted
+	blockOnRefresh bool
 }
 
 type cachedJWKS struct {
@@ -139,11 +139,11 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...inte
 		}
 	}
 	cp := &CachingProvider{
-		Provider:        NewProvider(issuerURL, providerOpts...),
-		CacheTTL:        cacheTTL,
-		cache:           map[string]cachedJWKS{},
-		sem:             semaphore.NewWeighted(1),
-		blockingRefresh: false,
+		Provider:       NewProvider(issuerURL, providerOpts...),
+		CacheTTL:       cacheTTL,
+		cache:          map[string]cachedJWKS{},
+		sem:            semaphore.NewWeighted(1),
+		blockOnRefresh: false,
 	}
 
 	for _, opt := range cachingOpts {
@@ -163,7 +163,7 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 
 	if cached, ok := c.cache[issuer]; ok {
 		if time.Now().After(cached.expiresAt) && c.sem.TryAcquire(1) {
-			if !c.blockingRefresh {
+			if !c.blockOnRefresh {
 				go func() {
 					defer c.sem.Release(1)
 					refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -192,13 +192,12 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	return c.refreshKey(ctx, issuer)
 }
 
-// WithBlockingRefresh will set the CachingProvider to block on a refresh
-// request if the cache has expired. If set to false, it will return the
-// cached JWKS and trigger a background refresh.
-// WithBlockingRefresh sets whether the CachingProvider blocks on refresh.
-func WithBlockingRefresh(blocking bool) CachingProviderOption {
+// WithBlockOnRefresh sets whether the CachingProvider blocks on refresh.
+// If set to true, it will block and wait for the refresh to complete.
+// If set to false (default), it will return the cached JWKS and trigger a background refresh.
+func WithBlockOnRefresh(blocking bool) CachingProviderOption {
 	return func(cp *CachingProvider) {
-		cp.blockingRefresh = blocking
+		cp.blockOnRefresh = blocking
 	}
 }
 
