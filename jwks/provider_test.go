@@ -312,7 +312,7 @@ func Test_JWKSProvider(t *testing.T) {
 			NewCachingProvider(
 				issuerURL,
 				30*time.Second,
-				"invalid_option", // This should cause a panic
+				"invalid_option",
 			)
 		}, "Expected panic when passing an invalid option type")
 	})
