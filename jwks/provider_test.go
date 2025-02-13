@@ -288,6 +288,34 @@ func Test_JWKSProvider(t *testing.T) {
 			t.Fatalf("only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
 		}
 	})
+	t.Run("It correctly applies both ProviderOptions and CachingProviderOptions when using the CachingProvider without breaking", func(t *testing.T) {
+		issuerURL, _ := url.Parse("https://example.com")
+		jwksURL, _ := url.Parse("https://example.com/jwks")
+		customClient := &http.Client{Timeout: 10 * time.Second}
+
+		provider := NewCachingProvider(
+			issuerURL,
+			30*time.Second,
+			WithCustomJWKSURI(jwksURL),
+			WithCustomClient(customClient),
+			WithSynchronousRefresh(true),
+		)
+
+		assert.Equal(t, jwksURL, provider.CustomJWKSURI, "CustomJWKSURI should be set correctly")
+		assert.Equal(t, customClient, provider.Client, "Custom HTTP client should be set correctly")
+		assert.True(t, provider.synchronousRefresh, "Synchronous refresh should be enabled")
+	})
+	t.Run("It panics when an invalid option type is provided when using the CachingProvider", func(t *testing.T) {
+		issuerURL, _ := url.Parse("https://example.com")
+
+		assert.Panics(t, func() {
+			NewCachingProvider(
+				issuerURL,
+				30*time.Second,
+				"invalid_option", // This should cause a panic
+			)
+		}, "Expected panic when passing an invalid option type")
+	})
 }
 
 func generateJWKS() (*jose.JSONWebKeySet, error) {
