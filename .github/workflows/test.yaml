@@ -24,6 +24,18 @@ jobs:
           check-latest: true
           cache: false
 
+      - name: Set Temporary Go Cache Paths (Windows Only)
+        if: runner.os == 'Windows'
+        run: |
+          echo "GOMODCACHE=$env:TEMP\gomodcache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+          echo "GOCACHE=$env:TEMP\gocache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+        shell: pwsh
+
+      # 🔄 Install Dependencies Without Reusing Old Cache
+      - name: Install Dependencies
+        if: runner.os == 'Windows'
+        run: go mod tidy && go mod download
+
       - name: test
         run: make test
 
