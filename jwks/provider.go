@@ -101,7 +101,8 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 // When the CacheTTL value has been reached, a JWKS refresh will be triggered
 // in the background and the existing cached JWKS will be returned until the
 // JWKS cache is updated, or if the request errors then it will be evicted from
-// the cache. The cache is keyed by the issuer's hostname. The synchronousRefresh
+// the cache.
+// The cache is keyed by the issuer's hostname. The synchronousRefresh
 // field determines whether the refresh is done synchronously or asynchronously.
 // This can be set using the WithSynchronousRefresh option.
 type CachingProvider struct {
