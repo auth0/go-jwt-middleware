@@ -260,7 +260,7 @@ func Test_JWKSProvider(t *testing.T) {
 			}()
 		}
 		wg.Wait()
-
+		time.Sleep(2 * time.Second)
 		// No need for Eventually since we're not blocking on refresh.
 		returnedJWKS, err := provider.KeyFunc(context.Background())
 		require.NoError(t, err)
