@@ -243,7 +243,7 @@ func Test_JWKSProvider(t *testing.T) {
 	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with expired cache (WithSynchronousRefresh)", func(t *testing.T) {
 		initialJWKS, err := generateJWKS()
 		require.NoError(t, err)
-		requestCount = 0
+		atomic.StoreInt32(&requestCount, 0)
 
 		provider := NewCachingProvider(testServerURL, 5*time.Minute, WithSynchronousRefresh(true))
 		provider.cache[testServerURL.Hostname()] = cachedJWKS{
@@ -267,12 +267,12 @@ func Test_JWKSProvider(t *testing.T) {
 		assert.True(t, cmp.Equal(expectedJWKS, returnedJWKS))
 
 		// Non-blocking behavior may allow extra API calls before the cache updates.
-		assert.Equal(t, requestCount, int32(2), "only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
+		assert.Equal(t, requestCount, int32(2), atomic.LoadInt32(&requestCount), "only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
 	})
 
 	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with no cache (WithSynchronousRefresh)", func(t *testing.T) {
 		provider := NewCachingProvider(testServerURL, 5*time.Minute, WithSynchronousRefresh(true))
-		requestCount = 0
+		atomic.StoreInt32(&requestCount, 0)
 
 		var wg sync.WaitGroup
 		for i := 0; i < 50; i++ {
@@ -284,9 +284,7 @@ func Test_JWKSProvider(t *testing.T) {
 		}
 		wg.Wait()
 
-		if requestCount != 2 {
-			t.Fatalf("only wanted 2 requests (well known and jwks) , but we got %d requests", requestCount)
-		}
+		assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "only wanted 2 requests (well known and jwks), but we got %d requests")
 	})
 	t.Run("It correctly applies both ProviderOptions and CachingProviderOptions when using the CachingProvider without breaking", func(t *testing.T) {
 		issuerURL, _ := url.Parse("https://example.com")
