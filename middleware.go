@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"google.golang.org/grpc"
 )
 
 // ContextKey is the key used in the request
@@ -17,6 +19,13 @@ type JWTMiddleware struct {
 	tokenExtractor      TokenExtractor
 	credentialsOptional bool
 	validateOnOptions   bool
+}
+
+type GrpcMiddleware struct {
+	validateToken       ValidateToken
+	errorHandler        GrpcErrorHandler
+	tokenExtractor      ContextTokenExtractor
+	credentialsOptional bool
 }
 
 // ValidateToken takes in a string JWT and makes sure it is valid and
@@ -40,6 +49,33 @@ func New(validateToken ValidateToken, opts ...Option) *JWTMiddleware {
 
 	for _, opt := range opts {
 		opt(m)
+	}
+
+	return m
+}
+
+// NewGrpc constructs a new GrpcMiddleware instance with the supplied options.
+// It requires a ValidateToken function to be passed in, so it can
+// properly validate tokens.
+// Default Unary and Stream error interceptors (handlers) are set if the corresponding options are not
+// specified on opts
+func NewGrpc(validateToken ValidateToken, opts ...GrpcOption) *GrpcMiddleware {
+	m := &GrpcMiddleware{
+		validateToken:       validateToken,
+		errorHandler:        DefaultGrpcErrorHandler(),
+		credentialsOptional: false,
+		tokenExtractor:      GrpcTokenExtractor(),
+	}
+
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	if m.errorHandler.GrpcStreamErrorHandler == nil {
+		m.errorHandler.GrpcStreamErrorHandler = DefaultGrpcStreamErrorHandler
+	}
+	if m.errorHandler.GrpcUnaryErrorHandler == nil {
+		m.errorHandler.GrpcUnaryErrorHandler = DefaultGrpcUnaryErrorHandler
 	}
 
 	return m
@@ -89,4 +125,105 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		r = r.Clone(context.WithValue(r.Context(), ContextKey{}, validToken))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// wrappedStream wraps around the embedded grpc.ServerStream, and intercepts the RecvMsg and
+// SendMsg method call. ctx allows the context to be modified to add the jwt
+type wrappedStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (w *wrappedStream) RecvMsg(m any) error {
+	return w.ServerStream.RecvMsg(m)
+}
+
+func (w *wrappedStream) SendMsg(m any) error {
+	return w.ServerStream.SendMsg(m)
+}
+
+func (w *wrappedStream) Context() context.Context {
+	return w.ctx
+}
+
+func newWrappedStream(s grpc.ServerStream) grpc.ServerStream {
+	return &wrappedStream{
+		ServerStream: s,
+		ctx:          s.Context(),
+	}
+}
+
+func newWrappedStreamWithContext(s grpc.ServerStream, newContext context.Context) grpc.ServerStream {
+	return &wrappedStream{
+		ServerStream: s,
+		ctx:          newContext,
+	}
+}
+
+func (m *GrpcMiddleware) CheckJWT() (grpc.UnaryServerInterceptor, grpc.StreamServerInterceptor) {
+	return m.checkJWTUnary, m.checkJWTStream
+}
+
+func (m *GrpcMiddleware) checkJWTUnary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if currentJwt := ctx.Value(ContextKey{}); currentJwt != nil {
+		return handler(ctx, req)
+	}
+
+	var (
+		token      string
+		err        error
+		validToken any
+	)
+	switch token, err = m.tokenExtractor(ctx); {
+	case err != nil:
+		return m.errorHandler.GrpcUnaryErrorHandler(ctx, req, info, handler, err)
+	case token == "" && m.credentialsOptional:
+		return handler(ctx, req)
+	case token == "":
+		return m.errorHandler.GrpcUnaryErrorHandler(ctx, req, info, handler, ErrJWTMissing)
+	default:
+		switch validToken, err = m.validateToken(ctx, token); {
+		case err != nil:
+			return m.errorHandler.GrpcUnaryErrorHandler(ctx, req, info, handler, &invalidError{details: err})
+		case validToken != nil:
+			return handler(context.WithValue(ctx, ContextKey{}, validToken), req)
+		default:
+			return m.errorHandler.GrpcUnaryErrorHandler(ctx, req, info, handler, ErrJWTInvalid)
+		}
+	}
+}
+
+func (m *GrpcMiddleware) checkJWTStream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	var (
+		ctx        context.Context
+		token      string
+		err        error
+		validToken any
+	)
+	if ss != nil {
+		ctx = ss.Context()
+		if currentJwt := ctx.Value(ContextKey{}); currentJwt != nil {
+			return handler(srv, newWrappedStream(ss))
+		}
+	}
+	token, err = m.tokenExtractor(ctx)
+	switch {
+	case err != nil:
+		return m.errorHandler.GrpcStreamErrorHandler(srv, ss, info, handler, err)
+	case token == "" && m.credentialsOptional:
+		return handler(srv, newWrappedStream(ss))
+	case token == "":
+		return m.errorHandler.GrpcStreamErrorHandler(srv, ss, info, handler, ErrJWTMissing)
+	default:
+		switch validToken, err = m.validateToken(ctx, token); {
+		case err != nil:
+			return m.errorHandler.GrpcStreamErrorHandler(srv, ss, info, handler, &invalidError{details: err})
+		case validToken != nil:
+			ctx = context.WithValue(ctx, ContextKey{}, validToken)
+			return handler(srv, newWrappedStreamWithContext(ss, ctx))
+		default:
+			return m.errorHandler.GrpcStreamErrorHandler(srv, ss, info, handler, ErrJWTInvalid)
+		}
+	}
+
 }
