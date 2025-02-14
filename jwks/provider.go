@@ -184,14 +184,7 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 			} else {
 				c.mu.RUnlock()
 				defer c.sem.Release(1)
-				jwks, err := c.refreshKey(ctx, issuer)
-				if err != nil {
-					c.mu.Lock()
-					delete(c.cache, issuer)
-					c.mu.Unlock()
-					return nil, err
-				}
-				return jwks, err
+				return c.refreshKey(ctx, issuer)
 			}
 		}
 		c.mu.RUnlock()
