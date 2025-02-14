@@ -11,8 +11,11 @@ import (
 )
 
 // setupTestServer creates a test HTTP server that returns the specified response code and body.
-func setupTestServer(responseCode int, responseBody string) *httptest.Server {
+func setupTestServer(responseCode int, responseBody string, headers map[string]string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for key, value := range headers {
+			w.Header().Set(key, value)
+		}
 		w.WriteHeader(responseCode)
 		_, _ = w.Write([]byte(responseBody))
 	}))
@@ -24,12 +27,14 @@ func TestGetWellKnownEndpointsFromIssuerURL(t *testing.T) {
 		name         string
 		responseCode int
 		responseBody string
+		headers      map[string]string
 		expectError  bool
 	}{
 		{
 			name:         "Successful 200 response with valid JSON",
 			responseCode: http.StatusOK,
 			responseBody: `{"jwks_uri":"https://example.com/jwks"}`,
+			headers:      map[string]string{"Content-Type": "application/json"},
 			expectError:  false,
 		},
 		{
@@ -56,11 +61,36 @@ func TestGetWellKnownEndpointsFromIssuerURL(t *testing.T) {
 			responseBody: ``,
 			expectError:  true,
 		},
+		{
+			name:         "Non-JSON response",
+			responseCode: http.StatusOK,
+			responseBody: `<html><body>Error</body></html>`,
+			headers:      map[string]string{"Content-Type": "text/html"},
+			expectError:  true,
+		},
+		{
+			name:         "Redirect response",
+			responseCode: http.StatusFound,
+			responseBody: "",
+			expectError:  true,
+		},
+		{
+			name:         "Unauthorized response",
+			responseCode: http.StatusUnauthorized,
+			responseBody: `{"error": "unauthorized"}`,
+			expectError:  true,
+		},
+		{
+			name:         "Forbidden response",
+			responseCode: http.StatusForbidden,
+			responseBody: `{"error": "forbidden"}`,
+			expectError:  true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := setupTestServer(tt.responseCode, tt.responseBody)
+			server := setupTestServer(tt.responseCode, tt.responseBody, tt.headers)
 			defer server.Close()
 
 			issuerURL, _ := url.Parse(server.URL)
@@ -108,14 +138,16 @@ func TestGetWellKnownEndpoints_Timeout(t *testing.T) {
 	}
 }
 
-// Test invalid URL construction
-func TestGetWellKnownEndpoints_InvalidURL(t *testing.T) {
+// Test invalid request creation
+func TestGetWellKnownEndpoints_InvalidRequest(t *testing.T) {
 	client := &http.Client{}
-	invalidURL := url.URL{} // Empty URL
+
+	invalidURL := url.URL{Scheme: ":", Host: ""}
+
 	_, err := GetWellKnownEndpointsFromIssuerURL(context.Background(), client, invalidURL)
 
-	if err == nil || !strings.Contains(err.Error(), "unsupported protocol scheme") {
-		t.Errorf("Expected URL construction error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "could not build request to get well-known endpoints") {
+		t.Errorf("Expected request creation error, got: %v", err)
 	}
 }
 
