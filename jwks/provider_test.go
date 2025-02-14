@@ -240,6 +240,28 @@ func Test_JWKSProvider(t *testing.T) {
 			assert.Nil(t, cachedJWKS)
 		}, 1*time.Second, 250*time.Millisecond, "JWKS did not get uncached")
 	})
+	t.Run("Should delete cache entry if the refresh request fails (WithSynchronousRefresh)", func(t *testing.T) {
+		malformedURL, err := url.Parse(testServer.URL + "/malformed")
+		require.NoError(t, err)
+
+		expiredCachedJWKS, err := generateJWKS()
+		require.NoError(t, err)
+
+		provider := NewCachingProvider(malformedURL, 5*time.Minute, WithSynchronousRefresh(true))
+		provider.cache[malformedURL.Hostname()] = cachedJWKS{
+			jwks:      expiredCachedJWKS,
+			expiresAt: time.Now().Add(-10 * time.Minute),
+		}
+
+		returnedJWKS, err := provider.KeyFunc(context.Background())
+
+		require.Error(t, err)
+		assert.Nil(t, returnedJWKS)
+
+		_, exists := provider.cache[malformedURL.Hostname()]
+		assert.False(t, exists)
+	})
+
 	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with expired cache (WithSynchronousRefresh)", func(t *testing.T) {
 		initialJWKS, err := generateJWKS()
 		require.NoError(t, err)
