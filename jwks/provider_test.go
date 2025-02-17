@@ -251,31 +251,23 @@ func Test_JWKSProvider(t *testing.T) {
 			expiresAt: time.Now(),
 		}
 
-		completedRequests := make(chan struct{}, 50)
-
 		var wg sync.WaitGroup
 		for i := 0; i < 50; i++ {
 			wg.Add(1)
 			go func() {
-				defer wg.Done()
 				_, _ = provider.KeyFunc(context.Background())
-				completedRequests <- struct{}{}
+				wg.Done()
 			}()
 		}
-
 		wg.Wait()
-
-		for i := 0; i < 50; i++ {
-			<-completedRequests
-		}
-
+		time.Sleep(2 * time.Second)
+		// No need for Eventually since we're not blocking on refresh.
 		returnedJWKS, err := provider.KeyFunc(context.Background())
 		require.NoError(t, err)
 		assert.True(t, cmp.Equal(expectedJWKS, returnedJWKS))
 
-		assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount),
-			"only wanted 2 requests (well known and jwks), but we got %d requests",
-			atomic.LoadInt32(&requestCount))
+		// Non-blocking behavior may allow extra API calls before the cache updates.
+		assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "only wanted 2 requests (well known and jwks), but we got %d requests", atomic.LoadInt32(&requestCount))
 	})
 
 	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with no cache (WithSynchronousRefresh)", func(t *testing.T) {
