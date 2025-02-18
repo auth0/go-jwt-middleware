@@ -46,6 +46,7 @@ func Test_CheckJWT(t *testing.T) {
 		wantToken      interface{}
 		wantStatusCode int
 		wantBody       string
+		path           string
 	}{
 		{
 			name:           "it can successfully validate a token",
@@ -133,6 +134,50 @@ func Test_CheckJWT(t *testing.T) {
 			wantStatusCode: http.StatusBadRequest,
 			wantBody:       `{"message":"JWT is missing."}`,
 		},
+		{
+			name: "JWT not required for /public",
+			options: []Option{
+				WithExclusionUrls([]string{"/public", "/health", "/special"}),
+			},
+			method:         http.MethodGet,
+			path:           "/public",
+			token:          "",
+			wantStatusCode: http.StatusOK,
+			wantBody:       `{"message":"Authenticated."}`,
+		},
+		{
+			name: "JWT not required for /health",
+			options: []Option{
+				WithExclusionUrls([]string{"/public", "/health", "/special"}),
+			},
+			method:         http.MethodGet,
+			path:           "/health",
+			token:          "",
+			wantStatusCode: http.StatusOK,
+			wantBody:       `{"message":"Authenticated."}`,
+		},
+		{
+			name: "JWT not required for /special",
+			options: []Option{
+				WithExclusionUrls([]string{"/public", "/health", "/special"}),
+			},
+			method:         http.MethodGet,
+			path:           "/special",
+			token:          "",
+			wantStatusCode: http.StatusOK,
+			wantBody:       `{"message":"Authenticated."}`,
+		},
+		{
+			name: "JWT required for /secure (not in exclusion list)",
+			options: []Option{
+				WithExclusionUrls([]string{"/public", "/health", "/special"}),
+			},
+			method:         http.MethodGet,
+			path:           "/secure",
+			token:          "",
+			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"message":"JWT is missing."}`,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -154,7 +199,8 @@ func Test_CheckJWT(t *testing.T) {
 			testServer := httptest.NewServer(middleware.CheckJWT(handler))
 			defer testServer.Close()
 
-			request, err := http.NewRequest(testCase.method, testServer.URL, nil)
+			url := testServer.URL + testCase.path
+			request, err := http.NewRequest(testCase.method, url, nil)
 			require.NoError(t, err)
 
 			if testCase.token != "" {
