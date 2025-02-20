@@ -17,6 +17,7 @@ type JWTMiddleware struct {
 	tokenExtractor      TokenExtractor
 	credentialsOptional bool
 	validateOnOptions   bool
+	exclusionUrlHandler ExclusionUrlHandler
 }
 
 // ValidateToken takes in a string JWT and makes sure it is valid and
@@ -25,6 +26,10 @@ type JWTMiddleware struct {
 // Inside ValidateToken things like key and alg checking can happen.
 // In the default implementation we can add safe defaults for those.
 type ValidateToken func(context.Context, string) (interface{}, error)
+
+// ExclusionUrlHandler is a function that takes in a http.Request and returns
+// true if the request should be excluded from JWT validation.
+type ExclusionUrlHandler func(r *http.Request) bool
 
 // New constructs a new JWTMiddleware instance with the supplied options.
 // It requires a ValidateToken function to be passed in, so it can
@@ -49,6 +54,11 @@ func New(validateToken ValidateToken, opts ...Option) *JWTMiddleware {
 // is passed a http.Handler which will be called if the JWT passes validation.
 func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If there's an exclusion handler and the URL matches, skip JWT validation
+		if m.exclusionUrlHandler != nil && m.exclusionUrlHandler(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		// If we don't validate on OPTIONS and this is OPTIONS
 		// then continue onto next without validating.
 		if !m.validateOnOptions && r.Method == http.MethodOptions {
