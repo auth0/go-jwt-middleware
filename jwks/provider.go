@@ -102,12 +102,16 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 // in the background and the existing cached JWKS will be returned until the
 // JWKS cache is updated, or if the request errors then it will be evicted from
 // the cache.
+// The cache is keyed by the issuer's hostname. The synchronousRefresh
+// field determines whether the refresh is done synchronously or asynchronously.
+// This can be set using the WithSynchronousRefresh option.
 type CachingProvider struct {
 	*Provider
-	CacheTTL time.Duration
-	mu       sync.RWMutex
-	cache    map[string]cachedJWKS
-	sem      semaphore.Weighted
+	CacheTTL           time.Duration
+	mu                 sync.RWMutex
+	cache              map[string]cachedJWKS
+	sem                *semaphore.Weighted
+	synchronousRefresh bool
 }
 
 type cachedJWKS struct {
@@ -115,19 +119,41 @@ type cachedJWKS struct {
 	expiresAt time.Time
 }
 
+type CachingProviderOption func(*CachingProvider)
+
 // NewCachingProvider builds and returns a new CachingProvider.
 // If cacheTTL is zero then a default value of 1 minute will be used.
-func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...ProviderOption) *CachingProvider {
+func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...interface{}) *CachingProvider {
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Minute
 	}
 
-	return &CachingProvider{
-		Provider: NewProvider(issuerURL, opts...),
-		CacheTTL: cacheTTL,
-		cache:    map[string]cachedJWKS{},
-		sem:      *semaphore.NewWeighted(1),
+	var providerOpts []ProviderOption
+	var cachingOpts []CachingProviderOption
+
+	for _, opt := range opts {
+		switch o := opt.(type) {
+		case ProviderOption:
+			providerOpts = append(providerOpts, o)
+		case CachingProviderOption:
+			cachingOpts = append(cachingOpts, o)
+		default:
+			panic(fmt.Sprintf("invalid option type: %T", o))
+		}
 	}
+	cp := &CachingProvider{
+		Provider:           NewProvider(issuerURL, providerOpts...),
+		CacheTTL:           cacheTTL,
+		cache:              map[string]cachedJWKS{},
+		sem:                semaphore.NewWeighted(1),
+		synchronousRefresh: false,
+	}
+
+	for _, opt := range cachingOpts {
+		opt(cp)
+	}
+
+	return cp
 }
 
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
@@ -140,18 +166,26 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 
 	if cached, ok := c.cache[issuer]; ok {
 		if time.Now().After(cached.expiresAt) && c.sem.TryAcquire(1) {
-			go func() {
-				defer c.sem.Release(1)
-				refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				_, err := c.refreshKey(refreshCtx, issuer)
+			if !c.synchronousRefresh {
+				go func() {
+					defer c.sem.Release(1)
+					refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+					_, err := c.refreshKey(refreshCtx, issuer)
 
-				if err != nil {
-					c.mu.Lock()
-					delete(c.cache, issuer)
-					c.mu.Unlock()
-				}
-			}()
+					if err != nil {
+						c.mu.Lock()
+						delete(c.cache, issuer)
+						c.mu.Unlock()
+					}
+				}()
+				c.mu.RUnlock()
+				return cached.jwks, nil
+			} else {
+				c.mu.RUnlock()
+				defer c.sem.Release(1)
+				return c.refreshKey(ctx, issuer)
+			}
 		}
 		c.mu.RUnlock()
 		return cached.jwks, nil
@@ -159,6 +193,15 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 
 	c.mu.RUnlock()
 	return c.refreshKey(ctx, issuer)
+}
+
+// WithSynchronousRefresh sets whether the CachingProvider blocks on refresh.
+// If set to true, it will block and wait for the refresh to complete.
+// If set to false (default), it will return the cached JWKS and trigger a background refresh.
+func WithSynchronousRefresh(blocking bool) CachingProviderOption {
+	return func(cp *CachingProvider) {
+		cp.synchronousRefresh = blocking
+	}
 }
 
 func (c *CachingProvider) refreshKey(ctx context.Context, issuer string) (interface{}, error) {
