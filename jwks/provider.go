@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"golang.org/x/sync/semaphore"
-	"gopkg.in/go-jose/go-jose.v2"
 
 	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
 )
@@ -21,9 +21,10 @@ import (
 // getting and caching JWKS which can help reduce request time and potential
 // rate limiting from your provider.
 type Provider struct {
-	IssuerURL     *url.URL // Required.
-	CustomJWKSURI *url.URL // Optional.
-	Client        *http.Client
+	IssuerURL           *url.URL   // Required.
+	CustomJWKSURI       *url.URL   // Optional.
+	AdditionalProviders []Provider // Optional
+	Client              *http.Client
 }
 
 // ProviderOption is how options for the Provider are set up.
@@ -32,12 +33,22 @@ type ProviderOption func(*Provider)
 // NewProvider builds and returns a new *Provider.
 func NewProvider(issuerURL *url.URL, opts ...ProviderOption) *Provider {
 	p := &Provider{
-		IssuerURL: issuerURL,
-		Client:    &http.Client{},
+		Client:              &http.Client{},
+		AdditionalProviders: make([]Provider, 0),
+	}
+
+	if issuerURL != nil {
+		p.IssuerURL = issuerURL
 	}
 
 	for _, opt := range opts {
 		opt(p)
+	}
+
+	for _, provider := range p.AdditionalProviders {
+		if provider.Client == nil {
+			provider.Client = p.Client
+		}
 	}
 
 	return p
@@ -56,6 +67,21 @@ func WithCustomJWKSURI(jwksURI *url.URL) ProviderOption {
 func WithCustomClient(c *http.Client) ProviderOption {
 	return func(p *Provider) {
 		p.Client = c
+		for _, provider := range p.AdditionalProviders {
+			provider.Client = c
+		}
+	}
+}
+
+// WithAdditionalProviders allows validation with mutliple IssuerURLs if desired. If multiple issuers are specified,
+// a jwt may be signed by any of them and be considered valid
+func WithAdditionalProviders(issuerURL *url.URL, customJWKSURI *url.URL) ProviderOption {
+	return func(p *Provider) {
+		p.AdditionalProviders = append(p.AdditionalProviders, Provider{
+			IssuerURL:     issuerURL,
+			CustomJWKSURI: customJWKSURI,
+			Client:        p.Client,
+		})
 	}
 }
 
@@ -63,6 +89,25 @@ func WithCustomClient(c *http.Client) ProviderOption {
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be *jose.JSONWebKeySet.
 func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
+	rawJwks, err := p.keyFunc(ctx)
+
+	if len(p.AdditionalProviders) == 0 {
+		return rawJwks, err
+	} else {
+		var jwks *jose.JSONWebKeySet
+		jwks = rawJwks.(*jose.JSONWebKeySet)
+		for _, provider := range p.AdditionalProviders {
+			if rawJwks, err = provider.keyFunc(ctx); err != nil {
+				continue
+			} else {
+				jwks.Keys = append(jwks.Keys, rawJwks.(*jose.JSONWebKeySet).Keys...)
+			}
+		}
+		return jwks, err
+	}
+}
+
+func (p *Provider) keyFunc(ctx context.Context) (interface{}, error) {
 	jwksURI := p.CustomJWKSURI
 	if jwksURI == nil {
 		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.Client, *p.IssuerURL)
@@ -85,10 +130,12 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 
 	var jwks jose.JSONWebKeySet
-	if err := json.NewDecoder(response.Body).Decode(&jwks); err != nil {
+	if err = json.NewDecoder(response.Body).Decode(&jwks); err != nil {
 		return nil, fmt.Errorf("could not decode jwks: %w", err)
 	}
 
