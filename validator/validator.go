@@ -28,11 +28,12 @@ const (
 
 // Validator to use with the jose v2 package.
 type Validator struct {
-	keyFunc            func(context.Context) (interface{}, error) // Required.
-	signatureAlgorithm SignatureAlgorithm                         // Required.
-	expectedClaims     jwt.Expected                               // Internal.
-	customClaims       func() CustomClaims                        // Optional.
-	allowedClockSkew   time.Duration                              // Optional.
+	keyFunc                   func(context.Context) (interface{}, error) // Required.
+	signatureAlgorithm        SignatureAlgorithm                         // Required.
+	expectedClaims            jwt.Expected                               // Internal.
+	customClaims              func() CustomClaims                        // Optional.
+	allowedClockSkew          time.Duration                              // Optional.
+	skipIssuerURLVerification bool                                       // Optional.
 }
 
 // SignatureAlgorithm is a signature algorithm.
@@ -83,6 +84,7 @@ func New(
 			Issuer:   issuerURL,
 			Audience: audience,
 		},
+		skipIssuerURLVerification: false,
 	}
 
 	for _, opt := range opts {
@@ -108,7 +110,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("failed to deserialize token claims: %w", err)
 	}
 
-	if err = validateClaimsWithLeeway(registeredClaims, v.expectedClaims, v.allowedClockSkew); err != nil {
+	if err = validateClaimsWithLeeway(registeredClaims, v.expectedClaims, v.allowedClockSkew, v.skipIssuerURLVerification); err != nil {
 		return nil, fmt.Errorf("expected claims not validated: %w", err)
 	}
 
@@ -134,11 +136,11 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 	return validatedClaims, nil
 }
 
-func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, leeway time.Duration) error {
+func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, leeway time.Duration, skipIssuerURLVerification bool) error {
 	expectedClaims := expected
 	expectedClaims.Time = time.Now()
 
-	if actualClaims.Issuer != expectedClaims.Issuer {
+	if !skipIssuerURLVerification && actualClaims.Issuer != expectedClaims.Issuer {
 		return jwt.ErrInvalidIssuer
 	}
 
