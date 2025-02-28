@@ -7,10 +7,10 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/auth0/go-jwt-middleware/v2"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/jwks"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
+	"github.com/go-jose/go-jose/v4"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +45,7 @@ func setupHandler(issuer string, audience []string) http.Handler {
 	// Set up the validator.
 	jwtValidator, err := validator.New(
 		provider.KeyFunc,
-		validator.RS256,
+		jose.RS256,
 		issuerURL.String(),
 		audience,
 	)

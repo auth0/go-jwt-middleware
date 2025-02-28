@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/auth0/go-jwt-middleware/v2"
-	"github.com/auth0/go-jwt-middleware/v2/validator"
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
+	"github.com/auth0/go-jwt-middleware/v2/validator"
+	"github.com/go-jose/go-jose/v4"
 )
 
 var (
@@ -75,7 +75,7 @@ func setupHandler() http.Handler {
 	// Set up the validator.
 	jwtValidator, err := validator.New(
 		keyFunc,
-		validator.HS256,
+		jose.HS256,
 		issuer,
 		audience,
 		validator.WithCustomClaims(customClaims),

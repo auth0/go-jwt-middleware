@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,7 @@ func Test_CheckJWT(t *testing.T) {
 		return []byte("secret"), nil
 	}
 
-	jwtValidator, err := validator.New(keyFunc, validator.HS256, issuer, []string{audience})
+	jwtValidator, err := validator.New(keyFunc, jose.HS256, issuer, []string{audience})
 	require.NoError(t, err)
 
 	testCases := []struct {

@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/go-jose/go-jose.v2/jwt"
 )
 
 type testClaims struct {
@@ -32,7 +33,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		name           string
 		token          string
 		keyFunc        func(context.Context) (interface{}, error)
-		algorithm      SignatureAlgorithm
+		algorithm      jose.SignatureAlgorithm
 		customClaims   func() CustomClaims
 		expectedError  error
 		expectedClaims *ValidatedClaims
@@ -43,7 +44,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm: HS256,
+			algorithm: jose.HS256,
 			expectedClaims: &ValidatedClaims{
 				RegisteredClaims: RegisteredClaims{
 					Issuer:   issuer,
@@ -58,7 +59,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm: HS256,
+			algorithm: jose.HS256,
 			customClaims: func() CustomClaims {
 				return &testClaims{}
 			},
@@ -79,7 +80,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     RS256,
+			algorithm:     jose.RS256,
 			expectedError: errors.New(`signing method is invalid: expected "RS256" signing algorithm but token specified "HS256"`),
 		},
 		{
@@ -88,7 +89,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: errors.New("could not parse the token: go-jose/go-jose: compact JWS format must have three parts"),
 		},
 		{
@@ -97,7 +98,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return nil, errors.New("key func error message")
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: errors.New("failed to deserialize token claims: error getting the keys from the key func: key func error message"),
 		},
 		{
@@ -106,7 +107,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: errors.New("failed to deserialize token claims: could not get token claims: go-jose/go-jose: error in cryptographic primitive"),
 		},
 		{
@@ -115,7 +116,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: errors.New("expected claims not validated: go-jose/go-jose/jwt: validation failed, invalid audience claim (aud)"),
 		},
 		{
@@ -124,7 +125,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm: HS256,
+			algorithm: jose.HS256,
 			customClaims: func() CustomClaims {
 				return &testClaims{
 					ReturnError: errors.New("custom claims error message"),
@@ -138,7 +139,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm: HS256,
+			algorithm: jose.HS256,
 			customClaims: func() CustomClaims {
 				return nil
 			},
@@ -157,7 +158,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm: HS256,
+			algorithm: jose.HS256,
 			expectedClaims: &ValidatedClaims{
 				RegisteredClaims: RegisteredClaims{
 					Issuer:    issuer,
@@ -175,7 +176,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrNotValidYet),
 		},
 		{
@@ -184,7 +185,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrExpired),
 		},
 		{
@@ -193,7 +194,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrIssuedInTheFuture),
 		},
 		{
@@ -202,7 +203,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
+			algorithm:     jose.HS256,
 			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrInvalidIssuer),
 		},
 	}
@@ -238,7 +239,7 @@ func TestNewValidator(t *testing.T) {
 	const (
 		issuer    = "https://go-jwt-middleware.eu.auth0.com/"
 		audience  = "https://go-jwt-middleware-api/"
-		algorithm = HS256
+		algorithm = jose.HS256
 	)
 
 	var keyFunc = func(context.Context) (interface{}, error) {

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gopkg.in/go-jose/go-jose.v2"
-	"gopkg.in/go-jose/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
 
 func TestHandler(t *testing.T) {
@@ -120,7 +120,7 @@ func buildJWTForTesting(t *testing.T, jwk *jose.JSONWebKey, issuer, subject stri
 		Subject:  subject,
 	}
 
-	token, err := jwt.Signed(signer).Claims(claims).CompactSerialize()
+	token, err := jwt.Signed(signer).Claims(claims).Serialize()
 	if err != nil {
 		t.Fatalf("could not build token: %s", err.Error())
 	}
