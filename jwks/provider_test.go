@@ -240,6 +240,80 @@ func Test_JWKSProvider(t *testing.T) {
 			assert.Nil(t, cachedJWKS)
 		}, 1*time.Second, 250*time.Millisecond, "JWKS did not get uncached")
 	})
+	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with expired cache (WithSynchronousRefresh)", func(t *testing.T) {
+		initialJWKS, err := generateJWKS()
+		require.NoError(t, err)
+		atomic.StoreInt32(&requestCount, 0)
+
+		provider := NewCachingProvider(testServerURL, 5*time.Minute, WithSynchronousRefresh(true))
+		provider.cache[testServerURL.Hostname()] = cachedJWKS{
+			jwks:      initialJWKS,
+			expiresAt: time.Now(),
+		}
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				_, _ = provider.KeyFunc(context.Background())
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+		time.Sleep(2 * time.Second)
+		// No need for Eventually since we're not blocking on refresh.
+		returnedJWKS, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		assert.True(t, cmp.Equal(expectedJWKS, returnedJWKS))
+
+		// Non-blocking behavior may allow extra API calls before the cache updates.
+		assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "only wanted 2 requests (well known and jwks), but we got %d requests", atomic.LoadInt32(&requestCount))
+	})
+
+	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with no cache (WithSynchronousRefresh)", func(t *testing.T) {
+		provider := NewCachingProvider(testServerURL, 5*time.Minute, WithSynchronousRefresh(true))
+		atomic.StoreInt32(&requestCount, 0)
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				_, _ = provider.KeyFunc(context.Background())
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
+		assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "only wanted 2 requests (well known and jwks), but we got %d requests")
+	})
+	t.Run("It correctly applies both ProviderOptions and CachingProviderOptions when using the CachingProvider without breaking", func(t *testing.T) {
+		issuerURL, _ := url.Parse("https://example.com")
+		jwksURL, _ := url.Parse("https://example.com/jwks")
+		customClient := &http.Client{Timeout: 10 * time.Second}
+
+		provider := NewCachingProvider(
+			issuerURL,
+			30*time.Second,
+			WithCustomJWKSURI(jwksURL),
+			WithCustomClient(customClient),
+			WithSynchronousRefresh(true),
+		)
+
+		assert.Equal(t, jwksURL, provider.CustomJWKSURI, "CustomJWKSURI should be set correctly")
+		assert.Equal(t, customClient, provider.Client, "Custom HTTP client should be set correctly")
+		assert.True(t, provider.synchronousRefresh, "Synchronous refresh should be enabled")
+	})
+	t.Run("It panics when an invalid option type is provided when using the CachingProvider", func(t *testing.T) {
+		issuerURL, _ := url.Parse("https://example.com")
+
+		assert.Panics(t, func() {
+			NewCachingProvider(
+				issuerURL,
+				30*time.Second,
+				"invalid_option",
+			)
+		}, "Expected panic when passing an invalid option type")
+	})
 }
 
 func generateJWKS() (*jose.JSONWebKeySet, error) {
