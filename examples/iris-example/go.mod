@@ -1,6 +1,6 @@
 module example.com/iris
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/auth0/go-jwt-middleware/v2 v2.1.0
@@ -20,7 +20,7 @@ require (
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/flosch/pongo2/v4 v4.0.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/gomarkdown/markdown v0.0.0-20230922112808-5421fefb8386 // indirect
+	github.com/gomarkdown/markdown v0.0.0-20240729212818-a2a9c4f76ef5 // indirect
 	github.com/google/uuid v1.3.1 // indirect
 	github.com/gorilla/css v1.0.0 // indirect
 	github.com/iris-contrib/schema v0.0.6 // indirect
@@ -43,11 +43,11 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.0 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/yosssi/ace v0.0.5 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/go-jose/go-jose.v2 v2.6.3 // indirect
