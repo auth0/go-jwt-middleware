@@ -11,6 +11,7 @@ import (
 // validated JWT will be stored.
 type ContextKey struct{}
 
+// JWTMiddleware provides a configurable JWT authentication middleware.
 type JWTMiddleware struct {
 	validateToken       ValidateToken
 	errorHandler        ErrorHandler

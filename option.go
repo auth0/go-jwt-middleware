@@ -66,3 +66,10 @@ func WithExclusionUrls(exclusions []string) Option {
 		}
 	}
 }
+
+// WithExclusionUrlHandler sets the exclusion URL handler.
+func WithExclusionUrlHandler(exclusionUrlHandler ExclusionUrlHandler) Option {
+	return func(m *JWTMiddleware) {
+		m.exclusionUrlHandler = exclusionUrlHandler
+	}
+}

@@ -26,17 +26,16 @@ const (
 	PS512 = SignatureAlgorithm("PS512") // RSASSA-PSS using SHA512 and MGF1-SHA512
 )
 
-// Validator to use with the jose v2 package.
-type Validator struct {
-	keyFunc            func(context.Context) (interface{}, error) // Required.
-	signatureAlgorithm SignatureAlgorithm                         // Required.
-	expectedClaims     jwt.Expected                               // Internal.
-	customClaims       func() CustomClaims                        // Optional.
-	allowedClockSkew   time.Duration                              // Optional.
-}
-
 // SignatureAlgorithm is a signature algorithm.
 type SignatureAlgorithm string
+
+// Error definitions
+var (
+	ErrKeyFuncRequired      = errors.New("keyFunc is required but was nil")
+	ErrIssuerURLRequired    = errors.New("issuer url is required but was empty")
+	ErrAudienceRequired     = errors.New("audience is required but was empty")
+	ErrUnsupportedAlgorithm = errors.New("unsupported signature algorithm")
+)
 
 var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
 	EdDSA: true,
@@ -54,8 +53,17 @@ var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
 	PS512: true,
 }
 
-// New sets up a new Validator with the required keyFunc
-// and signatureAlgorithm as well as custom options.
+// Validator to use with the jose v2 package.
+type Validator struct {
+	keyFunc            func(context.Context) (interface{}, error) // Required.
+	signatureAlgorithm SignatureAlgorithm                         // Required.
+	expectedClaims     jwt.Expected                               // Internal.
+	customClaims       func() CustomClaims                        // Optional.
+	allowedClockSkew   time.Duration                              // Optional.
+}
+
+// New sets up a new Validator with the required keyFunc,
+// signatureAlgorithm, issuerURL, and audience as well as custom options.
 func New(
 	keyFunc func(context.Context) (interface{}, error),
 	signatureAlgorithm SignatureAlgorithm,
@@ -64,16 +72,16 @@ func New(
 	opts ...Option,
 ) (*Validator, error) {
 	if keyFunc == nil {
-		return nil, errors.New("keyFunc is required but was nil")
+		return nil, ErrKeyFuncRequired
 	}
 	if issuerURL == "" {
-		return nil, errors.New("issuer url is required but was empty")
+		return nil, ErrIssuerURLRequired
 	}
 	if len(audience) == 0 {
-		return nil, errors.New("audience is required but was empty")
+		return nil, ErrAudienceRequired
 	}
 	if _, ok := allowedSigningAlgorithms[signatureAlgorithm]; !ok {
-		return nil, errors.New("unsupported signature algorithm")
+		return nil, ErrUnsupportedAlgorithm
 	}
 
 	v := &Validator{
@@ -86,7 +94,9 @@ func New(
 	}
 
 	for _, opt := range opts {
-		opt(v)
+		if err := opt(v); err != nil {
+			return nil, err
+		}
 	}
 
 	return v, nil

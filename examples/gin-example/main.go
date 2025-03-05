@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
+	"time"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2" // Import the Gin integration with alias
+	jwtginhandler "github.com/auth0/go-jwt-middleware/v2/framework/gin"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"github.com/gin-gonic/gin"
 )
@@ -40,9 +44,53 @@ import (
 //	  "shouldReject": true
 //	}
 
+// CustomClaimsExample contains custom data we want from the token.
+type CustomClaimsExample struct {
+	Name         string `json:"name"`
+	Username     string `json:"username"`
+	ShouldReject bool   `json:"shouldReject,omitempty"`
+}
+
+// Validate errors out if `ShouldReject` is true.
+func (c *CustomClaimsExample) Validate(ctx context.Context) error {
+	if c.ShouldReject {
+		return errors.New("should reject was set to true")
+	}
+	return nil
+}
+
 func main() {
-	router := gin.Default()
-	router.GET("/", checkJWT(), func(ctx *gin.Context) {
+	router := gin.Default() // Changed 'gin' to 'router'
+
+	// Configuration
+	issuer := "go-jwt-middleware-example"
+	audience := []string{"audience-example"}
+	signingKey := []byte("secret")
+
+	// Set up the validator.
+	jwtValidator, err := validator.New(
+		func(ctx context.Context) (any, error) {
+			return signingKey, nil
+		},
+		validator.HS256,
+		issuer,
+		audience,
+		validator.WithCustomClaims(func() validator.CustomClaims {
+			return &CustomClaimsExample{}
+		}),
+		validator.WithAllowedClockSkew(30*time.Second),
+	)
+	if err != nil {
+		log.Fatalf("failed to set up the validator: %v", err)
+	}
+
+	// Create options for the middleware
+
+	ginMiddleware := jwtginhandler.NewGinMiddleware(jwtValidator)
+	// Apply the middleware to the router
+	router.Use(ginMiddleware) // Use the alias
+
+	router.GET("/", func(ctx *gin.Context) {
 		claims, ok := ctx.Request.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
 		if !ok {
 			ctx.AbortWithStatusJSON(
@@ -74,6 +122,6 @@ func main() {
 
 	log.Print("Server listening on http://localhost:3000")
 	if err := http.ListenAndServe("0.0.0.0:3000", router); err != nil {
-		log.Fatalf("There was an error with the http server: %v", err)
+		log.Fatalf("There was an error starting the server: %v", err)
 	}
 }

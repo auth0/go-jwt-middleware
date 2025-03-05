@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
+	jwtechohandler "github.com/auth0/go-jwt-middleware/v2/framework/echo" // Import the Echo integration
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"github.com/labstack/echo/v4"
 )
@@ -40,9 +44,53 @@ import (
 //	  "shouldReject": true
 //	}
 
+var (
+	// Configuration
+	issuer       = "go-jwt-middleware-example"
+	audience     = []string{"audience-example"}
+	signingKey   = []byte("secret")
+	customClaims = func() validator.CustomClaims {
+		return &CustomClaimsExample{}
+	}
+)
+
+// CustomClaimsExample contains custom data we want from the token.
+type CustomClaimsExample struct {
+	Name         string `json:"name"`
+	Username     string `json:"username"`
+	ShouldReject bool   `json:"shouldReject,omitempty"`
+}
+
+// Validate errors out if `ShouldReject` is true.
+func (c *CustomClaimsExample) Validate(ctx context.Context) error {
+	if c.ShouldReject {
+		return errors.New("should reject was set to true")
+	}
+	return nil
+}
+
 func main() {
 	app := echo.New()
 
+	// Set up the validator.
+	jwtValidator, err := validator.New(
+		func(ctx context.Context) (any, error) {
+			return signingKey, nil
+		},
+		validator.HS256,
+		issuer,
+		audience,
+		validator.WithCustomClaims(customClaims),
+		validator.WithAllowedClockSkew(30*time.Second),
+	)
+	if err != nil {
+		log.Fatalf("failed to set up the validator: %v", err)
+	}
+
+	// Create and apply the middleware
+	echoMiddleware := jwtechohandler.NewEchoMiddleware(jwtValidator)
+
+	// Apply the middleware to specific routes or use it as a global middleware
 	app.GET("/", func(ctx echo.Context) error {
 		claims, ok := ctx.Request().Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
 		if !ok {
@@ -72,11 +120,10 @@ func main() {
 
 		ctx.JSON(http.StatusOK, claims)
 		return nil
-	}, checkJWT)
+	}, echoMiddleware)
 
 	log.Print("Server listening on http://localhost:3000")
-	err := app.Start(":3000")
-	if err != nil {
+	if err := app.Start(":3000"); err != nil {
 		log.Fatalf("There was an error with the http server: %v", err)
 	}
 }

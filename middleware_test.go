@@ -3,6 +3,7 @@ package jwtmiddleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -110,6 +111,23 @@ func Test_CheckJWT(t *testing.T) {
 			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
 		},
 		{
+			name: "it calls the custom error handler when token validation fails",
+			options: []Option{
+				WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write(fmt.Appendf(nil, `{"message":"Custom error: %s"}`, err.Error()))
+				}),
+			},
+			validateToken: func(context.Context, string) (interface{}, error) {
+				return nil, errors.New("token validation failed")
+			},
+			token:          "invalid_token",
+			method:         http.MethodGet,
+			wantStatusCode: http.StatusForbidden,
+			wantBody:       `{"message":"Custom error: error extracting token: Authorization header format must be Bearer {token}"}`,
+		},
+		{
 			name: "credentialsOptional true",
 			options: []Option{
 				WithCredentialsOptional(true),
@@ -174,6 +192,32 @@ func Test_CheckJWT(t *testing.T) {
 			},
 			method:         http.MethodGet,
 			path:           "/secure",
+			token:          "",
+			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"message":"JWT is missing."}`,
+		},
+		{
+			name: "JWT not required for /custom_exclusion using WithExclusionUrlHandler",
+			options: []Option{
+				WithExclusionUrlHandler(func(r *http.Request) bool {
+					return r.URL.Path == "/custom_exclusion"
+				}),
+			},
+			method:         http.MethodGet,
+			path:           "/custom_exclusion",
+			token:          "",
+			wantStatusCode: http.StatusOK,
+			wantBody:       `{"message":"Authenticated."}`,
+		},
+		{
+			name: "JWT required for /not_excluded using WithExclusionUrlHandler",
+			options: []Option{
+				WithExclusionUrlHandler(func(r *http.Request) bool {
+					return r.URL.Path == "/custom_exclusion"
+				}),
+			},
+			method:         http.MethodGet,
+			path:           "/not_excluded",
 			token:          "",
 			wantStatusCode: http.StatusBadRequest,
 			wantBody:       `{"message":"JWT is missing."}`,

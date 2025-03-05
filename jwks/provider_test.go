@@ -161,6 +161,18 @@ func Test_JWKSProvider(t *testing.T) {
 		},
 	)
 
+	t.Run("It fails when the well-known endpoint returns a malformed JWKS URI", func(t *testing.T) {
+		malformedJWKSURL, err := url.Parse(testServer.URL + "/malformed_jwks_uri")
+		require.NoError(t, err)
+
+		provider := NewProvider(malformedJWKSURL)
+		_, err = provider.KeyFunc(context.Background())
+
+		if !strings.Contains(err.Error(), "could not parse JWKS URI from well known endpoints") {
+			t.Fatalf("wanted an error, but got %s", err)
+		}
+	})
+
 	t.Run("It only calls the API once when multiple requests come in when using the CachingProvider with expired cache", func(t *testing.T) {
 		initialJWKS, err := generateJWKS()
 		require.NoError(t, err)
@@ -284,7 +296,7 @@ func Test_JWKSProvider(t *testing.T) {
 		}
 		wg.Wait()
 
-		assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "only wanted 2 requests (well known and jwks), but we got %d requests")
+		assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "only wanted 2 requests (well known and jwks), but we got %d requests", atomic.LoadInt32(&requestCount))
 	})
 	t.Run("It correctly applies both ProviderOptions and CachingProviderOptions when using the CachingProvider without breaking", func(t *testing.T) {
 		issuerURL, _ := url.Parse("https://example.com")
@@ -313,6 +325,90 @@ func Test_JWKSProvider(t *testing.T) {
 				"invalid_option",
 			)
 		}, "Expected panic when passing an invalid option type")
+	})
+
+	t.Run("It handles errors during JWKS refresh in refreshKey", func(t *testing.T) {
+		errorURL, err := url.Parse(testServer.URL + "/error")
+		require.NoError(t, err)
+
+		provider := NewCachingProvider(errorURL, 5*time.Minute)
+
+		_, err = provider.KeyFunc(context.Background())
+		require.Error(t, err)
+	})
+
+	t.Run("It verifies NewCachingProvider's behavior with nil URL", func(t *testing.T) {
+		// Using nil URL to test behavior
+		var invalidURL *url.URL = nil
+
+		// We expect this to work but return an error when used
+		provider := NewCachingProvider(invalidURL, 30*time.Second)
+
+		// Since provider is created without error, we should be able to access it
+		assert.NotNil(t, provider)
+
+		// But trying to use it should produce an error
+		assert.Panics(t, func() {
+			_, _ = provider.KeyFunc(context.Background())
+		})
+	})
+
+	t.Run("It returns an error when the HTTP client returns an error when fetching the JWKS from the custom JWKS URI", func(t *testing.T) {
+		invalidJWKSURI, err := url.Parse(testServer.URL + "/invalid/jwks.json")
+		require.NoError(t, err)
+
+		provider := NewCachingProvider(testServerURL, 5*time.Minute, WithCustomJWKSURI(invalidJWKSURI), WithCustomClient(&http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, fmt.Errorf("simulated error")
+			}),
+		}))
+		_, err = provider.KeyFunc(context.Background())
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "simulated error")
+	})
+
+	t.Run("It panics when NewCachingProvider is called with a negative cacheTTL", func(t *testing.T) {
+		issuerURL, _ := url.Parse("https://example.com")
+
+		assert.Panics(t, func() {
+			NewCachingProvider(
+				issuerURL,
+				-30*time.Second,
+			)
+		}, "Expected panic when passing a negative cacheTTL")
+	})
+
+	t.Run("It handles a generic error from oidc.GetWellKnownEndpointsFromIssuerURL", func(t *testing.T) {
+		errorURL, err := url.Parse(testServer.URL + "/generic_error")
+		require.NoError(t, err)
+
+		provider := NewCachingProvider(errorURL, 5*time.Minute)
+
+		_, err = provider.KeyFunc(context.Background())
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "Internal Server Error")
+	})
+
+	t.Run("It sets the synchronousRefresh field correctly when using WithSynchronousRefresh", func(t *testing.T) {
+		issuerURL, _ := url.Parse("https://example.com")
+
+		provider := NewCachingProvider(
+			issuerURL,
+			30*time.Second,
+			WithSynchronousRefresh(true),
+		)
+
+		assert.True(t, provider.synchronousRefresh, "synchronousRefresh should be true")
+
+		provider = NewCachingProvider(
+			issuerURL,
+			30*time.Second,
+			WithSynchronousRefresh(false),
+		)
+
+		assert.False(t, provider.synchronousRefresh, "synchronousRefresh should be false")
 	})
 }
 
@@ -372,6 +468,10 @@ func setupTestServer(
 			wk := oidc.WellKnownEndpoints{JWKSURI: ":"}
 			err := json.NewEncoder(w).Encode(wk)
 			require.NoError(t, err)
+		case "/malformed_jwks_uri/.well-known/openid-configuration":
+			wk := oidc.WellKnownEndpoints{JWKSURI: "://malformed"}
+			err := json.NewEncoder(w).Encode(wk)
+			require.NoError(t, err)
 		case "/.well-known/openid-configuration":
 			wk := oidc.WellKnownEndpoints{JWKSURI: server.URL + "/.well-known/jwks.json"}
 			err := json.NewEncoder(w).Encode(wk)
@@ -382,10 +482,20 @@ func setupTestServer(
 		case "/custom/jwks.json":
 			err := json.NewEncoder(w).Encode(expectedCustomJWKS)
 			require.NoError(t, err)
+		case "/error/.well-known/openid-configuration":
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		case "/generic_error/.well-known/openid-configuration":
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		default:
 			t.Fatalf("was not expecting to handle the following url: %s", r.URL.String())
 		}
 	})
 
 	return httptest.NewServer(handler)
+}
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

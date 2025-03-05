@@ -34,6 +34,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		keyFunc        func(context.Context) (interface{}, error)
 		algorithm      SignatureAlgorithm
 		customClaims   func() CustomClaims
+		options        []Option
 		expectedError  error
 		expectedClaims *ValidatedClaims
 	}{
@@ -61,6 +62,13 @@ func TestValidator_ValidateToken(t *testing.T) {
 			algorithm: HS256,
 			customClaims: func() CustomClaims {
 				return &testClaims{}
+			},
+			options: []Option{
+				WithCustomClaims(func() CustomClaims {
+					return &testClaims{
+						Scope: "read:messages",
+					}
+				}),
 			},
 			expectedClaims: &ValidatedClaims{
 				RegisteredClaims: RegisteredClaims{
@@ -130,6 +138,13 @@ func TestValidator_ValidateToken(t *testing.T) {
 					ReturnError: errors.New("custom claims error message"),
 				}
 			},
+			options: []Option{
+				WithCustomClaims(func() CustomClaims {
+					return &testClaims{
+						ReturnError: errors.New("custom claims error message"),
+					}
+				}),
+			},
 			expectedError: errors.New("custom claims not validated: custom claims error message"),
 		},
 		{
@@ -141,6 +156,11 @@ func TestValidator_ValidateToken(t *testing.T) {
 			algorithm: HS256,
 			customClaims: func() CustomClaims {
 				return nil
+			},
+			options: []Option{
+				WithCustomClaims(func() CustomClaims {
+					return nil
+				}),
 			},
 			expectedClaims: &ValidatedClaims{
 				RegisteredClaims: RegisteredClaims{
@@ -247,31 +267,38 @@ func TestNewValidator(t *testing.T) {
 
 	t.Run("it throws an error when the keyFunc is nil", func(t *testing.T) {
 		_, err := New(nil, algorithm, issuer, []string{audience})
-		assert.EqualError(t, err, "keyFunc is required but was nil")
+		assert.EqualError(t, err, ErrKeyFuncRequired.Error())
 	})
 
 	t.Run("it throws an error when the signature algorithm is empty", func(t *testing.T) {
 		_, err := New(keyFunc, "", issuer, []string{audience})
-		assert.EqualError(t, err, "unsupported signature algorithm")
+		assert.EqualError(t, err, ErrUnsupportedAlgorithm.Error())
 	})
 
 	t.Run("it throws an error when the signature algorithm is unsupported", func(t *testing.T) {
 		_, err := New(keyFunc, "none", issuer, []string{audience})
-		assert.EqualError(t, err, "unsupported signature algorithm")
+		assert.EqualError(t, err, ErrUnsupportedAlgorithm.Error())
 	})
 
 	t.Run("it throws an error when the issuerURL is empty", func(t *testing.T) {
 		_, err := New(keyFunc, algorithm, "", []string{audience})
-		assert.EqualError(t, err, "issuer url is required but was empty")
+		assert.EqualError(t, err, ErrIssuerURLRequired.Error())
 	})
 
 	t.Run("it throws an error when the audience is nil", func(t *testing.T) {
 		_, err := New(keyFunc, algorithm, issuer, nil)
-		assert.EqualError(t, err, "audience is required but was empty")
+		assert.EqualError(t, err, ErrAudienceRequired.Error())
 	})
 
 	t.Run("it throws an error when the audience is empty", func(t *testing.T) {
 		_, err := New(keyFunc, algorithm, issuer, []string{})
-		assert.EqualError(t, err, "audience is required but was empty")
+		assert.EqualError(t, err, ErrAudienceRequired.Error())
+	})
+
+	t.Run("it throws an error when a functional option returns an error", func(t *testing.T) {
+		_, err := New(keyFunc, algorithm, issuer, []string{audience}, func(*Validator) error {
+			return errors.New("functional option error")
+		})
+		assert.EqualError(t, err, "functional option error")
 	})
 }

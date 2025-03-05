@@ -26,8 +26,6 @@ type Provider struct {
 	Client        *http.Client
 }
 
-// ProviderOption is how options for the Provider are set up.
-type ProviderOption func(*Provider)
 
 // NewProvider builds and returns a new *Provider.
 func NewProvider(issuerURL *url.URL, opts ...ProviderOption) *Provider {
@@ -43,21 +41,7 @@ func NewProvider(issuerURL *url.URL, opts ...ProviderOption) *Provider {
 	return p
 }
 
-// WithCustomJWKSURI will set a custom JWKS URI on the *Provider and
-// call this directly inside the keyFunc in order to fetch the JWKS,
-// skipping the oidc.GetWellKnownEndpointsFromIssuerURL call.
-func WithCustomJWKSURI(jwksURI *url.URL) ProviderOption {
-	return func(p *Provider) {
-		p.CustomJWKSURI = jwksURI
-	}
-}
 
-// WithCustomClient will set a custom *http.Client on the *Provider
-func WithCustomClient(c *http.Client) ProviderOption {
-	return func(p *Provider) {
-		p.Client = c
-	}
-}
 
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
 // While it returns an interface to adhere to keyFunc, as long as the
@@ -119,11 +103,14 @@ type cachedJWKS struct {
 	expiresAt time.Time
 }
 
-type CachingProviderOption func(*CachingProvider)
 
 // NewCachingProvider builds and returns a new CachingProvider.
 // If cacheTTL is zero then a default value of 1 minute will be used.
 func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...interface{}) *CachingProvider {
+	if cacheTTL < 0 {
+		panic("cacheTTL must be non-negative")
+	}
+
 	if cacheTTL == 0 {
 		cacheTTL = 1 * time.Minute
 	}
@@ -195,14 +182,6 @@ func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	return c.refreshKey(ctx, issuer)
 }
 
-// WithSynchronousRefresh sets whether the CachingProvider blocks on refresh.
-// If set to true, it will block and wait for the refresh to complete.
-// If set to false (default), it will return the cached JWKS and trigger a background refresh.
-func WithSynchronousRefresh(blocking bool) CachingProviderOption {
-	return func(cp *CachingProvider) {
-		cp.synchronousRefresh = blocking
-	}
-}
 
 func (c *CachingProvider) refreshKey(ctx context.Context, issuer string) (interface{}, error) {
 	c.mu.Lock()
