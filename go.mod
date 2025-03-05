@@ -1,6 +1,6 @@
 module github.com/auth0/go-jwt-middleware/v2
 
-go 1.22
+go 1.23.0
 
 require (
 	github.com/google/go-cmp v0.7.0
@@ -45,6 +45,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gin-gonic/gin v1.10.0
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
