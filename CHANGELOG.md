@@ -1,5 +1,16 @@
 # Change Log
 
+## [v2.3.0](https://github.com/auth0/go-jwt-middleware/tree/v2.3.0) (2025-03-05)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.2.2...v2.3.0)
+
+**Added**
+- Bump Go version to 1.23 and update example dependencies [\#328](https://github.com/auth0/go-jwt-middleware/pull/328) ([developerkunal](https://github.com/developerkunal))
+- [GH-288] Add Support for `WithSynchronousRefresh` Option in `CachingProvider` for Blocking/Non-Blocking Key Refresh [\#314](https://github.com/auth0/go-jwt-middleware/pull/314) ([developerkunal](https://github.com/developerkunal))
+- [SDK-5703] [GH-283] Add support for exclusion URLs in JWT middleware [\#319](https://github.com/auth0/go-jwt-middleware/pull/319) ([developerkunal](https://github.com/developerkunal))
+
+**Fixed**
+- fix(oidc): Validate HTTP response status and improve error messaging in OIDC (#308) [\#316](https://github.com/auth0/go-jwt-middleware/pull/316) ([developerkunal](https://github.com/developerkunal))
+
 ## [v2.2.2](https://github.com/auth0/go-jwt-middleware/tree/v2.2.2) (2024-08-23)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.2.1...v2.2.2)
 
