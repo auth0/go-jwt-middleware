@@ -2,200 +2,149 @@ package jwks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
-	"golang.org/x/sync/semaphore"
-	"gopkg.in/go-jose/go-jose.v2"
-
 	"github.com/auth0/go-jwt-middleware/v2/internal/oidc"
+	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
-// Provider handles getting JWKS from the specified IssuerURL and exposes
-// KeyFunc which adheres to the keyFunc signature that the Validator requires.
-// Most likely you will want to use the CachingProvider as it handles
-// getting and caching JWKS which can help reduce request time and potential
-// rate limiting from your provider.
+// Provider handles fetching JWKS (JSON Web Key Sets) from an issuer URL or a custom JWKS URI.
+// It exposes the KeyFunc method to retrieve the keys for JWT validation.
+// Use CachingProvider for better performance by reducing redundant network requests.
 type Provider struct {
-	IssuerURL     *url.URL // Required.
-	CustomJWKSURI *url.URL // Optional.
-	Client        *http.Client
+	IssuerURL     *url.URL     // The URL of the issuer to fetch JWKS from.
+	CustomJWKSURI *url.URL     // Optional custom JWKS URI to override the issuer discovery.
+	Client        *http.Client // HTTP client to use for requests.
+	once          sync.Once    // Ensures that the JWKS URI initialization happens only once.
+	jwksURI       *url.URL     // The resolved JWKS URI after initialization.
+	initErr       error        // Stores any initialization error.
 }
 
-
-// NewProvider builds and returns a new *Provider.
+// NewProvider creates a new Provider instance with optional configurations.
 func NewProvider(issuerURL *url.URL, opts ...ProviderOption) *Provider {
 	p := &Provider{
 		IssuerURL: issuerURL,
-		Client:    &http.Client{},
+		Client:    http.DefaultClient,
 	}
-
 	for _, opt := range opts {
 		opt(p)
 	}
-
 	return p
 }
 
-
-
-// KeyFunc adheres to the keyFunc signature that the Validator requires.
-// While it returns an interface to adhere to keyFunc, as long as the
-// error is nil the type will be *jose.JSONWebKeySet.
+// KeyFunc retrieves the JWKS from the configured URI. It initializes the JWKS URI once and fetches the keys.
+// It returns an error if the JWKS URI is not set or if the keys cannot be fetched.
+// It returns a jwk.Set instance that can be used to verify JWT tokens.
 func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
-	jwksURI := p.CustomJWKSURI
-	if jwksURI == nil {
-		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.Client, *p.IssuerURL)
-		if err != nil {
-			return nil, err
-		}
-
-		jwksURI, err = url.Parse(wkEndpoints.JWKSURI)
-		if err != nil {
-			return nil, fmt.Errorf("could not parse JWKS URI from well known endpoints: %w", err)
-		}
+	p.once.Do(func() {
+		p.jwksURI, p.initErr = p.initJWKSURI(ctx)
+	})
+	if p.initErr != nil {
+		return nil, p.initErr
 	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("could not build request to get JWKS: %w", err)
+	if p.jwksURI == nil {
+		return nil, fmt.Errorf("JWKS URI is nil after initialization")
 	}
-
-	response, err := p.Client.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-
-	var jwks jose.JSONWebKeySet
-	if err := json.NewDecoder(response.Body).Decode(&jwks); err != nil {
-		return nil, fmt.Errorf("could not decode jwks: %w", err)
-	}
-
-	return &jwks, nil
+	return jwk.Fetch(ctx, p.jwksURI.String(), jwk.WithHTTPClient(p.Client))
 }
 
-// CachingProvider handles getting JWKS from the specified IssuerURL
-// and caching them for CacheTTL time. It exposes KeyFunc which adheres
-// to the keyFunc signature that the Validator requires.
-// When the CacheTTL value has been reached, a JWKS refresh will be triggered
-// in the background and the existing cached JWKS will be returned until the
-// JWKS cache is updated, or if the request errors then it will be evicted from
-// the cache.
-// The cache is keyed by the issuer's hostname. The synchronousRefresh
-// field determines whether the refresh is done synchronously or asynchronously.
-// This can be set using the WithSynchronousRefresh option.
+// CachingProvider extends Provider by adding caching logic to reduce network calls and improve performance.
+// It uses a refresh window to trigger cache updates before expiration and supports configurable TTL for keys.
+// Use NewCachingProvider to create a CachingProvider instance with cache TTL and optional configurations.
 type CachingProvider struct {
-	*Provider
-	CacheTTL           time.Duration
-	mu                 sync.RWMutex
-	cache              map[string]cachedJWKS
-	sem                *semaphore.Weighted
-	synchronousRefresh bool
+	Provider
+	CacheTTL time.Duration // Time-to-live for cache entries.
+	cache    *jwk.Cache    // The JWKS cache instance.
 }
 
-type cachedJWKS struct {
-	jwks      *jose.JSONWebKeySet
-	expiresAt time.Time
-}
-
-
-// NewCachingProvider builds and returns a new CachingProvider.
-// If cacheTTL is zero then a default value of 1 minute will be used.
+// NewCachingProvider creates a CachingProvider with cache TTL and optional configurations.
+// It automatically handles background refreshes to ensure fresh keys are available.
+// Use the ProviderOption and CachingProviderOption functions to configure the provider.
+// The cache TTL is set to 1 minute by default if not specified.
 func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...interface{}) *CachingProvider {
-	if cacheTTL < 0 {
-		panic("cacheTTL must be non-negative")
+	if cacheTTL <= 0 {
+		cacheTTL = time.Minute // Default TTL if none is specified.
 	}
 
-	if cacheTTL == 0 {
-		cacheTTL = 1 * time.Minute
+	cp := &CachingProvider{
+		Provider: Provider{
+			IssuerURL: issuerURL,
+			Client:    http.DefaultClient,
+		},
+		CacheTTL: cacheTTL,
 	}
-
-	var providerOpts []ProviderOption
-	var cachingOpts []CachingProviderOption
 
 	for _, opt := range opts {
 		switch o := opt.(type) {
 		case ProviderOption:
-			providerOpts = append(providerOpts, o)
+			o(&cp.Provider)
 		case CachingProviderOption:
-			cachingOpts = append(cachingOpts, o)
+			o(cp)
 		default:
 			panic(fmt.Sprintf("invalid option type: %T", o))
 		}
-	}
-	cp := &CachingProvider{
-		Provider:           NewProvider(issuerURL, providerOpts...),
-		CacheTTL:           cacheTTL,
-		cache:              map[string]cachedJWKS{},
-		sem:                semaphore.NewWeighted(1),
-		synchronousRefresh: false,
-	}
-
-	for _, opt := range cachingOpts {
-		opt(cp)
 	}
 
 	return cp
 }
 
-// KeyFunc adheres to the keyFunc signature that the Validator requires.
-// While it returns an interface to adhere to keyFunc, as long as the
-// error is nil the type will be *jose.JSONWebKeySet.
+// KeyFunc retrieves the cached JWKS or fetches and caches it if necessary.
+// It ensures that the cache is refreshed within the refresh window to avoid key expiration issues.
+// It returns an error if the JWKS URI is not set or if the keys cannot be fetched.
+// It returns a jwk.Set instance that can be used to verify JWT tokens.
 func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
-	c.mu.RLock()
-
-	issuer := c.IssuerURL.Hostname()
-
-	if cached, ok := c.cache[issuer]; ok {
-		if time.Now().After(cached.expiresAt) && c.sem.TryAcquire(1) {
-			if !c.synchronousRefresh {
-				go func() {
-					defer c.sem.Release(1)
-					refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					defer cancel()
-					_, err := c.refreshKey(refreshCtx, issuer)
-
-					if err != nil {
-						c.mu.Lock()
-						delete(c.cache, issuer)
-						c.mu.Unlock()
-					}
-				}()
-				c.mu.RUnlock()
-				return cached.jwks, nil
-			} else {
-				c.mu.RUnlock()
-				defer c.sem.Release(1)
-				return c.refreshKey(ctx, issuer)
-			}
+	c.once.Do(func() {
+		refreshWindow := c.CacheTTL / 2 // Refresh when half the TTL has elapsed.
+		c.cache = jwk.NewCache(ctx, jwk.WithRefreshWindow(refreshWindow))
+		c.jwksURI, c.initErr = c.initJWKSURI(ctx)
+		if c.initErr != nil || c.jwksURI == nil {
+			return
 		}
-		c.mu.RUnlock()
-		return cached.jwks, nil
+
+		// Register the JWKS URI with the cache, ensuring periodic refreshes.
+		if err := c.cache.Register(
+			c.jwksURI.String(),
+			jwk.WithMinRefreshInterval(c.CacheTTL),
+			jwk.WithHTTPClient(c.Client),
+		); err != nil {
+			c.initErr = fmt.Errorf("cache registration failed: %w", err)
+			return
+		}
+
+		// Perform the initial refresh to populate the cache.
+		_, c.initErr = c.cache.Refresh(ctx, c.jwksURI.String())
+	})
+
+	if c.initErr != nil {
+		return nil, c.initErr
 	}
 
-	c.mu.RUnlock()
-	return c.refreshKey(ctx, issuer)
+	return jwk.NewCachedSet(c.cache, c.jwksURI.String()), nil
 }
 
+// initJWKSURI initializes and resolves the JWKS URI either from a custom URI or via OIDC discovery.
+func (p *Provider) initJWKSURI(ctx context.Context) (*url.URL, error) {
+	if p.CustomJWKSURI != nil {
+		return p.CustomJWKSURI, nil
+	}
+	return jwksFromIssuerURL(ctx, p.IssuerURL, p.Client)
+}
 
-func (c *CachingProvider) refreshKey(ctx context.Context, issuer string) (interface{}, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	jwks, err := c.Provider.KeyFunc(ctx)
+// jwksFromIssuerURL performs OIDC discovery to resolve the JWKS URI from the issuer's well-known configuration.
+func jwksFromIssuerURL(ctx context.Context, issuerURL *url.URL, client *http.Client) (*url.URL, error) {
+	if issuerURL == nil {
+		return nil, fmt.Errorf("issuer URL is required")
+	}
+	wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, client, *issuerURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to retrieve well-known endpoints: %w", err)
 	}
-
-	c.cache[issuer] = cachedJWKS{
-		jwks:      jwks.(*jose.JSONWebKeySet),
-		expiresAt: time.Now().Add(c.CacheTTL),
+	if wkEndpoints.JWKSURI == "" {
+		return nil, fmt.Errorf("empty JWKS URI received from well-known endpoints")
 	}
-
-	return jwks, nil
+	return url.Parse(wkEndpoints.JWKSURI)
 }

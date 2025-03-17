@@ -10,7 +10,6 @@ import (
 
 	"github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 )
 
 var (
@@ -76,7 +75,7 @@ func setupHandler() http.Handler {
 	jwtValidator, err := validator.New(
 		keyFunc,
 		validator.HS256,
-		issuer,
+		[]string{issuer},
 		audience,
 		validator.WithCustomClaims(customClaims),
 		validator.WithAllowedClockSkew(30*time.Second),

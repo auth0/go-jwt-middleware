@@ -35,7 +35,7 @@ func Test_CheckJWT(t *testing.T) {
 		return []byte("secret"), nil
 	}
 
-	jwtValidator, err := validator.New(keyFunc, validator.HS256, issuer, []string{audience})
+	jwtValidator, err := validator.New(keyFunc, validator.HS256, []string{issuer}, []string{audience})
 	require.NoError(t, err)
 
 	testCases := []struct {

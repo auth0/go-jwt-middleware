@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2" // Import the Gin integration with alias
 	jwtginhandler "github.com/auth0/go-jwt-middleware/v2/framework/gin"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"github.com/gin-gonic/gin"
@@ -60,7 +59,7 @@ func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 }
 
 func main() {
-	router := gin.Default() // Changed 'gin' to 'router'
+	router := gin.Default()
 
 	// Configuration
 	issuer := "go-jwt-middleware-example"
@@ -73,7 +72,7 @@ func main() {
 			return signingKey, nil
 		},
 		validator.HS256,
-		issuer,
+		[]string{issuer},
 		audience,
 		validator.WithCustomClaims(func() validator.CustomClaims {
 			return &CustomClaimsExample{}
@@ -84,15 +83,14 @@ func main() {
 		log.Fatalf("failed to set up the validator: %v", err)
 	}
 
-	// Create options for the middleware
-
-	ginMiddleware := jwtginhandler.NewGinMiddleware(jwtValidator)
-	// Apply the middleware to the router
-	router.Use(ginMiddleware) // Use the alias
+	// Create and apply the Gin middleware
+	ginMiddleware := jwtginhandler.NewGinMiddleware(jwtValidator.ValidateToken)
+	router.Use(ginMiddleware)
 
 	router.GET("/", func(ctx *gin.Context) {
-		claims, ok := ctx.Request.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-		if !ok {
+		// Get claims using the gin handler's method
+		claims, err := jwtginhandler.GetClaims(ctx, jwtginhandler.DefaultClaimsKey)
+		if err != nil {
 			ctx.AbortWithStatusJSON(
 				http.StatusInternalServerError,
 				map[string]string{"message": "Failed to get validated JWT claims."},

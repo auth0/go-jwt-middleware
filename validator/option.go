@@ -27,3 +27,34 @@ func WithCustomClaims(f func() CustomClaims) Option {
 		return nil
 	}
 }
+
+// WithExpectedIssuers overwrites the issuers provided during initialization
+func WithExpectedIssuers(issuers []string) Option {
+	return func(v *Validator) error {
+		if len(issuers) == 0 {
+			return ErrIssuerURLRequired
+		}
+		v.expectedIssuers = issuers
+		return nil
+	}
+}
+
+// WithAdditionalIssuers adds more issuers to the list of expected issuers
+func WithAdditionalIssuers(additionalIssuers []string) Option {
+	return func(v *Validator) error {
+		if len(additionalIssuers) == 0 {
+			return nil // No issuers to add, just return without error
+		}
+		v.expectedIssuers = append(v.expectedIssuers, additionalIssuers...)
+		return nil
+	}
+}
+
+// WithSkipIssuerValidation configures the validator to skip issuer validation
+// This should be used with caution as it bypasses a security check
+func WithSkipIssuerValidation() Option {
+	return func(v *Validator) error {
+		v.skipIssuerValidation = true
+		return nil
+	}
+}

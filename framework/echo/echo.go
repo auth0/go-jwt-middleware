@@ -8,6 +8,8 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+var DefaultClaimsKey = "jwt"
+
 // echoMiddlewareConfig holds all configuration for the middleware
 type echoMiddlewareConfig struct {
 	errorHandler   func(echo.Context, error)
@@ -15,12 +17,12 @@ type echoMiddlewareConfig struct {
 	tokenExtractor jwtmiddleware.TokenExtractor
 }
 
-// EchoMiddleware is a constructor for the Echo middleware with improved DX
-func EchoMiddleware(validateToken jwtmiddleware.ValidateToken, opts ...Option) echo.MiddlewareFunc {
+// NewEchoMiddleware is a constructor for the Echo middleware with improved DX
+func NewEchoMiddleware(validateToken jwtmiddleware.ValidateToken, opts ...Option) echo.MiddlewareFunc {
 	// Set default config
 	config := &echoMiddlewareConfig{
 		errorHandler: defaultEchoErrorHandler,
-		contextKey:   "jwt", // Default context key for claims
+		contextKey:   DefaultClaimsKey, // Default context key for claims
 	}
 
 	// Apply all options
@@ -56,7 +58,10 @@ func EchoMiddleware(validateToken jwtmiddleware.ValidateToken, opts ...Option) e
 					c.Set(config.contextKey, claims)
 				}
 
-				next(c)
+				err := next(c)
+				if err != nil {
+					return
+				}
 			}
 
 			middleware.CheckJWT(handler).ServeHTTP(c.Response(), c.Request())
@@ -70,13 +75,21 @@ func EchoMiddleware(validateToken jwtmiddleware.ValidateToken, opts ...Option) e
 }
 
 func defaultEchoErrorHandler(c echo.Context, err error) {
-	c.JSON(http.StatusUnauthorized, map[string]string{
+	err = c.JSON(http.StatusUnauthorized, map[string]string{
 		"message": err.Error(),
 	})
+	if err != nil {
+		return
+	}
 }
 
-// NewEchoMiddleware is a constructor for the Echo middleware.
-// Deprecated: Use EchoMiddleware instead.
-func NewEchoMiddleware(jwtValidator *validator.Validator, options ...Option) echo.MiddlewareFunc {
-	return EchoMiddleware(jwtValidator.ValidateToken, options...)
+// GetClaims extracts the JWT claims from the Echo context
+func GetClaims(c echo.Context, contextKey string) (*validator.ValidatedClaims, bool) {
+	claims := c.Get(contextKey)
+	if claims == nil {
+		return nil, false
+	}
+
+	validatedClaims, ok := claims.(*validator.ValidatedClaims)
+	return validatedClaims, ok
 }

@@ -2,32 +2,35 @@ package validator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	"gopkg.in/go-jose/go-jose.v2/jwt"
-)
-
-// Signature algorithms
-const (
-	EdDSA = SignatureAlgorithm("EdDSA")
-	HS256 = SignatureAlgorithm("HS256") // HMAC using SHA-256
-	HS384 = SignatureAlgorithm("HS384") // HMAC using SHA-384
-	HS512 = SignatureAlgorithm("HS512") // HMAC using SHA-512
-	RS256 = SignatureAlgorithm("RS256") // RSASSA-PKCS-v1.5 using SHA-256
-	RS384 = SignatureAlgorithm("RS384") // RSASSA-PKCS-v1.5 using SHA-384
-	RS512 = SignatureAlgorithm("RS512") // RSASSA-PKCS-v1.5 using SHA-512
-	ES256 = SignatureAlgorithm("ES256") // ECDSA using P-256 and SHA-256
-	ES384 = SignatureAlgorithm("ES384") // ECDSA using P-384 and SHA-384
-	ES512 = SignatureAlgorithm("ES512") // ECDSA using P-521 and SHA-512
-	PS256 = SignatureAlgorithm("PS256") // RSASSA-PSS using SHA256 and MGF1-SHA256
-	PS384 = SignatureAlgorithm("PS384") // RSASSA-PSS using SHA384 and MGF1-SHA384
-	PS512 = SignatureAlgorithm("PS512") // RSASSA-PSS using SHA512 and MGF1-SHA512
+	"github.com/lestrrat-go/jwx/v2/jwa"
+	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
 // SignatureAlgorithm is a signature algorithm.
 type SignatureAlgorithm string
+
+// Supported values for SignatureAlgorithm
+const (
+	ES256  SignatureAlgorithm = "ES256"  // ECDSA using P-256 and SHA-256
+	ES256K SignatureAlgorithm = "ES256K" // ECDSA using secp256k1 and SHA-256
+	ES384  SignatureAlgorithm = "ES384"  // ECDSA using P-384 and SHA-384
+	ES512  SignatureAlgorithm = "ES512"  // ECDSA using P-521 and SHA-512
+	EdDSA  SignatureAlgorithm = "EdDSA"  // EdDSA signature algorithms
+	HS256  SignatureAlgorithm = "HS256"  // HMAC using SHA-256
+	HS384  SignatureAlgorithm = "HS384"  // HMAC using SHA-384
+	HS512  SignatureAlgorithm = "HS512"  // HMAC using SHA-512
+	PS256  SignatureAlgorithm = "PS256"  // RSASSA-PSS using SHA256 and MGF1-SHA256
+	PS384  SignatureAlgorithm = "PS384"  // RSASSA-PSS using SHA384 and MGF1-SHA384
+	PS512  SignatureAlgorithm = "PS512"  // RSASSA-PSS using SHA512 and MGF1-SHA512
+	RS256  SignatureAlgorithm = "RS256"  // RSASSA-PKCS-v1.5 using SHA-256
+	RS384  SignatureAlgorithm = "RS384"  // RSASSA-PKCS-v1.5 using SHA-384
+	RS512  SignatureAlgorithm = "RS512"  // RSASSA-PKCS-v1.5 using SHA-512
+)
 
 // Error definitions
 var (
@@ -35,62 +38,80 @@ var (
 	ErrIssuerURLRequired    = errors.New("issuer url is required but was empty")
 	ErrAudienceRequired     = errors.New("audience is required but was empty")
 	ErrUnsupportedAlgorithm = errors.New("unsupported signature algorithm")
+	ErrTokenMalformed       = errors.New("token is malformed")
+	ErrTokenInvalid         = errors.New("token validation failed")
+	ErrClaimsMappingFailed  = errors.New("failed to map custom claims")
 )
 
-var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
-	EdDSA: true,
-	HS256: true,
-	HS384: true,
-	HS512: true,
-	RS256: true,
-	RS384: true,
-	RS512: true,
-	ES256: true,
-	ES384: true,
-	ES512: true,
-	PS256: true,
-	PS384: true,
-	PS512: true,
+// JWA algorithm mapping
+var jwaAlgorithms = map[SignatureAlgorithm]jwa.SignatureAlgorithm{
+	EdDSA:  jwa.EdDSA,
+	HS256:  jwa.HS256,
+	HS384:  jwa.HS384,
+	HS512:  jwa.HS512,
+	RS256:  jwa.RS256,
+	RS384:  jwa.RS384,
+	RS512:  jwa.RS512,
+	ES256:  jwa.ES256,
+	ES384:  jwa.ES384,
+	ES512:  jwa.ES512,
+	PS256:  jwa.PS256,
+	PS384:  jwa.PS384,
+	PS512:  jwa.PS512,
+	ES256K: jwa.ES256K,
 }
 
-// Validator to use with the jose v2 package.
+// Validator for JWT tokens using lestrrat-go/jwx
 type Validator struct {
-	keyFunc            func(context.Context) (interface{}, error) // Required.
-	signatureAlgorithm SignatureAlgorithm                         // Required.
-	expectedClaims     jwt.Expected                               // Internal.
-	customClaims       func() CustomClaims                        // Optional.
-	allowedClockSkew   time.Duration                              // Optional.
+	keyFunc              func(context.Context) (interface{}, error)
+	signatureAlgorithm   SignatureAlgorithm
+	customClaims         func() CustomClaims
+	allowedClockSkew     time.Duration
+	expectedIssuers      []string
+	expectedAudience     []string
+	skipIssuerValidation bool // New field to skip issuer validation
 }
 
-// New sets up a new Validator with the required keyFunc,
-// signatureAlgorithm, issuerURL, and audience as well as custom options.
+// New creates a new Validator with the required parameters
 func New(
 	keyFunc func(context.Context) (interface{}, error),
 	signatureAlgorithm SignatureAlgorithm,
-	issuerURL string,
+	issuerURLs []string, // Changed from single issuer to a slice
 	audience []string,
 	opts ...Option,
 ) (*Validator, error) {
 	if keyFunc == nil {
 		return nil, ErrKeyFuncRequired
 	}
-	if issuerURL == "" {
+	// Check if we're going to skip issuer validation via options
+	requiresIssuers := true
+
+	// Look for WithSkipIssuerValidation in the options
+	for _, opt := range opts {
+		dummy := &Validator{}
+		if err := opt(dummy); err == nil && dummy.skipIssuerValidation {
+			requiresIssuers = false
+			break
+		}
+	}
+
+	// Only validate issuers if required
+	if len(issuerURLs) == 0 && requiresIssuers {
 		return nil, ErrIssuerURLRequired
 	}
+
 	if len(audience) == 0 {
 		return nil, ErrAudienceRequired
 	}
-	if _, ok := allowedSigningAlgorithms[signatureAlgorithm]; !ok {
+	if _, ok := jwaAlgorithms[signatureAlgorithm]; !ok {
 		return nil, ErrUnsupportedAlgorithm
 	}
 
 	v := &Validator{
 		keyFunc:            keyFunc,
 		signatureAlgorithm: signatureAlgorithm,
-		expectedClaims: jwt.Expected{
-			Issuer:   issuerURL,
-			Audience: audience,
-		},
+		expectedIssuers:    issuerURLs,
+		expectedAudience:   audience,
 	}
 
 	for _, opt := range opts {
@@ -102,121 +123,127 @@ func New(
 	return v, nil
 }
 
-// ValidateToken validates the passed in JWT using the jose v2 package.
+// ValidateToken validates the JWT token and returns the validated claims
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
-	token, err := jwt.ParseSigned(tokenString)
+	if tokenString == "" {
+		return nil, ErrTokenMalformed
+	}
+
+	// Get the key to validate the token
+	key, err := v.keyFunc(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse the token: %w", err)
+		return nil, fmt.Errorf("failed to get key: %w", err)
+	}
+	// Parse and validate the token in a single step
+	parseOpts := []jwt.ParseOption{
+		jwt.WithValidate(true),
+		jwt.WithVerify(true),
+		jwt.WithKey(jwa.SignatureAlgorithm(v.signatureAlgorithm), key),
 	}
 
-	if err = validateSigningMethod(string(v.signatureAlgorithm), token.Headers[0].Algorithm); err != nil {
-		return nil, fmt.Errorf("signing method is invalid: %w", err)
+	// Add clock skew option if configured
+	if v.allowedClockSkew > 0 {
+		parseOpts = append(parseOpts, jwt.WithAcceptableSkew(v.allowedClockSkew))
 	}
 
-	registeredClaims, customClaims, err := v.deserializeClaims(ctx, token)
+	token, err := jwt.Parse([]byte(tokenString), parseOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize token claims: %w", err)
+		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
 
-	if err = validateClaimsWithLeeway(registeredClaims, v.expectedClaims, v.allowedClockSkew); err != nil {
-		return nil, fmt.Errorf("expected claims not validated: %w", err)
-	}
+	// Validate issuer if validation is not skipped
+	if !v.skipIssuerValidation {
+		expectedIssuers := make(map[string]struct{}, len(v.expectedIssuers))
+		for _, issuer := range v.expectedIssuers {
+			expectedIssuers[issuer] = struct{}{}
+		}
 
-	if customClaims != nil {
-		if err = customClaims.Validate(ctx); err != nil {
-			return nil, fmt.Errorf("custom claims not validated: %w", err)
+		if _, ok := expectedIssuers[token.Issuer()]; !ok {
+			return nil, fmt.Errorf("token issuer %q not in allowed issuers list", token.Issuer())
 		}
 	}
 
+	// Validate audience claims
+	tokenAudiences := token.Audience()
+	if len(tokenAudiences) == 0 {
+		return nil, fmt.Errorf("token validation failed: missing audience claim")
+	}
+
+	// Check for intersection between token audiences and expected audiences
+	expectedAudMap := make(map[string]struct{}, len(v.expectedAudience))
+	for _, aud := range v.expectedAudience {
+		expectedAudMap[aud] = struct{}{}
+	}
+
+	validAudience := false
+	for _, aud := range token.Audience() {
+		if _, exists := expectedAudMap[aud]; exists {
+			validAudience = true
+			break
+		}
+	}
+
+	if !validAudience {
+		return nil, fmt.Errorf("token validation failed: invalid audience claim")
+	}
+
+	// Extract standard JWT claims
+	registeredClaims := RegisteredClaims{
+		Issuer:   token.Issuer(),
+		Subject:  token.Subject(),
+		Audience: token.Audience(),
+		ID:       token.JwtID(),
+	}
+
+	if exp := token.Expiration(); !exp.IsZero() {
+		registeredClaims.Expiry = exp.Unix()
+	}
+
+	if nbf := token.NotBefore(); !nbf.IsZero() {
+		registeredClaims.NotBefore = nbf.Unix()
+	}
+
+	if iat := token.IssuedAt(); !iat.IsZero() {
+		registeredClaims.IssuedAt = iat.Unix()
+	}
+
 	validatedClaims := &ValidatedClaims{
-		RegisteredClaims: RegisteredClaims{
-			Issuer:    registeredClaims.Issuer,
-			Subject:   registeredClaims.Subject,
-			Audience:  registeredClaims.Audience,
-			ID:        registeredClaims.ID,
-			Expiry:    numericDateToUnixTime(registeredClaims.Expiry),
-			NotBefore: numericDateToUnixTime(registeredClaims.NotBefore),
-			IssuedAt:  numericDateToUnixTime(registeredClaims.IssuedAt),
-		},
-		CustomClaims: customClaims,
+		RegisteredClaims: registeredClaims,
+	}
+
+	// Process custom claims if configured
+	if v.customClaimsExist() {
+		customClaims := v.customClaims()
+
+		// Convert token to map representation
+		tokenMap, err := token.AsMap(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert token to map: %w", err)
+		}
+
+		// Transform token map to custom claims via JSON
+		jsonData, err := json.Marshal(tokenMap)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal token data: %w", err)
+		}
+
+		if err = json.Unmarshal(jsonData, customClaims); err != nil {
+			return nil, ErrClaimsMappingFailed
+		}
+
+		// Run custom validation on claims
+		if err = customClaims.Validate(ctx); err != nil {
+			return nil, fmt.Errorf("custom claims validation failed: %w", err)
+		}
+
+		validatedClaims.CustomClaims = customClaims
 	}
 
 	return validatedClaims, nil
 }
 
-func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, leeway time.Duration) error {
-	expectedClaims := expected
-	expectedClaims.Time = time.Now()
-
-	if actualClaims.Issuer != expectedClaims.Issuer {
-		return jwt.ErrInvalidIssuer
-	}
-
-	foundAudience := false
-	for _, value := range expectedClaims.Audience {
-		if actualClaims.Audience.Contains(value) {
-			foundAudience = true
-			break
-		}
-	}
-	if !foundAudience {
-		return jwt.ErrInvalidAudience
-	}
-
-	if actualClaims.NotBefore != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.NotBefore.Time()) {
-		return jwt.ErrNotValidYet
-	}
-
-	if actualClaims.Expiry != nil && expectedClaims.Time.Add(-leeway).After(actualClaims.Expiry.Time()) {
-		return jwt.ErrExpired
-	}
-
-	if actualClaims.IssuedAt != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.IssuedAt.Time()) {
-		return jwt.ErrIssuedInTheFuture
-	}
-
-	return nil
-}
-
-func validateSigningMethod(validAlg, tokenAlg string) error {
-	if validAlg != tokenAlg {
-		return fmt.Errorf("expected %q signing algorithm but token specified %q", validAlg, tokenAlg)
-	}
-	return nil
-}
-
+// customClaimsExist checks if the validator has a non-nil custom claims function
+// that returns a non-nil value
 func (v *Validator) customClaimsExist() bool {
 	return v.customClaims != nil && v.customClaims() != nil
-}
-
-func (v *Validator) deserializeClaims(ctx context.Context, token *jwt.JSONWebToken) (jwt.Claims, CustomClaims, error) {
-	key, err := v.keyFunc(ctx)
-	if err != nil {
-		return jwt.Claims{}, nil, fmt.Errorf("error getting the keys from the key func: %w", err)
-	}
-
-	claims := []interface{}{&jwt.Claims{}}
-	if v.customClaimsExist() {
-		claims = append(claims, v.customClaims())
-	}
-
-	if err = token.Claims(key, claims...); err != nil {
-		return jwt.Claims{}, nil, fmt.Errorf("could not get token claims: %w", err)
-	}
-
-	registeredClaims := *claims[0].(*jwt.Claims)
-
-	var customClaims CustomClaims
-	if len(claims) > 1 {
-		customClaims = claims[1].(CustomClaims)
-	}
-
-	return registeredClaims, customClaims, nil
-}
-
-func numericDateToUnixTime(date *jwt.NumericDate) int64 {
-	if date != nil {
-		return date.Time().Unix()
-	}
-	return 0
 }

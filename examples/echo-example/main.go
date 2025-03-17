@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 	jwtechohandler "github.com/auth0/go-jwt-middleware/v2/framework/echo" // Import the Echo integration
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"github.com/labstack/echo/v4"
@@ -78,7 +77,7 @@ func main() {
 			return signingKey, nil
 		},
 		validator.HS256,
-		issuer,
+		[]string{issuer},
 		audience,
 		validator.WithCustomClaims(customClaims),
 		validator.WithAllowedClockSkew(30*time.Second),
@@ -88,11 +87,11 @@ func main() {
 	}
 
 	// Create and apply the middleware
-	echoMiddleware := jwtechohandler.NewEchoMiddleware(jwtValidator)
+	echoMiddleware := jwtechohandler.NewEchoMiddleware(jwtValidator.ValidateToken)
 
 	// Apply the middleware to specific routes or use it as a global middleware
 	app.GET("/", func(ctx echo.Context) error {
-		claims, ok := ctx.Request().Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+		claims, ok := jwtechohandler.GetClaims(ctx, jwtechohandler.DefaultClaimsKey)
 		if !ok {
 			ctx.JSON(
 				http.StatusInternalServerError,

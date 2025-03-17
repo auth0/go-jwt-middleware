@@ -26,12 +26,3 @@ func WithCustomClient(c *http.Client) ProviderOption {
 		p.Client = c
 	}
 }
-
-// WithSynchronousRefresh sets whether the CachingProvider blocks on refresh.
-// If set to true, it will block and wait for the refresh to complete.
-// If set to false (default), it will return the cached JWKS and trigger a background refresh.
-func WithSynchronousRefresh(blocking bool) CachingProviderOption {
-	return func(cp *CachingProvider) {
-		cp.synchronousRefresh = blocking
-	}
-}
