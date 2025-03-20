@@ -29,6 +29,7 @@ func TestGetWellKnownEndpointsFromIssuerURL(t *testing.T) {
 		responseBody string
 		headers      map[string]string
 		expectError  bool
+		expectedJWKS string
 	}{
 		{
 			name:         "Successful 200 response with valid JSON",
@@ -36,6 +37,14 @@ func TestGetWellKnownEndpointsFromIssuerURL(t *testing.T) {
 			responseBody: `{"jwks_uri":"https://example.com/jwks"}`,
 			headers:      map[string]string{"Content-Type": "application/json"},
 			expectError:  false,
+			expectedJWKS: "https://example.com/jwks",
+		},
+		{
+			name:         "Missing JWKS URI in response",
+			responseCode: http.StatusOK,
+			responseBody: `{"other_field":"some value"}`,
+			headers:      map[string]string{"Content-Type": "application/json"},
+			expectError:  true,
 		},
 		{
 			name:         "404 Not Found response",
@@ -96,7 +105,7 @@ func TestGetWellKnownEndpointsFromIssuerURL(t *testing.T) {
 			issuerURL, _ := url.Parse(server.URL)
 			ctx := context.Background()
 			client := &http.Client{}
-			_, err := GetWellKnownEndpointsFromIssuerURL(ctx, client, *issuerURL)
+			endpoints, err := GetWellKnownEndpointsFromIssuerURL(ctx, client, *issuerURL)
 
 			if tt.expectError {
 				if err == nil {
@@ -105,6 +114,12 @@ func TestGetWellKnownEndpointsFromIssuerURL(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Errorf("Unexpected error: %v", err)
+					return
+				}
+				if endpoints == nil {
+					t.Errorf("Expected non-nil endpoints")
+				} else if endpoints.JWKSURI != tt.expectedJWKS {
+					t.Errorf("Expected JWKS URI %s, got %s", tt.expectedJWKS, endpoints.JWKSURI)
 				}
 			}
 		})
@@ -166,5 +181,53 @@ func TestGetWellKnownEndpoints_BodyReadFailure(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "failed to decode JSON") {
 		t.Errorf("Expected body read failure error, got: %v", err)
+	}
+}
+
+// TestCorrectEndpointPath ensures the correct .well-known path is used
+func TestCorrectEndpointPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-configuration" {
+			t.Errorf("Expected path /.well-known/openid-configuration, got %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"jwks_uri":"https://example.com/jwks"}`))
+	}))
+	defer server.Close()
+
+	issuerURL, _ := url.Parse(server.URL)
+	ctx := context.Background()
+	client := &http.Client{}
+	endpoints, err := GetWellKnownEndpointsFromIssuerURL(ctx, client, *issuerURL)
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if endpoints == nil || endpoints.JWKSURI != "https://example.com/jwks" {
+		t.Errorf("Failed to get expected endpoints")
+	}
+}
+
+// TestCancelledContext tests behavior with a cancelled context
+func TestCancelledContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"jwks_uri":"https://example.com/jwks"}`))
+	}))
+	defer server.Close()
+
+	issuerURL, _ := url.Parse(server.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel the context immediately
+	
+	client := &http.Client{}
+	_, err := GetWellKnownEndpointsFromIssuerURL(ctx, client, *issuerURL)
+
+	if err == nil {
+		t.Errorf("Expected error due to cancelled context, but got none")
 	}
 }

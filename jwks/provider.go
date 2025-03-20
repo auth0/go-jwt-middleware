@@ -21,7 +21,8 @@ type Provider struct {
 	Client        *http.Client // HTTP client to use for requests.
 	once          sync.Once    // Ensures that the JWKS URI initialization happens only once.
 	jwksURI       *url.URL     // The resolved JWKS URI after initialization.
-	initErr       error        // Stores any initialization error.
+	initialized   bool         // Flag to track if initialization was successful
+	mu            sync.Mutex   // Mutex to protect concurrent initialization attempts
 }
 
 // NewProvider creates a new Provider instance with optional configurations.
@@ -40,15 +41,26 @@ func NewProvider(issuerURL *url.URL, opts ...ProviderOption) *Provider {
 // It returns an error if the JWKS URI is not set or if the keys cannot be fetched.
 // It returns a jwk.Set instance that can be used to verify JWT tokens.
 func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
-	p.once.Do(func() {
-		p.jwksURI, p.initErr = p.initJWKSURI(ctx)
-	})
-	if p.initErr != nil {
-		return nil, p.initErr
+	p.mu.Lock()
+	if !p.initialized {
+		p.once = sync.Once{} // Reset once if previous initialization failed
+		p.mu.Unlock()
+
+		var initErr error
+		p.once.Do(func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			p.jwksURI, initErr = p.initJWKSURI(ctx)
+			p.initialized = initErr == nil // Mark as initialized only if successful
+		})
+
+		if initErr != nil {
+			return nil, initErr
+		}
+	} else {
+		p.mu.Unlock()
 	}
-	if p.jwksURI == nil {
-		return nil, fmt.Errorf("JWKS URI is nil after initialization")
-	}
+
 	return jwk.Fetch(ctx, p.jwksURI.String(), jwk.WithHTTPClient(p.Client))
 }
 
@@ -57,8 +69,9 @@ func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 // Use NewCachingProvider to create a CachingProvider instance with cache TTL and optional configurations.
 type CachingProvider struct {
 	Provider
-	CacheTTL time.Duration // Time-to-live for cache entries.
-	cache    *jwk.Cache    // The JWKS cache instance.
+	CacheTTL           time.Duration // Time-to-live for cache entries.
+	cache              *jwk.Cache    // The JWKS cache instance.
+	synchronousRefresh bool          // Deprecated: No longer used.
 }
 
 // NewCachingProvider creates a CachingProvider with cache TTL and optional configurations.
@@ -97,30 +110,51 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...inte
 // It returns an error if the JWKS URI is not set or if the keys cannot be fetched.
 // It returns a jwk.Set instance that can be used to verify JWT tokens.
 func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
-	c.once.Do(func() {
-		refreshWindow := c.CacheTTL / 2 // Refresh when half the TTL has elapsed.
-		c.cache = jwk.NewCache(ctx, jwk.WithRefreshWindow(refreshWindow))
-		c.jwksURI, c.initErr = c.initJWKSURI(ctx)
-		if c.initErr != nil || c.jwksURI == nil {
-			return
+	c.mu.Lock()
+	if !c.initialized {
+		c.once = sync.Once{} // Reset once if previous initialization failed
+		c.mu.Unlock()
+
+		var initErr error
+		c.once.Do(func() {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+
+			c.cache = jwk.NewCache(ctx, jwk.WithRefreshWindow(c.CacheTTL*75/100)) // Refresh at 75% of TTL
+			c.jwksURI, initErr = c.initJWKSURI(ctx)
+			if initErr != nil || c.jwksURI == nil {
+				return
+			}
+
+			minRefreshInterval := c.CacheTTL / 4
+			if minRefreshInterval < time.Second {
+				minRefreshInterval = time.Second
+			}
+			// Register the JWKS URI with the cache, ensuring periodic refreshes.
+			if err := c.cache.Register(
+				c.jwksURI.String(),
+				jwk.WithMinRefreshInterval(minRefreshInterval),
+				jwk.WithHTTPClient(c.Client),
+			); err != nil {
+				initErr = fmt.Errorf("cache registration failed: %w", err)
+				return
+			}
+
+			// Perform the initial refresh to populate the cache.
+			_, refreshErr := c.cache.Refresh(ctx, c.jwksURI.String())
+			if refreshErr != nil {
+				initErr = fmt.Errorf("initial cache refresh failed: %w", refreshErr)
+				return
+			}
+
+			c.initialized = true
+		})
+
+		if initErr != nil {
+			return nil, initErr
 		}
-
-		// Register the JWKS URI with the cache, ensuring periodic refreshes.
-		if err := c.cache.Register(
-			c.jwksURI.String(),
-			jwk.WithMinRefreshInterval(c.CacheTTL),
-			jwk.WithHTTPClient(c.Client),
-		); err != nil {
-			c.initErr = fmt.Errorf("cache registration failed: %w", err)
-			return
-		}
-
-		// Perform the initial refresh to populate the cache.
-		_, c.initErr = c.cache.Refresh(ctx, c.jwksURI.String())
-	})
-
-	if c.initErr != nil {
-		return nil, c.initErr
+	} else {
+		c.mu.Unlock()
 	}
 
 	return jwk.NewCachedSet(c.cache, c.jwksURI.String()), nil
@@ -143,8 +177,6 @@ func jwksFromIssuerURL(ctx context.Context, issuerURL *url.URL, client *http.Cli
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve well-known endpoints: %w", err)
 	}
-	if wkEndpoints.JWKSURI == "" {
-		return nil, fmt.Errorf("empty JWKS URI received from well-known endpoints")
-	}
+
 	return url.Parse(wkEndpoints.JWKSURI)
 }
