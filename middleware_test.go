@@ -125,7 +125,7 @@ func Test_CheckJWT(t *testing.T) {
 			token:          "invalid_token",
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusForbidden,
-			wantBody:       `{"message":"Custom error: error extracting token: Authorization header format must be Bearer {token}"}`,
+			wantBody:       `{"message":"Custom error: error extracting token: authorization header format must be 'Bearer {token}'"}`,
 		},
 		{
 			name: "credentialsOptional true",

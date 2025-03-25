@@ -19,7 +19,6 @@ type Provider struct {
 	IssuerURL     *url.URL     // The URL of the issuer to fetch JWKS from.
 	CustomJWKSURI *url.URL     // Optional custom JWKS URI to override the issuer discovery.
 	Client        *http.Client // HTTP client to use for requests.
-	once          sync.Once    // Ensures that the JWKS URI initialization happens only once.
 	jwksURI       *url.URL     // The resolved JWKS URI after initialization.
 	initialized   bool         // Flag to track if initialization was successful
 	mu            sync.Mutex   // Mutex to protect concurrent initialization attempts
@@ -42,23 +41,16 @@ func NewProvider(issuerURL *url.URL, opts ...ProviderOption) *Provider {
 // It returns a jwk.Set instance that can be used to verify JWT tokens.
 func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Retry initialization every time if it failed previously
 	if !p.initialized {
-		p.once = sync.Once{} // Reset once if previous initialization failed
-		p.mu.Unlock()
-
-		var initErr error
-		p.once.Do(func() {
-			p.mu.Lock()
-			defer p.mu.Unlock()
-			p.jwksURI, initErr = p.initJWKSURI(ctx)
-			p.initialized = initErr == nil // Mark as initialized only if successful
-		})
-
-		if initErr != nil {
-			return nil, initErr
+		var err error
+		p.jwksURI, err = p.initJWKSURI(ctx)
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		p.mu.Unlock()
+		p.initialized = true
 	}
 
 	return jwk.Fetch(ctx, p.jwksURI.String(), jwk.WithHTTPClient(p.Client))
@@ -111,50 +103,36 @@ func NewCachingProvider(issuerURL *url.URL, cacheTTL time.Duration, opts ...inte
 // It returns a jwk.Set instance that can be used to verify JWT tokens.
 func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Retry initialization every time if it failed previously
 	if !c.initialized {
-		c.once = sync.Once{} // Reset once if previous initialization failed
-		c.mu.Unlock()
-
-		var initErr error
-		c.once.Do(func() {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-
-			c.cache = jwk.NewCache(ctx, jwk.WithRefreshWindow(c.CacheTTL*75/100)) // Refresh at 75% of TTL
-			c.jwksURI, initErr = c.initJWKSURI(ctx)
-			if initErr != nil || c.jwksURI == nil {
-				return
-			}
-
-			minRefreshInterval := c.CacheTTL / 4
-			if minRefreshInterval < time.Second {
-				minRefreshInterval = time.Second
-			}
-			// Register the JWKS URI with the cache, ensuring periodic refreshes.
-			if err := c.cache.Register(
-				c.jwksURI.String(),
-				jwk.WithMinRefreshInterval(minRefreshInterval),
-				jwk.WithHTTPClient(c.Client),
-			); err != nil {
-				initErr = fmt.Errorf("cache registration failed: %w", err)
-				return
-			}
-
-			// Perform the initial refresh to populate the cache.
-			_, refreshErr := c.cache.Refresh(ctx, c.jwksURI.String())
-			if refreshErr != nil {
-				initErr = fmt.Errorf("initial cache refresh failed: %w", refreshErr)
-				return
-			}
-
-			c.initialized = true
-		})
-
-		if initErr != nil {
-			return nil, initErr
+		c.cache = jwk.NewCache(ctx, jwk.WithRefreshWindow(c.CacheTTL*75/100))
+		var err error
+		c.jwksURI, err = c.initJWKSURI(ctx)
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		c.mu.Unlock()
+
+		minRefreshInterval := c.CacheTTL / 4
+		if minRefreshInterval < time.Second {
+			minRefreshInterval = time.Second
+		}
+
+		if err := c.cache.Register(
+			c.jwksURI.String(),
+			jwk.WithMinRefreshInterval(minRefreshInterval),
+			jwk.WithHTTPClient(c.Client),
+		); err != nil {
+			return nil, fmt.Errorf("cache registration failed: %w", err)
+		}
+
+		// Perform the initial refresh to populate the cache
+		if _, err := c.cache.Refresh(ctx, c.jwksURI.String()); err != nil {
+			return nil, fmt.Errorf("initial cache refresh failed: %w", err)
+		}
+
+		c.initialized = true
 	}
 
 	return jwk.NewCachedSet(c.cache, c.jwksURI.String()), nil

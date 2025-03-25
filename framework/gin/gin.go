@@ -22,6 +22,11 @@ type GinMiddlewareConfig struct {
 	tokenExtractor jwtmiddleware.TokenExtractor
 }
 
+// NewGinMiddleware creates a Gin middleware for JWT authentication.
+// The validateToken should be an implementation of jwtmiddleware.ValidateToken,
+// typically a validator.Validator instance. Ensure that the validateToken
+// implementation is thread-safe and does not have mutable state that could be
+// altered concurrently.
 func NewGinMiddleware(validateToken jwtmiddleware.ValidateToken, opts ...Option) gin.HandlerFunc {
 	config := &GinMiddlewareConfig{
 		errorHandler: defaultGinErrorHandler,
