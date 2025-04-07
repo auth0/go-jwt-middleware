@@ -14,6 +14,15 @@ import (
 // SignatureAlgorithm is a signature algorithm.
 type SignatureAlgorithm string
 
+// Issuer represents a JWT issuer.
+type Issuer string
+
+// Audience represents a JWT audience.
+type Audience []string
+
+// KeyFunc is a function that returns the key for validating a token.
+type KeyFunc func(context.Context) (interface{}, error)
+
 // Supported values for SignatureAlgorithm
 const (
 	ES256  SignatureAlgorithm = "ES256"  // ECDSA using P-256 and SHA-256
@@ -35,8 +44,9 @@ const (
 // Error definitions
 var (
 	ErrKeyFuncRequired      = errors.New("keyFunc is required but was nil")
-	ErrIssuerURLRequired    = errors.New("issuer url is required but was empty")
+	ErrIssuerURLRequired    = errors.New("issuer URL is required but was empty")
 	ErrAudienceRequired     = errors.New("audience is required but was empty")
+	ErrSignatureAlgRequired = errors.New("signature algorithm is required")
 	ErrUnsupportedAlgorithm = errors.New("unsupported signature algorithm")
 	ErrTokenMalformed       = errors.New("token is malformed")
 	ErrTokenInvalid         = errors.New("token validation failed")
@@ -69,55 +79,49 @@ type Validator struct {
 	allowedClockSkew     time.Duration
 	expectedIssuers      []string
 	expectedAudience     []string
-	skipIssuerValidation bool // New field to skip issuer validation
+	skipIssuerValidation bool
 }
 
-// New creates a new Validator with the required parameters
-func New(
-	keyFunc func(context.Context) (interface{}, error),
-	signatureAlgorithm SignatureAlgorithm,
-	issuerURLs []string, // Changed from single issuer to a slice
-	audience []string,
-	opts ...Option,
-) (*Validator, error) {
-	if keyFunc == nil {
-		return nil, ErrKeyFuncRequired
-	}
-	// Check if we're going to skip issuer validation via options
-	requiresIssuers := true
+// ValidatorOption represents a functional option for configuring a Validator.
+type Option func(*Validator) error
 
-	// Look for WithSkipIssuerValidation in the options
-	for _, opt := range opts {
-		dummy := &Validator{}
-		if err := opt(dummy); err == nil && dummy.skipIssuerValidation {
-			requiresIssuers = false
-			break
-		}
-	}
+// New creates a new Validator with the provided options.
+// It requires at minimum:
+// - WithKeyFunc: to provide the key for token validation
+// - WithSignatureAlgorithm: to specify the algorithm for token validation
+// - WithAudience: to specify the expected audience
+// Unless WithSkipIssuerValidation is specified, it also requires:
+// - WithIssuer or WithIssuers: to specify the expected issuer(s)
+func New(options ...Option) (*Validator, error) {
+	v := &Validator{}
 
-	// Only validate issuers if required
-	if len(issuerURLs) == 0 && requiresIssuers {
-		return nil, ErrIssuerURLRequired
-	}
-
-	if len(audience) == 0 {
-		return nil, ErrAudienceRequired
-	}
-	if _, ok := jwaAlgorithms[signatureAlgorithm]; !ok {
-		return nil, ErrUnsupportedAlgorithm
-	}
-
-	v := &Validator{
-		keyFunc:            keyFunc,
-		signatureAlgorithm: signatureAlgorithm,
-		expectedIssuers:    issuerURLs,
-		expectedAudience:   audience,
-	}
-
-	for _, opt := range opts {
+	// Apply all options
+	for _, opt := range options {
 		if err := opt(v); err != nil {
 			return nil, err
 		}
+	}
+
+	// Validate required options
+	if v.keyFunc == nil {
+		return nil, ErrKeyFuncRequired
+	}
+
+	if v.signatureAlgorithm == "" {
+		return nil, ErrSignatureAlgRequired
+	}
+
+	if _, ok := jwaAlgorithms[v.signatureAlgorithm]; !ok {
+		return nil, ErrUnsupportedAlgorithm
+	}
+
+	if len(v.expectedAudience) == 0 {
+		return nil, ErrAudienceRequired
+	}
+
+	// Only validate issuers if skip validation is not enabled
+	if !v.skipIssuerValidation && len(v.expectedIssuers) == 0 {
+		return nil, ErrIssuerURLRequired
 	}
 
 	return v, nil

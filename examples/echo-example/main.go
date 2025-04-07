@@ -51,6 +51,9 @@ var (
 	customClaims = func() validator.CustomClaims {
 		return &CustomClaimsExample{}
 	}
+	keyfunc = func(ctx context.Context) (any, error) {
+		return signingKey, nil
+	}
 )
 
 // CustomClaimsExample contains custom data we want from the token.
@@ -73,12 +76,10 @@ func main() {
 
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		func(ctx context.Context) (any, error) {
-			return signingKey, nil
-		},
-		validator.HS256,
-		[]string{issuer},
-		audience,
+		validator.WithKeyFunc(keyfunc),
+		validator.WithSignatureAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudiences(audience...),
 		validator.WithCustomClaims(customClaims),
 		validator.WithAllowedClockSkew(30*time.Second),
 	)

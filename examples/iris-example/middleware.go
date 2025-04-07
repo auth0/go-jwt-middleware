@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/kataras/iris/v12"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/kataras/iris/v12"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
@@ -38,10 +39,10 @@ var (
 func checkJWT() iris.Handler {
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		keyFunc,
-		validator.HS256,
-		[]string{issuer},
-		audience,
+		validator.WithKeyFunc(keyFunc),
+		validator.WithSignatureAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudiences(audience...),
 		validator.WithCustomClaims(customClaims),
 		validator.WithAllowedClockSkew(30*time.Second),
 	)

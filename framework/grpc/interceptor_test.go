@@ -3,8 +3,9 @@ package grpcjwt
 import (
 	"context"
 	"errors"
-	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"testing"
+
+	"github.com/auth0/go-jwt-middleware/v2/validator"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 	"github.com/stretchr/testify/assert"
@@ -151,8 +152,7 @@ func TestUnaryInterceptor(t *testing.T) {
 
 type mockServerStream struct {
 	grpc.ServerStream
-	ctx    context.Context
-	called bool
+	ctx context.Context
 }
 
 func (m *mockServerStream) Context() context.Context {

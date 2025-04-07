@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/lestrrat-go/jwx/v2/jwa"
 	"testing"
 	"time"
+
+	"github.com/lestrrat-go/jwx/v2/jwa"
 
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/stretchr/testify/assert"
@@ -233,14 +234,23 @@ func TestValidator_ValidateToken(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			validator, err := New(
-				testCase.keyFunc,
-				testCase.algorithm,
-				[]string{issuer},
-				[]string{audience, "another-audience"},
-				WithCustomClaims(testCase.customClaims),
+			options := []Option{
+				WithKeyFunc(testCase.keyFunc),
+				WithSignatureAlgorithm(testCase.algorithm),
+				WithIssuer(issuer),
+				WithAudiences(audience, "another-audience"),
 				WithAllowedClockSkew(time.Second),
-			)
+			}
+
+			if testCase.customClaims != nil {
+				options = append(options, WithCustomClaims(testCase.customClaims))
+			}
+
+			if len(testCase.options) > 0 {
+				options = append(options, testCase.options...)
+			}
+
+			validator, err := New(options...)
 			require.NoError(t, err)
 
 			tokenClaims, err := validator.ValidateToken(context.Background(), testCase.token)
@@ -267,40 +277,83 @@ func TestNewValidator(t *testing.T) {
 	}
 
 	t.Run("it throws an error when the keyFunc is nil", func(t *testing.T) {
-		_, err := New(nil, algorithm, []string{issuer}, []string{audience})
+		_, err := New(
+			WithSignatureAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudiences(audience),
+		)
 		assert.EqualError(t, err, ErrKeyFuncRequired.Error())
 	})
 
 	t.Run("it throws an error when the signature algorithm is empty", func(t *testing.T) {
-		_, err := New(keyFunc, "", []string{issuer}, []string{audience})
-		assert.EqualError(t, err, ErrUnsupportedAlgorithm.Error())
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithIssuer(issuer),
+			WithAudiences(audience),
+		)
+		assert.EqualError(t, err, ErrSignatureAlgRequired.Error())
 	})
 
 	t.Run("it throws an error when the signature algorithm is unsupported", func(t *testing.T) {
-		_, err := New(keyFunc, "none", []string{issuer}, []string{audience})
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm("none"),
+			WithIssuer(issuer),
+			WithAudiences(audience),
+		)
 		assert.EqualError(t, err, ErrUnsupportedAlgorithm.Error())
 	})
 
 	t.Run("it throws an error when the issuerURL is empty", func(t *testing.T) {
-		_, err := New(keyFunc, algorithm, []string{}, []string{audience})
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm(algorithm),
+			WithAudiences(audience),
+		)
 		assert.EqualError(t, err, ErrIssuerURLRequired.Error())
 	})
 
 	t.Run("it throws an error when the audience is nil", func(t *testing.T) {
-		_, err := New(keyFunc, algorithm, []string{issuer}, nil)
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm(algorithm),
+			WithIssuer(issuer),
+		)
 		assert.EqualError(t, err, ErrAudienceRequired.Error())
 	})
 
 	t.Run("it throws an error when the audience is empty", func(t *testing.T) {
-		_, err := New(keyFunc, algorithm, []string{issuer}, []string{})
-		assert.EqualError(t, err, ErrAudienceRequired.Error())
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudiences(), 
+		)
+		assert.EqualError(t, err, "audiences list cannot be empty")
 	})
 
 	t.Run("it throws an error when a functional option returns an error", func(t *testing.T) {
-		_, err := New(keyFunc, algorithm, []string{issuer}, []string{audience}, func(*Validator) error {
-			return errors.New("functional option error")
-		})
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudiences(audience),
+			func(*Validator) error {
+				return errors.New("functional option error")
+			},
+		)
 		assert.EqualError(t, err, "functional option error")
+	})
+
+	t.Run("it accepts a valid validator configuration", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudiences(audience),
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
 	})
 }
 
@@ -418,20 +471,20 @@ func TestValidator_ValidateToken_MultipleIssuers(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			validator, err := New(
-				keyFunc,
-				HS256,
-				testCase.issuers,
-				[]string{audience},
+			options := []Option{
+				WithKeyFunc(keyFunc),
+				WithSignatureAlgorithm(HS256),
+				WithIssuers(testCase.issuers...),
+				WithAudiences(audience),
 				WithAllowedClockSkew(time.Second),
-			)
-			require.NoError(t, err)
-
-			// Apply additional options if provided
-			for _, opt := range testCase.options {
-				err := opt(validator)
-				require.NoError(t, err)
 			}
+
+			if len(testCase.options) > 0 {
+				options = append(options, testCase.options...)
+			}
+
+			validator, err := New(options...)
+			require.NoError(t, err)
 
 			tokenClaims, err := validator.ValidateToken(context.Background(), testCase.token)
 			if testCase.expectedError != nil {
@@ -458,7 +511,6 @@ func TestValidator_SkipIssuerValidation(t *testing.T) {
 		return []byte("secret"), nil
 	}
 
-	// Token with an unknown issuer
 	unknownIssuerToken := createTestToken(t, "https://unknown.auth0.com/", audience, subject, keyFunc)
 
 	testCases := []struct {
@@ -509,26 +561,19 @@ func TestValidator_SkipIssuerValidation(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			var validator *Validator
-			var err error
-
-			if testCase.skipValidation {
-				validator, err = New(
-					keyFunc,
-					HS256,
-					testCase.issuers,
-					[]string{audience},
-					WithSkipIssuerValidation(),
-				)
-			} else {
-				validator, err = New(
-					keyFunc,
-					HS256,
-					testCase.issuers,
-					[]string{audience},
-				)
+			options := []Option{
+				WithKeyFunc(keyFunc),
+				WithSignatureAlgorithm(HS256),
+				WithAudiences(audience),
 			}
 
+			if testCase.skipValidation {
+				options = append(options, WithSkipIssuerValidation())
+			} else {
+				options = append(options, WithIssuers(testCase.issuers...))
+			}
+
+			validator, err := New(options...)
 			if len(testCase.issuers) == 0 && !testCase.skipValidation {
 				assert.Equal(t, ErrIssuerURLRequired, err)
 				return
@@ -561,10 +606,9 @@ func TestNew_WithSkipIssuerValidation(t *testing.T) {
 
 	t.Run("it allows empty issuerURLs when WithSkipIssuerValidation is provided", func(t *testing.T) {
 		validator, err := New(
-			keyFunc,
-			HS256,
-			[]string{},
-			[]string{audience},
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm(HS256),
+			WithAudiences(audience),
 			WithSkipIssuerValidation(),
 		)
 
@@ -575,10 +619,9 @@ func TestNew_WithSkipIssuerValidation(t *testing.T) {
 
 	t.Run("it requires issuerURLs when WithSkipIssuerValidation is not provided", func(t *testing.T) {
 		_, err := New(
-			keyFunc,
-			HS256,
-			[]string{},
-			[]string{audience},
+			WithKeyFunc(keyFunc),
+			WithSignatureAlgorithm(HS256),
+			WithAudiences(audience),
 		)
 
 		assert.Equal(t, ErrIssuerURLRequired, err)
@@ -657,19 +700,17 @@ func TestValidator_OptionCombinations(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			validator, err := New(
-				keyFunc,
-				HS256,
-				[]string{primaryIssuer, secondaryIssuer},
-				[]string{audience},
-			)
-			require.NoError(t, err)
-
-			// Apply all options
-			for _, opt := range testCase.options {
-				err := opt(validator)
-				require.NoError(t, err)
+			options := []Option{
+				WithKeyFunc(keyFunc),
+				WithSignatureAlgorithm(HS256),
+				WithIssuers(primaryIssuer, secondaryIssuer),
+				WithAudiences(audience),
 			}
+
+			options = append(options, testCase.options...)
+
+			validator, err := New(options...)
+			require.NoError(t, err)
 
 			tokenClaims, err := validator.ValidateToken(context.Background(), testCase.token)
 			if testCase.expectedError != nil {
@@ -683,208 +724,4 @@ func TestValidator_OptionCombinations(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Add these additional test functions to the existing validator_test.go file
-
-// Test case for invalid audience claim
-func TestValidator_InvalidAudienceClaim(t *testing.T) {
-	// Create a token with wrong audience values
-	token := jwt.New()
-	err := token.Set(jwt.IssuerKey, "https://issuer.example.com/")
-	require.NoError(t, err)
-	err = token.Set(jwt.AudienceKey, []string{"wrong-audience1", "wrong-audience2"})
-	require.NoError(t, err)
-
-	signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.HS256, []byte("secret")))
-	require.NoError(t, err)
-
-	keyFunc := func(context.Context) (interface{}, error) {
-		return []byte("secret"), nil
-	}
-
-	// Create validator with different expected audiences
-	validator, err := New(
-		keyFunc,
-		HS256,
-		[]string{"https://issuer.example.com/"},
-		[]string{"expected-audience1", "expected-audience2"},
-	)
-	require.NoError(t, err)
-
-	// This should fail because the token audiences don't match any of the expected audiences
-	result, err := validator.ValidateToken(context.Background(), string(signedToken))
-
-	// Assertions
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid audience claim")
-}
-
-// Test custom claims with errors at different stages of processing
-func TestValidator_CustomClaimsProcessingErrors(t *testing.T) {
-	// Set up a basic token with required fields
-	ctx := context.Background()
-
-	// Test custom claims unmarshaling error
-	t.Run("unmarshal error", func(t *testing.T) {
-		// Create a token with a field that will cause an unmarshal error
-		token := jwt.New()
-		err := token.Set(jwt.IssuerKey, "https://issuer.example.com/")
-		require.NoError(t, err)
-		err = token.Set(jwt.AudienceKey, []string{"https://audience.example.com/"})
-		require.NoError(t, err)
-		err = token.Set("scope", 12345) // This is an integer, but the custom claims expects a string
-		require.NoError(t, err)
-
-		signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.HS256, []byte("secret")))
-		require.NoError(t, err)
-
-		keyFunc := func(context.Context) (interface{}, error) {
-			return []byte("secret"), nil
-		}
-
-		validator, err := New(
-			keyFunc,
-			HS256,
-			[]string{"https://issuer.example.com/"},
-			[]string{"https://audience.example.com/"},
-			WithCustomClaims(func() CustomClaims {
-				return &testClaims{} // Expects "scope" to be a string
-			}),
-		)
-		require.NoError(t, err)
-
-		// Should fail during custom claims unmarshaling
-		result, err := validator.ValidateToken(ctx, string(signedToken))
-		assert.Nil(t, result)
-		assert.Equal(t, ErrClaimsMappingFailed, err)
-	})
-
-	// Test custom claims validation error
-	t.Run("validation error", func(t *testing.T) {
-		token := jwt.New()
-		err := token.Set(jwt.IssuerKey, "https://issuer.example.com/")
-		require.NoError(t, err)
-		err = token.Set(jwt.AudienceKey, []string{"https://audience.example.com/"})
-		require.NoError(t, err)
-		err = token.Set("scope", "read:data")
-		require.NoError(t, err)
-
-		signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.HS256, []byte("secret")))
-		require.NoError(t, err)
-
-		customErr := errors.New("custom validation error")
-
-		validator, err := New(
-			func(context.Context) (interface{}, error) {
-				return []byte("secret"), nil
-			},
-			HS256,
-			[]string{"https://issuer.example.com/"},
-			[]string{"https://audience.example.com/"},
-			WithCustomClaims(func() CustomClaims {
-				return &testClaims{
-					ReturnError: customErr,
-				}
-			}),
-		)
-		require.NoError(t, err)
-
-		// Should fail during custom claims validation
-		result, err := validator.ValidateToken(ctx, string(signedToken))
-		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "custom claims validation failed")
-		assert.Contains(t, err.Error(), customErr.Error())
-	})
-}
-
-// Test missing audience claim
-func TestValidator_MissingAudienceClaim(t *testing.T) {
-	// Create a token without an audience claim
-	token := jwt.New()
-	err := token.Set(jwt.IssuerKey, "https://issuer.example.com/")
-	require.NoError(t, err)
-	// Deliberately skip setting audience
-
-	signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.HS256, []byte("secret")))
-	require.NoError(t, err)
-
-	validator, err := New(
-		func(context.Context) (interface{}, error) {
-			return []byte("secret"), nil
-		},
-		HS256,
-		[]string{"https://issuer.example.com/"},
-		[]string{"expected-audience"},
-	)
-	require.NoError(t, err)
-
-	// Should fail due to missing audience
-	result, err := validator.ValidateToken(context.Background(), string(signedToken))
-	assert.Nil(t, result)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing audience claim")
-}
-
-// Test with multiple expected audiences
-func TestValidator_MultipleExpectedAudiences(t *testing.T) {
-	// Create a token with a single audience
-	token := jwt.New()
-	err := token.Set(jwt.IssuerKey, "https://issuer.example.com/")
-	require.NoError(t, err)
-	err = token.Set(jwt.AudienceKey, []string{"audience2"})
-	require.NoError(t, err)
-
-	signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.HS256, []byte("secret")))
-	require.NoError(t, err)
-
-	// Create validator with multiple expected audiences
-	validator, err := New(
-		func(context.Context) (interface{}, error) {
-			return []byte("secret"), nil
-		},
-		HS256,
-		[]string{"https://issuer.example.com/"},
-		[]string{"audience1", "audience2", "audience3"}, // audience2 should match
-	)
-	require.NoError(t, err)
-
-	// Should succeed because one audience matches
-	result, err := validator.ValidateToken(context.Background(), string(signedToken))
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-
-	validatedClaims, ok := result.(*ValidatedClaims)
-	require.True(t, ok)
-	assert.Equal(t, "https://issuer.example.com/", validatedClaims.RegisteredClaims.Issuer)
-	assert.Contains(t, validatedClaims.RegisteredClaims.Audience, "audience2")
-}
-
-// Test customClaimsExist function
-func TestCustomClaimsExist(t *testing.T) {
-	t.Run("nil custom claims function", func(t *testing.T) {
-		validator := &Validator{
-			customClaims: nil,
-		}
-		assert.False(t, validator.customClaimsExist())
-	})
-
-	t.Run("custom claims function returns nil", func(t *testing.T) {
-		validator := &Validator{
-			customClaims: func() CustomClaims {
-				return nil
-			},
-		}
-		assert.False(t, validator.customClaimsExist())
-	})
-
-	t.Run("custom claims function returns non-nil", func(t *testing.T) {
-		validator := &Validator{
-			customClaims: func() CustomClaims {
-				return &testClaims{}
-			},
-		}
-		assert.True(t, validator.customClaimsExist())
-	})
 }

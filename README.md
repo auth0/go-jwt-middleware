@@ -73,10 +73,10 @@ func main() {
 
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		keyFunc,
-		validator.HS256,
-		"https://<issuer-url>/",
-		[]string{"<audience>"},
+		validator.WithKeyFunc(keyFunc),
+		validator.WithSignatureAlgorithm(validator.HS256),
+		validator.WithIssuer("https://<issuer-url>/"),
+		validator.WithAudience("<audience>"),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the validator: %v", err)

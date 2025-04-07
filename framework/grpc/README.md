@@ -38,10 +38,10 @@ func main() {
     }
 
     jwtValidator, _ := validator.New(
-        keyFunc,
-        validator.HS256,
-        "issuer",
-        []string{"audience"},
+        validator.WithKeyFunc(keyFunc),
+        validator.WithSignatureAlgorithm(validator.HS256),
+        validator.WithIssuer("issuer"),
+        validator.WithAudience("audience"),
     )
 
     validateFunc := func(ctx context.Context, token string) (interface{}, error) {

@@ -65,15 +65,15 @@ func main() {
 	issuer := "go-jwt-middleware-example"
 	audience := []string{"audience-example"}
 	signingKey := []byte("secret")
-
+	keyfunc := func(ctx context.Context) (any, error) {
+		return signingKey, nil
+	}
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		func(ctx context.Context) (any, error) {
-			return signingKey, nil
-		},
-		validator.HS256,
-		[]string{issuer},
-		audience,
+		validator.WithKeyFunc(keyfunc),
+		validator.WithSignatureAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudiences(audience...),
 		validator.WithCustomClaims(func() validator.CustomClaims {
 			return &CustomClaimsExample{}
 		}),
