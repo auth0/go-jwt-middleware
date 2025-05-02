@@ -1,7 +1,6 @@
-package jwtginhandler
+package jwtgin
 
 import (
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 	"github.com/gin-gonic/gin"
 )
 
@@ -12,19 +11,5 @@ type Option func(*GinMiddlewareConfig)
 func WithErrorHandler(handler func(*gin.Context, error)) Option {
 	return func(config *GinMiddlewareConfig) {
 		config.errorHandler = handler
-	}
-}
-
-// WithContextKey sets a custom context key for storing the JWT claims
-func WithContextKey(key string) Option {
-	return func(config *GinMiddlewareConfig) {
-		config.contextKey = key
-	}
-}
-
-// WithTokenExtractor sets a custom token extractor
-func WithTokenExtractor(extractor jwtmiddleware.TokenExtractor) Option {
-	return func(config *GinMiddlewareConfig) {
-		config.tokenExtractor = extractor
 	}
 }

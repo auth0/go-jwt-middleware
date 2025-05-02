@@ -772,7 +772,13 @@ func Test_JWKSProvider(t *testing.T) {
 	// Group: CachingProvider additional tests
 	t.Run("Group: CachingProvider additional tests", func(t *testing.T) {
 		t.Run("Cache refreshes in background before expiration", func(t *testing.T) {
-			provider := NewCachingProvider(testServerURL, 3*time.Second)
+			const cacheTTL = 3 * time.Second
+			// Background refresh should happen around 75% of TTL = 2.25s
+			const backgroundRefreshWait = cacheTTL * 3 / 4                          // 2.25s
+			const preExpiryCheckWait = backgroundRefreshWait + 250*time.Millisecond // 2.5s
+			const postExpiryWait = cacheTTL + 1*time.Second                         // 4s total wait
+
+			provider := NewCachingProvider(testServerURL, cacheTTL)
 			atomic.StoreInt32(&requestCount, 0)
 
 			// Initial fetch (includes OIDC discovery and JWKS fetch)
@@ -783,24 +789,28 @@ func Test_JWKSProvider(t *testing.T) {
 			// Reset counter
 			atomic.StoreInt32(&requestCount, 0)
 
-			// Wait until background refresh (2.25s) but before expiration (3s)
-			time.Sleep(2500 * time.Millisecond) // 2.5s > 2.25s, < 3s
+			// Wait until just after background refresh should have triggered
+			t.Logf("Waiting %v for background refresh...", preExpiryCheckWait)
+			time.Sleep(preExpiryCheckWait)
 
-			// No additional KeyFunc call - check if background refresh happened
-			newRequestCount := atomic.LoadInt32(&requestCount)
-			fmt.Printf("Background refresh request count: %d\n", newRequestCount)
-			assert.Equal(t, int32(1), newRequestCount, "Exactly one background refresh should happen")
+			// Check if background refresh happened (should be exactly 1 JWKS fetch)
+			countAfterBackgroundWait := atomic.LoadInt32(&requestCount)
+			t.Logf("Request count after waiting for background refresh: %d", countAfterBackgroundWait)
+			assert.Equal(t, int32(1), countAfterBackgroundWait, "Exactly one background refresh request (JWKS fetch) should have happened")
 
-			atomic.StoreInt32(&requestCount, 0)
+			// Wait past the original expiration time
+			additionalWait := postExpiryWait - preExpiryCheckWait
+			t.Logf("Waiting an additional %v (total %v) past expiration...", additionalWait, postExpiryWait)
+			time.Sleep(additionalWait)
 
-			// Wait past expiration to ensure cache remains fresh
-			time.Sleep(2 * time.Second) // Total 4.5s > 3s
+			// Call KeyFunc again after expiration
 			_, err = provider.KeyFunc(context.Background())
 			require.NoError(t, err)
-			// No new fetch expected if background refresh worked
-			finalRequestCount := atomic.LoadInt32(&requestCount)
-			fmt.Printf("Final request count after expiration: %d\n", finalRequestCount)
-			assert.Equal(t, int32(1), finalRequestCount, "No additional fetch needed after background refresh")
+
+			// Check that no *new* request was made, because the background refresh already updated the cache
+			countAfterExpiryFetch := atomic.LoadInt32(&requestCount)
+			t.Logf("Request count after calling KeyFunc post-expiration: %d", countAfterExpiryFetch)
+			assert.Equal(t, countAfterBackgroundWait, countAfterExpiryFetch, "KeyFunc call after expiration should use cache refreshed in background, not trigger a new fetch")
 		})
 		t.Run("It safely handles cache operations during rapid initialization", func(t *testing.T) {
 			// This test simulates a race condition during cache initialization

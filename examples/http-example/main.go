@@ -34,9 +34,9 @@ func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 }
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-	if !ok {
-		http.Error(w, "failed to get validated claims", http.StatusInternalServerError)
+	claims, err := jwtmiddleware.GetClaims(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

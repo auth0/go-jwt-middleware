@@ -2,6 +2,7 @@ package validator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -164,4 +165,27 @@ func WithAdditionalIssuers(additionalIssuers []string) Option {
 		}
 	}
 	return WithIssuers(additionalIssuers...)
+}
+
+// WithReplayPrevention enables token replay prevention using the provided cache.
+// IMPORTANT: This should only be used for one-time tokens such as:
+// - Authorization codes in OAuth flows
+// - Password reset tokens
+// - Single-use transaction tokens
+// - Email verification links
+//
+// DO NOT use this for regular API access tokens that users need to reuse for multiple requests!
+// Normal JWT usage allows the same token to be used multiple times until it expires.
+//
+// This feature requires tokens to have a JWT ID (jti) claim.
+// When enabled, tokens with the same ID will be rejected if seen more than once.
+func WithReplayPrevention(cache TokenReplayCache) Option {
+	return func(v *Validator) error {
+		if cache == nil {
+			return errors.New("replay prevention cache cannot be nil")
+		}
+		v.enableReplayPrevention = true
+		v.replayCache = cache
+		return nil
+	}
 }

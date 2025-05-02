@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
 	jwtechohandler "github.com/auth0/go-jwt-middleware/v2/framework/echo" // Import the Echo integration
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"github.com/labstack/echo/v4"
@@ -88,12 +89,12 @@ func main() {
 	}
 
 	// Create and apply the middleware
-	echoMiddleware := jwtechohandler.NewEchoMiddleware(jwtValidator.ValidateToken)
+	echoMiddleware := jwtechohandler.New(jwtValidator.ValidateToken, []jwtmiddleware.Option{})
 
 	// Apply the middleware to specific routes or use it as a global middleware
 	app.GET("/", func(ctx echo.Context) error {
-		claims, ok := jwtechohandler.GetClaims(ctx, jwtechohandler.DefaultClaimsKey)
-		if !ok {
+		claims, err := jwtechohandler.GetClaims(ctx)
+		if err != nil {
 			ctx.JSON(
 				http.StatusInternalServerError,
 				map[string]string{"message": "Failed to get validated JWT claims."},

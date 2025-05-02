@@ -73,3 +73,49 @@ func WithExclusionUrlHandler(exclusionUrlHandler ExclusionUrlHandler) Option {
 		m.exclusionUrlHandler = exclusionUrlHandler
 	}
 }
+
+// WithContextKey allows users to set a custom context key for claims storage/retrieval.
+func WithContextKey(key string) Option {
+	return func(m *JWTMiddleware) {
+		m.contextKey = ContextKey{Name: key}
+	}
+}
+
+// WithLogger sets a custom logger and log level for the middleware.
+// If logger is nil, uses DefaultLogger. If level is 0, uses LogLevelInfo as default.
+func WithLogger(logger Logger, level LogLevel) Option {
+	return func(m *JWTMiddleware) {
+		if logger == nil {
+			m.logger = &DefaultLogger{}
+		} else {
+			m.logger = logger
+		}
+		if level == LogLevelNone {
+			m.logLevel = LogLevelInfo
+		} else {
+			m.logLevel = level
+		}
+	}
+}
+
+// WithTracer sets a custom tracer for the middleware. If nil, uses NoopTracer.
+func WithTracer(tracer Tracer) Option {
+	return func(m *JWTMiddleware) {
+		if tracer == nil {
+			m.tracer = &NoopTracer{}
+		} else {
+			m.tracer = tracer
+		}
+	}
+}
+
+// WithMetrics sets a custom metrics implementation for the middleware. If nil, uses NoopMetrics.
+func WithMetrics(metrics Metrics) Option {
+	return func(m *JWTMiddleware) {
+		if metrics == nil {
+			m.metrics = &NoopMetrics{}
+		} else {
+			m.metrics = metrics
+		}
+	}
+}

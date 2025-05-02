@@ -108,7 +108,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return nil, errors.New("key func error message")
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("failed to get key: key func error message"),
+			expectedError: errors.New("failed to get key for token validation: key func error message"),
 		},
 		{
 			name:  "it throws an error when it fails to deserialize the claims because the signature is invalid",
@@ -126,7 +126,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("token validation failed: missing audience claim"),
+			expectedError: errors.New("token missing required audience claim"),
 		},
 		{
 			name:  "it throws an error when it fails to validate the custom claims",
@@ -327,7 +327,7 @@ func TestNewValidator(t *testing.T) {
 			WithKeyFunc(keyFunc),
 			WithSignatureAlgorithm(algorithm),
 			WithIssuer(issuer),
-			WithAudiences(), 
+			WithAudiences(),
 		)
 		assert.EqualError(t, err, "audiences list cannot be empty")
 	})
@@ -432,7 +432,7 @@ func TestValidator_ValidateToken_MultipleIssuers(t *testing.T) {
 			name:          "rejects token with unknown issuer",
 			token:         unknownIssuerToken,
 			issuers:       []string{primaryIssuer, secondaryIssuer},
-			expectedError: fmt.Errorf(`token issuer "https://unknown.auth0.com/" not in allowed issuers list`),
+			expectedError: fmt.Errorf(`token issuer not in allowed issuers list: "https://unknown.auth0.com/"`),
 		},
 		{
 			name:    "accepts token with issuer added via WithAdditionalIssuers",
@@ -526,7 +526,7 @@ func TestValidator_SkipIssuerValidation(t *testing.T) {
 			token:          unknownIssuerToken,
 			issuers:        []string{primaryIssuer},
 			skipValidation: false,
-			expectedError:  fmt.Errorf(`token issuer "https://unknown.auth0.com/" not in allowed issuers list`),
+			expectedError:  fmt.Errorf(`token issuer not in allowed issuers list: "https://unknown.auth0.com/"`),
 		},
 		{
 			name:           "accepts token with unknown issuer when skipping validation",

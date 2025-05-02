@@ -1,6 +1,7 @@
 package jwtmiddleware
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 )
 
 func Test_AuthHeaderTokenExtractor(t *testing.T) {
@@ -163,5 +165,64 @@ func Test_MultiTokenExtractor(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Empty(t, gotToken)
+	})
+}
+
+func TestGRPCMetadataTokenExtractor(t *testing.T) {
+	extractor := GRPCMetadataTokenExtractor()
+
+	// Test case: Successful extraction with valid token
+	t.Run("successful extraction", func(t *testing.T) {
+		ctx := context.Background()
+		md := metadata.New(map[string]string{
+			"authorization": "Bearer test-token",
+		})
+		ctx = metadata.NewIncomingContext(ctx, md)
+		req := &http.Request{}
+		req = req.WithContext(ctx)
+
+		token, err := extractor(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "test-token", token)
+	})
+
+	// Test case: Missing metadata
+	t.Run("missing metadata", func(t *testing.T) {
+		req := &http.Request{}
+
+		token, err := extractor(req)
+		assert.Error(t, err)
+		assert.Equal(t, "missing gRPC metadata in context", err.Error())
+		assert.Equal(t, "", token)
+	})
+
+	// Test case: Missing authorization header
+	t.Run("missing authorization header", func(t *testing.T) {
+		ctx := context.Background()
+		md := metadata.New(map[string]string{})
+		ctx = metadata.NewIncomingContext(ctx, md)
+		req := &http.Request{}
+		req = req.WithContext(ctx)
+
+		token, err := extractor(req)
+		assert.Error(t, err)
+		assert.Equal(t, "missing authorization header in gRPC metadata", err.Error())
+		assert.Equal(t, "", token)
+	})
+
+	// Test case: Invalid authorization format
+	t.Run("invalid authorization format", func(t *testing.T) {
+		ctx := context.Background()
+		md := metadata.New(map[string]string{
+			"authorization": "InvalidFormat",
+		})
+		ctx = metadata.NewIncomingContext(ctx, md)
+		req := &http.Request{}
+		req = req.WithContext(ctx)
+
+		token, err := extractor(req)
+		assert.Error(t, err)
+		assert.Equal(t, "authorization header format must be 'Bearer {token}'", err.Error())
+		assert.Equal(t, "", token)
 	})
 }

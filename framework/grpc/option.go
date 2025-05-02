@@ -1,44 +1,36 @@
-package grpcjwt
+package jwtgrpc
 
-// Option is a function that configures a JWTInterceptor.
-type Option func(*JWTInterceptor)
+import (
+	"context"
+)
 
-// ExclusionChecker is a function that checks if a method should be excluded from JWT validation.
-type ExclusionChecker func(method string) bool
+// Option defines a functional option for configuring the gRPC adapter.
+type Option func(*grpcMiddlewareConfig)
 
-// WithCredentialsOptional sets if credentials are optional.
-// If set to true, requests without a JWT token will be allowed.
-func WithCredentialsOptional(optional bool) Option {
-	return func(i *JWTInterceptor) {
-		i.credentialsOptional = optional
+// WithErrorHandler sets a custom gRPC error handler.
+func WithErrorHandler(handler func(ctx context.Context, err error) error) Option {
+	return func(config *grpcMiddlewareConfig) {
+		config.errorHandler = handler
 	}
 }
 
-// WithTokenExtractor sets a custom token extractor.
-func WithTokenExtractor(extractor GRPCTokenExtractor) Option {
-	return func(i *JWTInterceptor) {
-		i.tokenExtractor = extractor
+// WithExcludedMethods allows configuring a list of gRPC methods to exclude from JWT validation.
+func WithExcludedMethods(methods []string) Option {
+	methodSet := make(map[string]struct{}, len(methods))
+	for _, m := range methods {
+		methodSet[m] = struct{}{}
 	}
-}
-
-// WithExclusionMethods configures methods that should be excluded from JWT validation.
-func WithExclusionMethods(methods []string) Option {
-	return func(i *JWTInterceptor) {
-		methodMap := make(map[string]struct{}, len(methods))
-		for _, method := range methods {
-			methodMap[method] = struct{}{}
-		}
-
-		i.exclusionChecker = func(method string) bool {
-			_, exists := methodMap[method]
-			return exists
+	return func(cfg *grpcMiddlewareConfig) {
+		cfg.exclusionChecker = func(method string) bool {
+			_, ok := methodSet[method]
+			return ok
 		}
 	}
 }
 
-// WithExclusionChecker sets a custom exclusion checker.
-func WithExclusionChecker(checker ExclusionChecker) Option {
-	return func(i *JWTInterceptor) {
-		i.exclusionChecker = checker
+// WithExclusionChecker allows configuring a custom exclusion checker for gRPC methods.
+func WithExclusionChecker(checker func(string) bool) Option {
+	return func(cfg *grpcMiddlewareConfig) {
+		cfg.exclusionChecker = checker
 	}
 }

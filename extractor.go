@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"google.golang.org/grpc/metadata"
 )
 
 // TokenExtractor is a function that takes a request as input and returns
@@ -16,17 +18,11 @@ type TokenExtractor func(r *http.Request) (string, error)
 // AuthHeaderTokenExtractor is a TokenExtractor that takes a request
 // and extracts the token from the Authorization header.
 func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
+	header := r.Header.Get("Authorization")
+	if header == "" {
 		return "", nil // No error, just no JWT.
 	}
-
-	authHeaderParts := strings.Fields(authHeader)
-	if len(authHeaderParts) != 2 || strings.ToLower(authHeaderParts[0]) != "bearer" {
-		return "", errors.New("authorization header format must be 'Bearer {token}'")
-	}
-
-	return authHeaderParts[1], nil
+	return parseBearerToken(header)
 }
 
 // CookieTokenExtractor builds a TokenExtractor that takes a request and
@@ -69,4 +65,28 @@ func MultiTokenExtractor(extractors ...TokenExtractor) TokenExtractor {
 		}
 		return "", nil
 	}
+}
+
+// GRPCMetadataTokenExtractor returns a TokenExtractor that extracts the JWT from gRPC metadata ("authorization" key) using robust parsing.
+func GRPCMetadataTokenExtractor() TokenExtractor {
+	return func(r *http.Request) (string, error) {
+		md, ok := metadata.FromIncomingContext(r.Context())
+		if !ok {
+			return "", errors.New("missing gRPC metadata in context")
+		}
+		authHeaders := md["authorization"]
+		if len(authHeaders) == 0 {
+			return "", errors.New("missing authorization header in gRPC metadata")
+		}
+		return parseBearerToken(authHeaders[0])
+	}
+}
+
+// parseBearerToken extracts the token from a "Bearer <token>" string, case-insensitive and robust.
+func parseBearerToken(header string) (string, error) {
+	fields := strings.Fields(header)
+	if len(fields) != 2 || strings.ToLower(fields[0]) != "bearer" {
+		return "", errors.New("authorization header format must be 'Bearer {token}'")
+	}
+	return fields[1], nil
 }

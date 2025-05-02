@@ -5,11 +5,15 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"time"
 
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
+	jwtgin "github.com/auth0/go-jwt-middleware/v2/framework/gin"
 	jwtginhandler "github.com/auth0/go-jwt-middleware/v2/framework/gin"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
 )
 
 // Try it out with:
@@ -77,27 +81,43 @@ func main() {
 		validator.WithCustomClaims(func() validator.CustomClaims {
 			return &CustomClaimsExample{}
 		}),
-		validator.WithAllowedClockSkew(30*time.Second),
 	)
 	if err != nil {
-		log.Fatalf("failed to set up the validator: %v", err)
+		log.Fatalf("Failed to set up the JWT validator: %v", err)
 	}
 
+	// Set up zap logger and use it with the middleware
+	cfg := zap.NewProductionConfig()
+	cfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel) // Set zap to debug level
+	zapLogger, _ := cfg.Build()
+	sugar := zapLogger.Sugar()
+	logger := jwtmiddleware.NewZapLogger(sugar)
+
+	// Set up Prometheus metrics and OpenTelemetry tracer
+	metrics := jwtmiddleware.NewPrometheusMetrics()
+	tracer := jwtmiddleware.NewOpenTelemetryTracer(otel.Tracer("jwtmiddleware"))
+
 	// Create and apply the Gin middleware
-	ginMiddleware := jwtginhandler.NewGinMiddleware(jwtValidator.ValidateToken)
+	customKey := "my_custom_key"
+	ginMiddleware := jwtginhandler.New(
+		jwtValidator.ValidateToken,
+		[]jwtmiddleware.Option{
+			jwtmiddleware.WithContextKey(customKey),
+			jwtmiddleware.WithLogger(logger, jwtmiddleware.LogLevelDebug),
+			jwtmiddleware.WithMetrics(metrics),
+			jwtmiddleware.WithTracer(tracer),
+		},
+	)
 	router.Use(ginMiddleware)
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	router.GET("/", func(ctx *gin.Context) {
-		// Get claims using the gin handler's method
-		claims, err := jwtginhandler.GetClaims(ctx, jwtginhandler.DefaultClaimsKey)
-		if err != nil {
-			ctx.AbortWithStatusJSON(
-				http.StatusInternalServerError,
-				map[string]string{"message": "Failed to get validated JWT claims."},
-			)
+		// In your handler
+		claims, err := jwtgin.GetClaimsWithKey(ctx, customKey)
+		if err != nil || claims == nil {
+			ctx.AbortWithStatusJSON(401, gin.H{"message": "Failed to get validated JWT claims."})
 			return
 		}
-
 		customClaims, ok := claims.CustomClaims.(*CustomClaimsExample)
 		if !ok {
 			ctx.AbortWithStatusJSON(
