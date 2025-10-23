@@ -1,6 +1,7 @@
 package validator
 
 import (
+	"github.com/go-jose/go-jose/v4/jwt"
 	"time"
 )
 
@@ -24,5 +25,18 @@ func WithAllowedClockSkew(skew time.Duration) Option {
 func WithCustomClaims(f func() CustomClaims) Option {
 	return func(v *Validator) {
 		v.customClaims = f
+	}
+}
+
+// WithExpectedClaims allows fine-grained customization of the expected claims
+func WithExpectedClaims(expectedClaims ...jwt.Expected) Option {
+	return func(v *Validator) {
+		if len(expectedClaims) == 0 {
+			return
+		}
+		if v.expectedClaims == nil {
+			v.expectedClaims = make([]jwt.Expected, 0)
+		}
+		v.expectedClaims = append(v.expectedClaims, expectedClaims...)
 	}
 }
