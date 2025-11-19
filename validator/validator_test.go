@@ -84,7 +84,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		},
 		{
 			name:  "it throws an error when it cannot parse the token",
-			token: "",
+			token: "a.b",
 			keyFunc: func(context.Context) (interface{}, error) {
 				return []byte("secret"), nil
 			},
