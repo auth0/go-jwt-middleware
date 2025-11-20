@@ -1,5 +1,11 @@
 # Change Log
 
+## [v2.3.1](https://github.com/auth0/go-jwt-middleware/tree/v2.3.1) (2025-11-20)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.3.0...v2.3.1)
+
+**Security**
+- security: CVE-2025-27144 mitigation for v2.3.1 [\#344](https://github.com/auth0/go-jwt-middleware/pull/344) ([developerkunal](https://github.com/developerkunal))
+
 ## [v2.3.0](https://github.com/auth0/go-jwt-middleware/tree/v2.3.0) (2025-03-05)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.2.2...v2.3.0)
 
