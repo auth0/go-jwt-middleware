@@ -94,6 +94,13 @@ func New(
 
 // ValidateToken validates the passed in JWT using the jose v2 package.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
+	// CVE-2025-27144 mitigation: Validate token format before parsing
+	// to prevent memory exhaustion from malicious tokens with excessive dots.
+	// This is a defense-in-depth measure for v2.x.
+	if err := validateTokenFormat(tokenString); err != nil {
+		return nil, fmt.Errorf("invalid token format: %w", err)
+	}
+
 	token, err := jwt.ParseSigned(tokenString)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the token: %w", err)
