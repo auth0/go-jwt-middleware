@@ -430,7 +430,7 @@ func TestNewValidator(t *testing.T) {
 			WithAlgorithm(algorithm),
 			WithIssuer(issuer),
 			WithAudience(audience),
-			WithCustomClaims(nil),
+			WithCustomClaims[*testClaims](nil), // Need to specify type for nil
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "custom claims function cannot be nil")

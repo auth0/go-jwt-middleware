@@ -114,15 +114,39 @@ func WithAllowedClockSkew(skew time.Duration) Option {
 // WithCustomClaims sets a function that returns a CustomClaims object
 // for unmarshalling and validation.
 //
-// The function is called for each token validation to create a new instance
-// of custom claims. The Validate method on the custom claims will be called
-// after standard claim validation.
-func WithCustomClaims(f func() CustomClaims) Option {
+// The function is called during construction to validate it returns a non-nil
+// value, and then called for each token validation to create a new instance.
+//
+// Using generics allows you to return your concrete claims type directly
+// without needing to explicitly cast to the CustomClaims interface.
+//
+// IMPORTANT: The function must be:
+//   - Thread-safe (called concurrently by multiple requests)
+//   - Idempotent (returns a new instance each time, no shared state)
+//   - Fast (called on every token validation)
+//   - Panic-free (panics will crash the request handler)
+//
+// Example:
+//
+//	validator.New(
+//	    // ... other options
+//	    validator.WithCustomClaims(func() *MyClaims {
+//	        return &MyClaims{}  // No interface cast needed
+//	    }),
+//	)
+func WithCustomClaims[T CustomClaims](f func() T) Option {
 	return func(v *Validator) error {
 		if f == nil {
 			return errors.New("custom claims function cannot be nil")
 		}
-		v.customClaims = f
+
+		// Wrap to return interface type for internal storage
+		// Note: The function can return nil at runtime for conditional custom claims,
+		// which is handled by customClaimsExist() during validation
+		v.customClaims = func() CustomClaims {
+			return f()
+		}
+
 		return nil
 	}
 }
