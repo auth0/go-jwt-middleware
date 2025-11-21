@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 )
 
@@ -170,9 +171,19 @@ func (v *Validator) parseToken(ctx context.Context, tokenString string, key inte
 	// Build parse options
 	// Note: We'll validate issuer and audience manually to support multiple values
 	parseOpts := []jwt.ParseOption{
-		jwt.WithKey(jwxAlg, key),
 		jwt.WithAcceptableSkew(v.allowedClockSkew),
 		jwt.WithValidate(true),
+	}
+
+	// Handle both single keys and JWK sets
+	// When using JWKS providers, key will be jwk.Set - use WithKeySet to automatically
+	// select the correct key based on the token's kid header.
+	// For single keys (byte slices, etc.), use WithKey.
+	switch k := key.(type) {
+	case jwk.Set:
+		parseOpts = append(parseOpts, jwt.WithKeySet(k))
+	default:
+		parseOpts = append(parseOpts, jwt.WithKey(jwxAlg, key))
 	}
 
 	// Parse and validate the token (without issuer/audience validation)

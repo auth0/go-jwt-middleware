@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -768,6 +769,37 @@ func TestParseToken_DefensiveAlgorithmCheck(t *testing.T) {
 		_, err := v.parseToken(context.Background(), token, key)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported algorithm")
+	})
+}
+
+func TestParseToken_WithJWKSet(t *testing.T) {
+	// This test ensures the jwk.Set code path in parseToken is taken.
+	// The http-jwks-example test provides end-to-end validation of JWKS functionality.
+	// This unit test verifies parseToken correctly handles jwk.Set type.
+	t.Run("handles jwk.Set type correctly", func(t *testing.T) {
+		// Create an empty jwk.Set to test the type switch
+		set := jwk.NewSet()
+
+		// Create a simple validator
+		v := &Validator{
+			signatureAlgorithm: HS256,
+			expectedIssuers:    []string{"https://issuer.example.com/"},
+			expectedAudiences:  []string{"audience"},
+		}
+
+		// Call parseToken directly to test the jwk.Set branch
+		// Expected: type switch detects jwk.Set and uses jwt.WithKeySet
+		// This will fail validation (no valid keys), but that's ok - we're testing the code path
+		token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmNvbS8iLCJhdWQiOlsiYXVkaWVuY2UiXX0.4Adcj0pYJ0iqh_iFcxJDCbU9wE9c0q4mKIwZH4u1rLo"
+
+		_, err := v.parseToken(context.Background(), token, set)
+
+		// Expected to fail with signature verification error (not algorithm error)
+		// This confirms the jwk.Set code path was taken
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse and validate token")
+		// Should NOT contain "unsupported algorithm" since we're using HS256
+		assert.NotContains(t, err.Error(), "unsupported algorithm")
 	})
 }
 

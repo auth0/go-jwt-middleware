@@ -38,15 +38,6 @@ func TestHandler(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
-			// KNOWN ISSUE: This test was already failing before the jwx v3 migration (v3-phase1-pr4).
-			// Investigation shows:
-			// - JWKS is fetched successfully from go-jose mock server
-			// - Token has correct structure, kid, time claims
-			// - But validation still fails with "JWT is invalid"
-			// This appears to be a pre-existing issue, not caused by the pure options refactor.
-			// TODO: Investigate potential incompatibility between go-jose JWKS format and jwx validation
-			t.Skip("Skipping due to known pre-existing test failure")
-
 			request, err := http.NewRequest(http.MethodGet, "", nil)
 			if err != nil {
 				t.Fatal(err)
@@ -105,7 +96,6 @@ func setupTestServer(t *testing.T, jwk *jose.JSONWebKey) (server *httptest.Serve
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Logf("JWKS being served: %s", string(jsonData))
 			w.Header().Set("Content-Type", "application/json")
 			if _, err := w.Write(jsonData); err != nil {
 				t.Fatal(err)
