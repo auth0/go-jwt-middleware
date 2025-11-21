@@ -5,11 +5,11 @@ go 1.24.0
 toolchain go1.24.8
 
 require (
-	github.com/auth0/go-jwt-middleware/v2 v2.2.2
+	github.com/auth0/go-jwt-middleware/v3 v3.0.0
 	github.com/kataras/iris/v12 v12.2.11
 )
 
-replace github.com/auth0/go-jwt-middleware/v2 => ./../../
+replace github.com/auth0/go-jwt-middleware/v3 => ./../../
 
 require (
 	github.com/BurntSushi/toml v1.3.2 // indirect

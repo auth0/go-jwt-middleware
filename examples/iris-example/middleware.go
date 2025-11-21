@@ -25,12 +25,6 @@ var (
 	keyFunc = func(ctx context.Context) (interface{}, error) {
 		return signingKey, nil
 	}
-
-	// We want this struct to be filled in with
-	// our custom claims from the token.
-	customClaims = func() validator.CustomClaims {
-		return &CustomClaims{}
-	}
 )
 
 // checkJWT is an iris.Handler middleware
@@ -42,7 +36,10 @@ func checkJWT() iris.Handler {
 		validator.WithAlgorithm(validator.HS256),
 		validator.WithIssuer(issuer),
 		validator.WithAudiences(audience),
-		validator.WithCustomClaims(customClaims),
+		// WithCustomClaims now uses generics - no need to return interface type
+		validator.WithCustomClaims(func() *CustomClaims {
+			return &CustomClaims{}
+		}),
 		validator.WithAllowedClockSkew(30*time.Second),
 	)
 	if err != nil {

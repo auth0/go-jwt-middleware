@@ -5,11 +5,11 @@ go 1.24.0
 toolchain go1.24.8
 
 require (
-	github.com/auth0/go-jwt-middleware/v2 v2.3.0
+	github.com/auth0/go-jwt-middleware/v3 v3.0.0
 	github.com/gin-gonic/gin v1.10.1
 )
 
-replace github.com/auth0/go-jwt-middleware/v2 => ./../../
+replace github.com/auth0/go-jwt-middleware/v3 => ./../../
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect
