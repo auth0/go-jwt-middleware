@@ -409,7 +409,7 @@ func Test_JWKSProvider(t *testing.T) {
 		badServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/openid-configuration" {
 				wk := oidc.WellKnownEndpoints{JWKSURI: badServer.URL + "/jwks.json"}
-				json.NewEncoder(w).Encode(wk)
+				_ = json.NewEncoder(w).Encode(wk)
 			} else {
 				w.WriteHeader(http.StatusNotFound)
 			}
@@ -533,10 +533,10 @@ func Test_JWKSProvider(t *testing.T) {
 		errorServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/openid-configuration" {
 				wk := oidc.WellKnownEndpoints{JWKSURI: errorServer.URL + "/jwks.json"}
-				json.NewEncoder(w).Encode(wk)
+				_ = json.NewEncoder(w).Encode(wk)
 			} else {
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("Internal Server Error"))
+				_, _ = w.Write([]byte("Internal Server Error"))
 			}
 		}))
 		defer errorServer.Close()
