@@ -22,7 +22,7 @@ jobs:
           check-latest: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@2226d7cb06a077cd73e56eedd38eecad18e5d837 # pin@6.5.0
+        uses: golangci/golangci-lint-action@0a35821d5c230e903fcfe077583637dea1b27b47 # pin@9.0.0
         with:
           args: -v --timeout=5m
           skip-build-cache: true
