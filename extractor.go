@@ -42,7 +42,10 @@ func CookieTokenExtractor(cookieName string) TokenExtractor {
 			return "", nil // No cookie, then no JWT, so no error.
 		}
 		if err != nil {
-			return "", err // Return other cookie parsing errors
+			// Defensive: r.Cookie() rarely returns non-ErrNoCookie errors in practice,
+			// but we handle them properly for robustness. The http package's cookie
+			// parsing is very lenient and typically only returns ErrNoCookie.
+			return "", err
 		}
 
 		return cookie.Value, nil
