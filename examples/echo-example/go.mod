@@ -5,11 +5,11 @@ go 1.24.0
 toolchain go1.24.8
 
 require (
-	github.com/auth0/go-jwt-middleware/v2 v2.3.0
+	github.com/auth0/go-jwt-middleware/v3 v3.0.0
 	github.com/labstack/echo/v4 v4.13.4
 )
 
-replace github.com/auth0/go-jwt-middleware/v2 => ./../../
+replace github.com/auth0/go-jwt-middleware/v3 => ./../../
 
 require (
 	github.com/labstack/gommon v0.4.2 // indirect

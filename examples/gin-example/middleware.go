@@ -26,11 +26,6 @@ var (
 		return signingKey, nil
 	}
 
-	// We want this struct to be filled in with
-	// our custom claims from the token.
-	customClaims = func() validator.CustomClaims {
-		return &CustomClaimsExample{}
-	}
 )
 
 // checkJWT is a gin.HandlerFunc middleware
@@ -38,11 +33,14 @@ var (
 func checkJWT() gin.HandlerFunc {
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		keyFunc,
-		validator.HS256,
-		issuer,
-		audience,
-		validator.WithCustomClaims(customClaims),
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudiences(audience),
+		// WithCustomClaims now uses generics - no need to return interface type
+		validator.WithCustomClaims(func() *CustomClaimsExample {
+			return &CustomClaimsExample{}
+		}),
 		validator.WithAllowedClockSkew(30*time.Second),
 	)
 	if err != nil {

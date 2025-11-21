@@ -212,14 +212,18 @@ func TestValidator_ValidateToken(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			validator, err := New(
-				testCase.keyFunc,
-				testCase.algorithm,
-				issuer,
-				[]string{audience, "another-audience"},
-				WithCustomClaims(testCase.customClaims),
+			opts := []Option{
+				WithKeyFunc(testCase.keyFunc),
+				WithAlgorithm(testCase.algorithm),
+				WithIssuer(issuer),
+				WithAudiences([]string{audience, "another-audience"}),
 				WithAllowedClockSkew(time.Second),
-			)
+			}
+			if testCase.customClaims != nil {
+				opts = append(opts, WithCustomClaims(testCase.customClaims))
+			}
+
+			validator, err := New(opts...)
 			require.NoError(t, err)
 
 			tokenClaims, err := validator.ValidateToken(context.Background(), testCase.token)
@@ -245,33 +249,190 @@ func TestNewValidator(t *testing.T) {
 		return []byte("secret"), nil
 	}
 
+	t.Run("successful creation with all required options", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+	})
+
+	t.Run("successful creation with WithAudiences", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudiences([]string{audience, "another-audience"}),
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+	})
+
+	t.Run("successful creation with optional parameters", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithAllowedClockSkew(30*time.Second),
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+		assert.Equal(t, 30*time.Second, v.allowedClockSkew)
+	})
+
 	t.Run("it throws an error when the keyFunc is nil", func(t *testing.T) {
-		_, err := New(nil, algorithm, issuer, []string{audience})
-		assert.EqualError(t, err, "keyFunc is required but was nil")
+		_, err := New(
+			WithKeyFunc(nil),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "keyFunc cannot be nil")
+	})
+
+	t.Run("it throws an error when keyFunc is missing", func(t *testing.T) {
+		_, err := New(
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "keyFunc is required")
 	})
 
 	t.Run("it throws an error when the signature algorithm is empty", func(t *testing.T) {
-		_, err := New(keyFunc, "", issuer, []string{audience})
-		assert.EqualError(t, err, "unsupported signature algorithm")
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(""),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported signature algorithm")
 	})
 
 	t.Run("it throws an error when the signature algorithm is unsupported", func(t *testing.T) {
-		_, err := New(keyFunc, "none", issuer, []string{audience})
-		assert.EqualError(t, err, "unsupported signature algorithm")
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm("none"),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported signature algorithm")
+	})
+
+	t.Run("it throws an error when algorithm is missing", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "signature algorithm is required")
 	})
 
 	t.Run("it throws an error when the issuerURL is empty", func(t *testing.T) {
-		_, err := New(keyFunc, algorithm, "", []string{audience})
-		assert.EqualError(t, err, "issuer url is required but was empty")
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(""),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer cannot be empty")
 	})
 
-	t.Run("it throws an error when the audience is nil", func(t *testing.T) {
-		_, err := New(keyFunc, algorithm, issuer, nil)
-		assert.EqualError(t, err, "audience is required but was empty")
+	t.Run("it throws an error when the issuerURL is invalid", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer("ht!tp://invalid url with spaces"),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid issuer URL")
+	})
+
+	t.Run("it throws an error when issuer is missing", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer is required")
 	})
 
 	t.Run("it throws an error when the audience is empty", func(t *testing.T) {
-		_, err := New(keyFunc, algorithm, issuer, []string{})
-		assert.EqualError(t, err, "audience is required but was empty")
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudience(""),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "audience cannot be empty")
+	})
+
+	t.Run("it throws an error when audiences list is empty", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudiences([]string{}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "audiences cannot be empty")
+	})
+
+	t.Run("it throws an error when audience is missing", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "audience is required")
+	})
+
+	t.Run("it throws an error when audiences contains empty string", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudiences([]string{"valid-aud", ""}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "audience at index 1 cannot be empty")
+	})
+
+	t.Run("it throws an error when clock skew is negative", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithAllowedClockSkew(-1*time.Second),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "clock skew cannot be negative")
+	})
+
+	t.Run("it throws an error when custom claims function is nil", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithCustomClaims[*testClaims](nil), // Need to specify type for nil
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "custom claims function cannot be nil")
 	})
 }
