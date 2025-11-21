@@ -43,8 +43,9 @@ import (
 func main() {
 	router := gin.Default()
 	router.GET("/", checkJWT(), func(ctx *gin.Context) {
-		claims, ok := ctx.Request.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-		if !ok {
+		// Modern type-safe claims retrieval using generics
+		claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](ctx.Request.Context())
+		if err != nil {
 			ctx.AbortWithStatusJSON(
 				http.StatusInternalServerError,
 				map[string]string{"message": "Failed to get validated JWT claims."},

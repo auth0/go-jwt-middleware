@@ -1,46 +1,174 @@
 package jwtmiddleware
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/auth0/go-jwt-middleware/v3/core"
 )
 
 var (
 	// ErrJWTMissing is returned when the JWT is missing.
-	ErrJWTMissing = errors.New("jwt missing")
+	// This is the same as core.ErrJWTMissing for consistency.
+	ErrJWTMissing = core.ErrJWTMissing
 
 	// ErrJWTInvalid is returned when the JWT is invalid.
-	ErrJWTInvalid = errors.New("jwt invalid")
+	// This is the same as core.ErrJWTInvalid for consistency.
+	ErrJWTInvalid = core.ErrJWTInvalid
 )
 
 // ErrorHandler is a handler which is called when an error occurs in the
-// JWTMiddleware. Among some general errors, this handler also determines the
-// response of the JWTMiddleware when a token is not found or is invalid. The
-// err can be checked to be ErrJWTMissing or ErrJWTInvalid for specific cases.
-// The default handler will return a status code of 400 for ErrJWTMissing,
-// 401 for ErrJWTInvalid, and 500 for all other errors. If you implement your
-// own ErrorHandler you MUST take into consideration the error types as not
-// properly responding to them or having a poorly implemented handler could
-// result in the JWTMiddleware not functioning as intended.
+// JWTMiddleware. The handler determines the HTTP response when a token is
+// not found, is invalid, or other errors occur.
+//
+// The default handler (DefaultErrorHandler) provides:
+//   - Structured JSON error responses with error codes
+//   - RFC 6750 compliant WWW-Authenticate headers (Bearer tokens)
+//   - Appropriate HTTP status codes based on error type
+//   - Security-conscious error messages (no sensitive details by default)
+//   - Extensible architecture for future authentication schemes (e.g., DPoP per RFC 9449)
+//
+// Custom error handlers should check for ErrJWTMissing and ErrJWTInvalid
+// sentinel errors, as well as core.ValidationError for detailed error codes.
+//
+// Future extensions (e.g., DPoP support) can use the same pattern:
+//   - Add DPoP-specific error codes to core.ValidationError
+//   - Update mapValidationError to handle DPoP errors
+//   - Return appropriate WWW-Authenticate headers with DPoP scheme
 type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 
-// DefaultErrorHandler is the default error handler implementation for the
-// JWTMiddleware. If an error handler is not provided via the WithErrorHandler
-// option this will be used.
-func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
-	w.Header().Set("Content-Type", "application/json")
+// ErrorResponse represents a structured error response.
+type ErrorResponse struct {
+	// Error is the main error message
+	Error string `json:"error"`
 
-	switch {
-	case errors.Is(err, ErrJWTMissing):
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"message":"JWT is missing."}`))
-	case errors.Is(err, ErrJWTInvalid):
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"message":"JWT is invalid."}`))
+	// ErrorDescription provides additional context (optional)
+	ErrorDescription string `json:"error_description,omitempty"`
+
+	// ErrorCode is a machine-readable error code (optional)
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+// DefaultErrorHandler is the default error handler implementation.
+// It provides structured error responses with appropriate HTTP status codes
+// and RFC 6750 compliant WWW-Authenticate headers.
+func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
+	// Extract error details
+	statusCode, errorResp, wwwAuthenticate := mapErrorToResponse(err)
+
+	// Set headers
+	w.Header().Set("Content-Type", "application/json")
+	if wwwAuthenticate != "" {
+		w.Header().Set("WWW-Authenticate", wwwAuthenticate)
+	}
+
+	// Write response
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(errorResp)
+}
+
+// mapErrorToResponse maps errors to appropriate HTTP responses
+func mapErrorToResponse(err error) (statusCode int, resp ErrorResponse, wwwAuthenticate string) {
+	// Check for JWT missing error
+	if errors.Is(err, ErrJWTMissing) {
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "JWT is missing",
+		}, `Bearer error="invalid_token", error_description="JWT is missing"`
+	}
+
+	// Check for validation error with specific code
+	var validationErr *core.ValidationError
+	if errors.As(err, &validationErr) {
+		return mapValidationError(validationErr)
+	}
+
+	// Check for general JWT invalid error
+	if errors.Is(err, ErrJWTInvalid) {
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "JWT is invalid",
+		}, `Bearer error="invalid_token", error_description="JWT is invalid"`
+	}
+
+	// Default to internal server error for unexpected errors
+	return http.StatusInternalServerError, ErrorResponse{
+		Error:            "server_error",
+		ErrorDescription: "An internal error occurred while processing the request",
+	}, ""
+}
+
+// mapValidationError maps core.ValidationError codes to HTTP responses
+// This function is extensible to support future authentication schemes like DPoP (RFC 9449)
+func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorResponse, wwwAuthenticate string) {
+	// Map error codes to HTTP status codes and RFC 6750 Bearer token error types
+	// Future: Add DPoP-specific error codes and return appropriate DPoP challenge headers
+	switch err.Code {
+	case core.ErrorCodeTokenExpired:
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "The access token expired",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="invalid_token", error_description="The access token expired"`
+
+	case core.ErrorCodeTokenNotYetValid:
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "The access token is not yet valid",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="invalid_token", error_description="The access token is not yet valid"`
+
+	case core.ErrorCodeInvalidSignature:
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "The access token signature is invalid",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="invalid_token", error_description="The access token signature is invalid"`
+
+	case core.ErrorCodeTokenMalformed:
+		return http.StatusBadRequest, ErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "The access token is malformed",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="invalid_request", error_description="The access token is malformed"`
+
+	case core.ErrorCodeInvalidIssuer:
+		return http.StatusForbidden, ErrorResponse{
+			Error:            "insufficient_scope",
+			ErrorDescription: "The access token was issued by an untrusted issuer",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="insufficient_scope", error_description="The access token was issued by an untrusted issuer"`
+
+	case core.ErrorCodeInvalidAudience:
+		return http.StatusForbidden, ErrorResponse{
+			Error:            "insufficient_scope",
+			ErrorDescription: "The access token audience does not match",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="insufficient_scope", error_description="The access token audience does not match"`
+
+	case core.ErrorCodeInvalidAlgorithm:
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "The access token uses an unsupported algorithm",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="invalid_token", error_description="The access token uses an unsupported algorithm"`
+
+	case core.ErrorCodeJWKSFetchFailed, core.ErrorCodeJWKSKeyNotFound:
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "Unable to verify the access token",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="invalid_token", error_description="Unable to verify the access token"`
+
 	default:
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"message":"Something went wrong while checking the JWT."}`))
+		// Generic invalid token error for other cases
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "The access token is invalid",
+			ErrorCode:        string(err.Code),
+		}, `Bearer error="invalid_token", error_description="The access token is invalid"`
 	}
 }
 

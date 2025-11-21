@@ -76,14 +76,14 @@ func Test_CheckJWT(t *testing.T) {
 			token:          "bad",
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusInternalServerError,
-			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
+			wantBody:       `{"error":"server_error","error_description":"An internal error occurred while processing the request"}`,
 		},
 		{
 			name:           "it fails to validate if token is missing and credentials are not optional",
 			token:          "",
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"message":"JWT is missing."}`,
+			wantStatusCode: http.StatusUnauthorized,
+			wantBody:       `{"error":"invalid_token","error_description":"JWT is missing"}`,
 		},
 		{
 			name:           "it fails to validate an invalid token",
@@ -91,7 +91,7 @@ func Test_CheckJWT(t *testing.T) {
 			token:          invalidToken,
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusUnauthorized,
-			wantBody:       `{"message":"JWT is invalid."}`,
+			wantBody:       `{"error":"invalid_token","error_description":"JWT is invalid"}`,
 		},
 		{
 			name: "it skips validation on OPTIONS if validateOnOptions is set to false",
@@ -112,7 +112,7 @@ func Test_CheckJWT(t *testing.T) {
 			},
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusInternalServerError,
-			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
+			wantBody:       `{"error":"server_error","error_description":"An internal error occurred while processing the request"}`,
 		},
 		{
 			name: "credentialsOptional true",
@@ -136,8 +136,8 @@ func Test_CheckJWT(t *testing.T) {
 				}),
 			},
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"message":"JWT is missing."}`,
+			wantStatusCode: http.StatusUnauthorized,
+			wantBody:       `{"error":"invalid_token","error_description":"JWT is missing"}`,
 		},
 		{
 			name: "JWT not required for /public",
@@ -180,8 +180,8 @@ func Test_CheckJWT(t *testing.T) {
 			method:         http.MethodGet,
 			path:           "/secure",
 			token:          "",
-			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"message":"JWT is missing."}`,
+			wantStatusCode: http.StatusUnauthorized,
+			wantBody:       `{"error":"invalid_token","error_description":"JWT is missing"}`,
 		},
 	}
 
@@ -190,11 +190,25 @@ func Test_CheckJWT(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			middleware := New(testCase.validateToken, testCase.options...)
+			// Use the test's validator if specified, otherwise use a default failing validator
+			validator := testCase.validateToken
+			if validator == nil {
+				validator = func(ctx context.Context, token string) (any, error) {
+					return nil, errors.New("token validation failed")
+				}
+			}
 
-			var actualValidatedClaims interface{}
+			opts := append([]Option{WithValidateToken(validator)}, testCase.options...)
+			middleware, err := New(opts...)
+			require.NoError(t, err)
+
+			var actualValidatedClaims any
 			var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				actualValidatedClaims = r.Context().Value(ContextKey{})
+				// Use the public API to get claims
+				if HasClaims(r.Context()) {
+					claims, _ := GetClaims[any](r.Context())
+					actualValidatedClaims = claims
+				}
 
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
@@ -221,7 +235,11 @@ func Test_CheckJWT(t *testing.T) {
 
 			assert.Equal(t, testCase.wantStatusCode, response.StatusCode)
 			assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
-			assert.Equal(t, testCase.wantBody, string(body))
+
+			// Compare JSON responses (ignoring formatting differences like newlines)
+			if testCase.wantBody != "" {
+				assert.JSONEq(t, testCase.wantBody, string(body))
+			}
 
 			if want, got := testCase.wantToken, actualValidatedClaims; !cmp.Equal(want, got) {
 				t.Fatal(cmp.Diff(want, got))

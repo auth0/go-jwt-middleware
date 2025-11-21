@@ -43,8 +43,9 @@ func main() {
 	app := iris.New()
 
 	app.Get("/", checkJWT(), func(ctx iris.Context) {
-		claims, ok := ctx.Request().Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-		if !ok {
+		// Modern type-safe claims retrieval using generics
+		claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](ctx.Request().Context())
+		if err != nil {
 			ctx.StopWithJSON(
 				http.StatusInternalServerError,
 				map[string]string{"message": "Failed to get validated JWT claims."},

@@ -44,8 +44,9 @@ func main() {
 	app := echo.New()
 
 	app.GET("/", func(ctx echo.Context) error {
-		claims, ok := ctx.Request().Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-		if !ok {
+		// Modern type-safe claims retrieval using generics
+		claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](ctx.Request().Context())
+		if err != nil {
 			ctx.JSON(
 				http.StatusInternalServerError,
 				map[string]string{"message": "Failed to get validated JWT claims."},

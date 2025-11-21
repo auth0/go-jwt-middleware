@@ -6,8 +6,6 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/lestrrat-go/jwx/v3 v3.0.12
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/sync v0.18.0
-	gopkg.in/go-jose/go-jose.v2 v2.6.3
 )
 
 require (
