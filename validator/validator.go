@@ -106,6 +106,10 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("could not parse the token: %w", err)
 	}
 
+	if len(token.Headers) != 1 {
+		return nil, fmt.Errorf("unsupported token: expected exactly one signature, got %d", len(token.Headers))
+	}
+
 	if err = validateSigningMethod(string(v.signatureAlgorithm), token.Headers[0].Algorithm); err != nil {
 		return nil, fmt.Errorf("signing method is invalid: %w", err)
 	}
