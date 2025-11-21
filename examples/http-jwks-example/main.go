@@ -43,10 +43,10 @@ func setupHandler(issuer string, audience []string) http.Handler {
 
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		provider.KeyFunc,
-		validator.RS256,
-		issuerURL.String(),
-		audience,
+		validator.WithKeyFunc(provider.KeyFunc),
+		validator.WithAlgorithm(validator.RS256),
+		validator.WithIssuer(issuerURL.String()),
+		validator.WithAudiences(audience),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the validator: %v", err)
