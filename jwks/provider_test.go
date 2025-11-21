@@ -207,6 +207,52 @@ func Test_JWKSProvider(t *testing.T) {
 		// Options were applied successfully if no error
 	})
 
+	t.Run("CachingProvider with only issuerURL (minimal config)", func(t *testing.T) {
+		// Test minimal configuration - only issuer URL provided
+		// This tests the default values path in NewCachingProvider
+		issuerURL, _ := url.Parse("https://example.com")
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(issuerURL),
+		)
+
+		require.NoError(t, err)
+		assert.NotNil(t, provider)
+		// Should use default HTTP client and cache TTL
+	})
+
+	t.Run("CachingProvider with issuerURL and custom client only", func(t *testing.T) {
+		// Test partial configuration - issuer URL and custom client, no JWKS URI
+		// This tests the path where Client is set but CustomJWKSURI is not
+		issuerURL, _ := url.Parse("https://example.com")
+		customClient := &http.Client{Timeout: 20 * time.Second}
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(issuerURL),
+			WithCustomClient(customClient),
+		)
+
+		require.NoError(t, err)
+		assert.NotNil(t, provider)
+		// CustomJWKSURI should not be set, but Client should be
+	})
+
+	t.Run("CachingProvider with issuerURL and custom JWKS URI only", func(t *testing.T) {
+		// Test partial configuration - issuer URL and custom JWKS URI, no custom client
+		// This tests the path where CustomJWKSURI is set but Client is not
+		issuerURL, _ := url.Parse("https://example.com")
+		jwksURL, _ := url.Parse("https://example.com/custom-jwks")
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(issuerURL),
+			WithCustomJWKSURI(jwksURL),
+		)
+
+		require.NoError(t, err)
+		assert.NotNil(t, provider)
+		// CustomJWKSURI should be set, but Client should use default
+	})
+
 
 	t.Run("CachingProvider returns error for missing issuerURL", func(t *testing.T) {
 		_, err := NewCachingProvider(WithCacheTTL(5 * time.Minute))
@@ -292,6 +338,7 @@ func Test_JWKSProvider(t *testing.T) {
 			)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "cache TTL cannot be negative")
+			assert.Contains(t, err.Error(), "invalid option")
 		})
 
 		t.Run("WithCache rejects nil", func(t *testing.T) {
@@ -301,6 +348,18 @@ func Test_JWKSProvider(t *testing.T) {
 			)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "cache cannot be nil")
+			assert.Contains(t, err.Error(), "invalid option")
+		})
+
+		t.Run("ProviderOption error propagates through CachingProvider", func(t *testing.T) {
+			// Test that ProviderOption errors are properly wrapped
+			_, err := NewCachingProvider(
+				WithIssuerURL(issuerURL),
+				WithCustomClient(nil), // This should error
+			)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "HTTP client cannot be nil")
+			assert.Contains(t, err.Error(), "invalid option")
 		})
 	})
 
@@ -343,6 +402,156 @@ func Test_JWKSProvider(t *testing.T) {
 		// Should get an error related to fetching well-known endpoints
 		assert.Contains(t, err.Error(), "could not fetch well-known endpoints")
 	})
+
+	t.Run("Provider handles JWKS fetch errors", func(t *testing.T) {
+		// Setup a server that returns 404 for JWKS
+		var badServer *httptest.Server
+		badServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/.well-known/openid-configuration" {
+				wk := oidc.WellKnownEndpoints{JWKSURI: badServer.URL + "/jwks.json"}
+				json.NewEncoder(w).Encode(wk)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer badServer.Close()
+
+		badServerURL, _ := url.Parse(badServer.URL)
+		provider, err := NewProvider(WithIssuerURL(badServerURL))
+		require.NoError(t, err)
+
+		_, err = provider.KeyFunc(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "could not fetch JWKS")
+	})
+
+	t.Run("CachingProvider handles JWKS URI discovery errors", func(t *testing.T) {
+		// Invalid URL that will cause discovery error
+		badURL, _ := url.Parse("http://invalid-host-that-does-not-exist-67890.com")
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(badURL),
+			WithCacheTTL(5*time.Minute),
+		)
+		require.NoError(t, err)
+
+		_, err = provider.KeyFunc(context.Background())
+		require.Error(t, err)
+		// Should propagate discovery error
+		assert.Contains(t, err.Error(), "failed to discover JWKS URI")
+	})
+
+	t.Run("CachingProvider handles cache fetch errors", func(t *testing.T) {
+		// Mock cache that returns errors
+		errorCache := &mockErrorCache{
+			err: fmt.Errorf("cache error"),
+		}
+
+		issuerURL, _ := url.Parse("https://example.com")
+		jwksURL, _ := url.Parse("https://example.com/jwks")
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(issuerURL),
+			WithCustomJWKSURI(jwksURL),
+			WithCache(errorCache),
+		)
+		require.NoError(t, err)
+
+		_, err = provider.KeyFunc(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cache error")
+	})
+
+	t.Run("jwxCache handles concurrent cache updates correctly", func(t *testing.T) {
+		requestCount = 0
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(testServerURL),
+			WithCacheTTL(50*time.Millisecond), // Very short TTL
+		)
+		require.NoError(t, err)
+
+		// First request - populates cache
+		_, err = provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+
+		// Wait for cache to almost expire
+		time.Sleep(60 * time.Millisecond)
+
+		// Launch multiple concurrent requests to test double-check logic
+		var wg sync.WaitGroup
+		errors := make(chan error, 10)
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := provider.KeyFunc(context.Background())
+				if err != nil {
+					errors <- err
+				}
+			}()
+		}
+		wg.Wait()
+		close(errors)
+
+		// All requests should succeed (verifies double-check logic prevents race conditions)
+		for err := range errors {
+			t.Errorf("Unexpected error from concurrent request: %v", err)
+		}
+	})
+
+	t.Run("jwxCache double-check logic returns cached value", func(t *testing.T) {
+		requestCount = 0
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(testServerURL),
+			WithCacheTTL(1*time.Second), // Longer TTL for this test
+		)
+		require.NoError(t, err)
+
+		// Populate cache
+		jwks1, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		initialCount := atomic.LoadInt32(&requestCount)
+
+		// Multiple immediate requests should use cache (double-check returns cached value)
+		for i := 0; i < 5; i++ {
+			jwks2, err := provider.KeyFunc(context.Background())
+			require.NoError(t, err)
+			require.NotNil(t, jwks2)
+		}
+
+		// Request count should not significantly increase (cache is being used)
+		finalCount := atomic.LoadInt32(&requestCount)
+		assert.Equal(t, initialCount, finalCount, "Cached values should be used, not refetched")
+		require.NotNil(t, jwks1)
+	})
+
+	t.Run("jwxCache handles jwk.Fetch errors", func(t *testing.T) {
+		// Setup a server that returns 500 for JWKS
+		var errorServer *httptest.Server
+		errorServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/.well-known/openid-configuration" {
+				wk := oidc.WellKnownEndpoints{JWKSURI: errorServer.URL + "/jwks.json"}
+				json.NewEncoder(w).Encode(wk)
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("Internal Server Error"))
+			}
+		}))
+		defer errorServer.Close()
+
+		errorServerURL, _ := url.Parse(errorServer.URL)
+		provider, err := NewCachingProvider(
+			WithIssuerURL(errorServerURL),
+			WithCacheTTL(5*time.Minute),
+		)
+		require.NoError(t, err)
+
+		_, err = provider.KeyFunc(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "could not fetch JWKS")
+	})
 }
 
 // mockCache is a test cache implementation
@@ -354,6 +563,15 @@ type mockCache struct {
 func (m *mockCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
 	m.getCalled = true
 	return m.jwks, nil
+}
+
+// mockErrorCache is a cache implementation that always returns errors
+type mockErrorCache struct {
+	err error
+}
+
+func (m *mockErrorCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
+	return nil, m.err
 }
 
 func generateJWKS() (jwk.Set, error) {
