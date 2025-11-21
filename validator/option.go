@@ -42,8 +42,8 @@ func WithAlgorithm(algorithm SignatureAlgorithm) Option {
 	}
 }
 
-// WithIssuer sets the expected issuer claim (iss) for token validation.
-// This is a required option.
+// WithIssuer sets a single expected issuer claim (iss) for token validation.
+// This is a required option (use either WithIssuer or WithIssuers, not both).
 //
 // The issuer URL should match the iss claim in the JWT. Tokens with a
 // different issuer will be rejected.
@@ -56,7 +56,31 @@ func WithIssuer(issuerURL string) Option {
 		if _, err := url.Parse(issuerURL); err != nil {
 			return fmt.Errorf("invalid issuer URL: %w", err)
 		}
-		v.expectedClaims.Issuer = issuerURL
+		v.expectedIssuers = []string{issuerURL}
+		return nil
+	}
+}
+
+// WithIssuers sets multiple expected issuer claims (iss) for token validation.
+// This is a required option (use either WithIssuer or WithIssuers, not both).
+//
+// The token must contain one of the specified issuers. Tokens without
+// any matching issuer will be rejected.
+func WithIssuers(issuers []string) Option {
+	return func(v *Validator) error {
+		if len(issuers) == 0 {
+			return errors.New("issuers cannot be empty")
+		}
+		for i, iss := range issuers {
+			if iss == "" {
+				return fmt.Errorf("issuer at index %d cannot be empty", i)
+			}
+			// Validate URL format
+			if _, err := url.Parse(iss); err != nil {
+				return fmt.Errorf("invalid issuer URL at index %d: %w", i, err)
+			}
+		}
+		v.expectedIssuers = issuers
 		return nil
 	}
 }
@@ -71,7 +95,7 @@ func WithAudience(audience string) Option {
 		if audience == "" {
 			return errors.New("audience cannot be empty")
 		}
-		v.expectedClaims.Audience = []string{audience}
+		v.expectedAudiences = []string{audience}
 		return nil
 	}
 }
@@ -91,7 +115,7 @@ func WithAudiences(audiences []string) Option {
 				return fmt.Errorf("audience at index %d cannot be empty", i)
 			}
 		}
-		v.expectedClaims.Audience = audiences
+		v.expectedAudiences = audiences
 		return nil
 	}
 }

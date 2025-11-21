@@ -39,7 +39,13 @@ func setupHandler(issuer string, audience []string) http.Handler {
 		log.Fatalf("failed to parse the issuer url: %v", err)
 	}
 
-	provider := jwks.NewCachingProvider(issuerURL, 5*time.Minute)
+	provider, err := jwks.NewCachingProvider(
+		jwks.WithIssuerURL(issuerURL),
+		jwks.WithCacheTTL(5*time.Minute),
+	)
+	if err != nil {
+		log.Fatalf("failed to create jwks provider: %v", err)
+	}
 
 	// Set up the validator.
 	jwtValidator, err := validator.New(
