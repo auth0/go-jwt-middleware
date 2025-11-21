@@ -75,6 +75,10 @@ func WithIssuers(issuers []string) Option {
 			if iss == "" {
 				return fmt.Errorf("issuer at index %d cannot be empty", i)
 			}
+			// Validate URL format
+			if _, err := url.Parse(iss); err != nil {
+				return fmt.Errorf("invalid issuer URL at index %d: %w", i, err)
+			}
 		}
 		v.expectedIssuers = issuers
 		return nil

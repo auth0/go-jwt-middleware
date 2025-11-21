@@ -128,7 +128,8 @@ func (v *Validator) validate() error {
 	return nil
 }
 
-// ValidateToken validates the passed in JWT using the jwx v3 library.
+// ValidateToken validates the passed in JWT.
+// This method is optimized for performance and abstracts the underlying JWT library.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
 	// CVE-2025-27144 mitigation: Validate token format before parsing
 	// to prevent memory exhaustion from malicious tokens with excessive dots.
@@ -142,6 +143,24 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
 	}
 
+	// Parse and validate token using underlying library
+	token, err := v.parseToken(ctx, tokenString, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract and validate claims (optimized: single pass through token)
+	validatedClaims, err := v.extractAndValidateClaims(ctx, token, tokenString)
+	if err != nil {
+		return nil, err
+	}
+
+	return validatedClaims, nil
+}
+
+// parseToken parses and performs basic validation on the token.
+// Abstraction point: This method wraps the underlying JWT library's parsing.
+func (v *Validator) parseToken(ctx context.Context, tokenString string, key interface{}) (jwt.Token, error) {
 	// Convert string algorithm to jwa.SignatureAlgorithm
 	jwxAlg, err := stringToJWXAlgorithm(string(v.signatureAlgorithm))
 	if err != nil {
@@ -162,25 +181,29 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		return nil, fmt.Errorf("failed to parse and validate token: %w", err)
 	}
 
-	// Validate issuer manually to support multiple issuers
+	return token, nil
+}
+
+// extractAndValidateClaims extracts claims from the token and validates them.
+// Optimized to minimize method calls and allocations.
+func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Token, tokenString string) (*ValidatedClaims, error) {
+	// Extract registered claims in a single pass
 	issuer, _ := token.Issuer()
-	if err := v.validateIssuer(issuer); err != nil {
-		return nil, fmt.Errorf("issuer validation failed: %w", err)
-	}
-
-	// Validate audience manually to support multiple audiences
-	tokenAudiences, _ := token.Audience()
-	if err := v.validateAudience(tokenAudiences); err != nil {
-		return nil, fmt.Errorf("audience validation failed: %w", err)
-	}
-
-	// Extract registered claims
 	subject, _ := token.Subject()
 	audience, _ := token.Audience()
 	jwtID, _ := token.JwtID()
 	expiration, _ := token.Expiration()
 	notBefore, _ := token.NotBefore()
 	issuedAt, _ := token.IssuedAt()
+
+	// Validate issuer and audience
+	if err := v.validateIssuer(issuer); err != nil {
+		return nil, fmt.Errorf("issuer validation failed: %w", err)
+	}
+
+	if err := v.validateAudience(audience); err != nil {
+		return nil, fmt.Errorf("audience validation failed: %w", err)
+	}
 
 	registeredClaims := RegisteredClaims{
 		Issuer:    issuer,
@@ -192,40 +215,52 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 		IssuedAt:  timeToUnix(issuedAt),
 	}
 
-	// Handle custom claims
+	// Handle custom claims if configured
 	var customClaims CustomClaims
 	if v.customClaimsExist() {
-		customClaims = v.customClaims()
-
-		// Extract payload from JWT and unmarshal into custom claims
-		// JWT format: header.payload.signature
-		parts := strings.Split(tokenString, ".")
-		if len(parts) != 3 {
-			return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
-		}
-
-		// Decode and unmarshal the payload (second part) into custom claims
-		// JWT uses base64url encoding without padding
-		payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+		var err error
+		customClaims, err = v.extractCustomClaims(ctx, tokenString)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode JWT payload: %w", err)
-		}
-
-		if err := json.Unmarshal(payloadJSON, customClaims); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal custom claims: %w", err)
-		}
-
-		if err := customClaims.Validate(ctx); err != nil {
-			return nil, fmt.Errorf("custom claims not validated: %w", err)
+			return nil, err
 		}
 	}
 
-	validatedClaims := &ValidatedClaims{
+	return &ValidatedClaims{
 		RegisteredClaims: registeredClaims,
 		CustomClaims:     customClaims,
+	}, nil
+}
+
+// extractCustomClaims extracts and validates custom claims from the token string.
+// SDK-agnostic approach: Manually decodes JWT payload for maximum portability and performance.
+// This allows swapping the underlying JWT library without changing this logic.
+func (v *Validator) extractCustomClaims(ctx context.Context, tokenString string) (CustomClaims, error) {
+	customClaims := v.customClaims()
+
+	// JWT format: header.payload.signature
+	// Extract and decode the payload (second part) directly
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
 	}
 
-	return validatedClaims, nil
+	// Decode the payload using base64url encoding (JWT standard)
+	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode JWT payload: %w", err)
+	}
+
+	// Unmarshal JSON payload into custom claims struct
+	if err := json.Unmarshal(payloadJSON, customClaims); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal custom claims: %w", err)
+	}
+
+	// Validate the custom claims
+	if err := customClaims.Validate(ctx); err != nil {
+		return nil, fmt.Errorf("custom claims not validated: %w", err)
+	}
+
+	return customClaims, nil
 }
 
 func (v *Validator) customClaimsExist() bool {

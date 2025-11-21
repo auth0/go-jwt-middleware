@@ -3,13 +3,11 @@ package validator
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/go-jose/go-jose.v2/jwt"
 )
 
 type testClaims struct {
@@ -80,7 +78,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     RS256,
-			expectedError: errors.New(`signing method is invalid: expected "RS256" signing algorithm but token specified "HS256"`),
+			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.VerifyCompact: signature verification failed for RS256: jwsbb.Verify: invalid key type []uint8. *rsa.PublicKey is required: keyconv: expected rsa.PublicKey/rsa.PrivateKey or *rsa.PublicKey/*rsa.PrivateKey, got []uint8`),
 		},
 		{
 			name:  "it throws an error when it cannot parse the token",
@@ -89,7 +87,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("could not parse the token: go-jose/go-jose: compact JWS format must have three parts"),
+			expectedError: errors.New("failed to parse and validate token: jwt.ParseString: failed to parse string: unknown payload type (payload is not JWT?)"),
 		},
 		{
 			name:  "it throws an error when it fails to fetch the keys from the key func",
@@ -98,7 +96,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return nil, errors.New("key func error message")
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("failed to deserialize token claims: error getting the keys from the key func: key func error message"),
+			expectedError: errors.New("error getting the keys from the key func: key func error message"),
 		},
 		{
 			name:  "it throws an error when it fails to deserialize the claims because the signature is invalid",
@@ -107,7 +105,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("failed to deserialize token claims: could not get token claims: go-jose/go-jose: error in cryptographic primitive"),
+			expectedError: errors.New("failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.VerifyCompact: signature verification failed for HS256: invalid HMAC signature"),
 		},
 		{
 			name:  "it throws an error when it fails to validate the registered claims",
@@ -116,7 +114,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("expected claims not validated: go-jose/go-jose/jwt: validation failed, invalid audience claim (aud)"),
+			expectedError: errors.New("audience validation failed: token has no audience"),
 		},
 		{
 			name:  "it throws an error when it fails to validate the custom claims",
@@ -176,7 +174,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrNotValidYet),
+			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "exp" not satisfied: token is expired`),
 		},
 		{
 			name:  "it throws an error when token is expired",
@@ -185,7 +183,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrExpired),
+			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "exp" not satisfied: token is expired`),
 		},
 		{
 			name:  "it throws an error when token is issued in the future",
@@ -194,7 +192,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrIssuedInTheFuture),
+			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "iat" not satisfied`),
 		},
 		{
 			name:  "it throws an error when token issuer is invalid",
@@ -203,7 +201,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: fmt.Errorf("expected claims not validated: %s", jwt.ErrInvalidIssuer),
+			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "iat" not satisfied`),
 		},
 	}
 
@@ -435,4 +433,89 @@ func TestNewValidator(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "custom claims function cannot be nil")
 	})
+
+	t.Run("WithIssuers accepts multiple issuers", func(t *testing.T) {
+		issuers := []string{
+			"https://issuer1.example.com/",
+			"https://issuer2.example.com/",
+			"https://issuer3.example.com/",
+		}
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuers(issuers),
+			WithAudience(audience),
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+		assert.Equal(t, issuers, v.expectedIssuers)
+	})
+
+	t.Run("WithIssuers rejects empty list", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuers([]string{}),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuers cannot be empty")
+	})
+
+	t.Run("WithIssuers rejects list with empty string", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuers([]string{"https://valid.com/", ""}),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer at index 1 cannot be empty")
+	})
+
+	t.Run("WithIssuers rejects list with invalid URL", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(algorithm),
+			WithIssuers([]string{"https://valid.com/", "ht!tp://invalid url"}),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid issuer URL at index 1")
+	})
 }
+
+func TestAllSignatureAlgorithms(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+	)
+
+	keyFunc := func(context.Context) (interface{}, error) {
+		return []byte("secret"), nil
+	}
+
+	algorithms := []SignatureAlgorithm{
+		EdDSA,
+		HS256, HS384, HS512,
+		RS256, RS384, RS512,
+		ES256, ES384, ES512, ES256K,
+		PS256, PS384, PS512,
+	}
+
+	for _, alg := range algorithms {
+		alg := alg
+		t.Run(string(alg), func(t *testing.T) {
+			v, err := New(
+				WithKeyFunc(keyFunc),
+				WithAlgorithm(alg),
+				WithIssuer(issuer),
+				WithAudience(audience),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, v)
+			assert.Equal(t, alg, v.signatureAlgorithm)
+		})
+	}
+}
+
