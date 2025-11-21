@@ -34,8 +34,9 @@ func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 }
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-	if !ok {
+	// Modern type-safe claims retrieval using generics
+	claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+	if err != nil {
 		http.Error(w, "failed to get validated claims", http.StatusInternalServerError)
 		return
 	}
@@ -43,10 +44,12 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	customClaims, ok := claims.CustomClaims.(*CustomClaimsExample)
 	if !ok {
 		http.Error(w, "could not cast custom claims to specific type", http.StatusInternalServerError)
+		return
 	}
 
 	if len(customClaims.Username) == 0 {
 		http.Error(w, "username in JWT claims was empty", http.StatusBadRequest)
+		return
 	}
 
 	payload, err := json.Marshal(claims)
@@ -81,7 +84,17 @@ func setupHandler() http.Handler {
 		log.Fatalf("failed to set up the validator: %v", err)
 	}
 
-	return jwtmiddleware.New(jwtValidator.ValidateToken).CheckJWT(handler)
+	// Set up the middleware using pure options pattern
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+		// Optional: Add a logger for debugging JWT validation flow
+		// jwtmiddleware.WithLogger(slog.Default()),
+	)
+	if err != nil {
+		log.Fatalf("failed to set up the middleware: %v", err)
+	}
+
+	return middleware.CheckJWT(handler)
 }
 
 func main() {

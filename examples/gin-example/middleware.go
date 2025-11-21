@@ -51,10 +51,14 @@ func checkJWT() gin.HandlerFunc {
 		log.Printf("Encountered error while validating JWT: %v", err)
 	}
 
-	middleware := jwtmiddleware.New(
-		jwtValidator.ValidateToken,
+	// Set up the middleware using pure options pattern
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
 		jwtmiddleware.WithErrorHandler(errorHandler),
 	)
+	if err != nil {
+		log.Fatalf("failed to set up the middleware: %v", err)
+	}
 
 	return func(ctx *gin.Context) {
 		encounteredError := true

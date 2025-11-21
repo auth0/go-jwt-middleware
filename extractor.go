@@ -33,9 +33,16 @@ func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 // extracts the token from the cookie using the passed in cookieName.
 func CookieTokenExtractor(cookieName string) TokenExtractor {
 	return func(r *http.Request) (string, error) {
+		if cookieName == "" {
+			return "", errors.New("cookie name cannot be empty")
+		}
+
 		cookie, err := r.Cookie(cookieName)
 		if err == http.ErrNoCookie {
 			return "", nil // No cookie, then no JWT, so no error.
+		}
+		if err != nil {
+			return "", err // Return other cookie parsing errors
 		}
 
 		return cookie.Value, nil
@@ -46,6 +53,9 @@ func CookieTokenExtractor(cookieName string) TokenExtractor {
 // the token from the specified query string parameter.
 func ParameterTokenExtractor(param string) TokenExtractor {
 	return func(r *http.Request) (string, error) {
+		if param == "" {
+			return "", errors.New("parameter name cannot be empty")
+		}
 		return r.URL.Query().Get(param), nil
 	}
 }
