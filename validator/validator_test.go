@@ -519,3 +519,255 @@ func TestAllSignatureAlgorithms(t *testing.T) {
 	}
 }
 
+func TestStringToJWXAlgorithm(t *testing.T) {
+	testCases := []struct {
+		name          string
+		algorithm     string
+		expectError   bool
+		errorContains string
+	}{
+		// Test all supported algorithms
+		{name: "HS256", algorithm: "HS256", expectError: false},
+		{name: "HS384", algorithm: "HS384", expectError: false},
+		{name: "HS512", algorithm: "HS512", expectError: false},
+		{name: "RS256", algorithm: "RS256", expectError: false},
+		{name: "RS384", algorithm: "RS384", expectError: false},
+		{name: "RS512", algorithm: "RS512", expectError: false},
+		{name: "ES256", algorithm: "ES256", expectError: false},
+		{name: "ES384", algorithm: "ES384", expectError: false},
+		{name: "ES512", algorithm: "ES512", expectError: false},
+		{name: "ES256K", algorithm: "ES256K", expectError: false},
+		{name: "PS256", algorithm: "PS256", expectError: false},
+		{name: "PS384", algorithm: "PS384", expectError: false},
+		{name: "PS512", algorithm: "PS512", expectError: false},
+		{name: "EdDSA", algorithm: "EdDSA", expectError: false},
+		// Test unsupported algorithm
+		{name: "unsupported", algorithm: "INVALID", expectError: true, errorContains: "unsupported algorithm: INVALID"},
+		{name: "none", algorithm: "none", expectError: true, errorContains: "unsupported algorithm: none"},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			jwxAlg, err := stringToJWXAlgorithm(tc.algorithm)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, jwxAlg)
+				assert.Equal(t, tc.algorithm, jwxAlg.String())
+			}
+		})
+	}
+}
+
+func TestValidateIssuer(t *testing.T) {
+	v := &Validator{
+		expectedIssuers: []string{
+			"https://issuer1.example.com/",
+			"https://issuer2.example.com/",
+		},
+	}
+
+	t.Run("valid issuer matches first", func(t *testing.T) {
+		err := v.validateIssuer("https://issuer1.example.com/")
+		assert.NoError(t, err)
+	})
+
+	t.Run("valid issuer matches second", func(t *testing.T) {
+		err := v.validateIssuer("https://issuer2.example.com/")
+		assert.NoError(t, err)
+	})
+
+	t.Run("invalid issuer does not match any", func(t *testing.T) {
+		err := v.validateIssuer("https://hacker.example.com/")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), `token issuer "https://hacker.example.com/" does not match any expected issuer`)
+	})
+}
+
+func TestValidateAudience(t *testing.T) {
+	v := &Validator{
+		expectedAudiences: []string{
+			"audience1",
+			"audience2",
+		},
+	}
+
+	t.Run("valid when token has matching audience", func(t *testing.T) {
+		err := v.validateAudience([]string{"audience1"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("valid when token has multiple audiences with one matching", func(t *testing.T) {
+		err := v.validateAudience([]string{"other", "audience2", "another"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("error when token has no audiences", func(t *testing.T) {
+		err := v.validateAudience([]string{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token has no audience")
+	})
+
+	t.Run("error when token audiences do not match any expected", func(t *testing.T) {
+		err := v.validateAudience([]string{"wrong-audience", "another-wrong"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token audience")
+		assert.Contains(t, err.Error(), "does not match any expected audience")
+	})
+}
+
+func TestExtractCustomClaims(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+	)
+
+	keyFunc := func(context.Context) (interface{}, error) {
+		return []byte("secret"), nil
+	}
+
+	t.Run("error when token has invalid base64 in payload", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithCustomClaims(func() *testClaims {
+				return &testClaims{}
+			}),
+		)
+		require.NoError(t, err)
+
+		// Create a token with invalid base64 in the payload
+		// Format: header.invalid-base64-payload.signature
+		invalidToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.!!!invalid-base64!!!.signature"
+
+		_, err = v.extractCustomClaims(context.Background(), invalidToken)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode JWT payload")
+	})
+
+	t.Run("error when token payload is not valid JSON", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithCustomClaims(func() *testClaims {
+				return &testClaims{}
+			}),
+		)
+		require.NoError(t, err)
+
+		// Create a token with valid base64 but invalid JSON
+		// "not-json" in base64url: bm90LWpzb24
+		invalidToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bm90LWpzb24.signature"
+
+		_, err = v.extractCustomClaims(context.Background(), invalidToken)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to unmarshal custom claims")
+	})
+
+	t.Run("error when token format is invalid (not 3 parts)", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithCustomClaims(func() *testClaims {
+				return &testClaims{}
+			}),
+		)
+		require.NoError(t, err)
+
+		// Create a token with only 2 parts
+		invalidToken := "header.payload"
+
+		_, err = v.extractCustomClaims(context.Background(), invalidToken)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid JWT format")
+		assert.Contains(t, err.Error(), "expected 3 parts, got 2")
+	})
+
+	t.Run("error when token format has too many parts", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithCustomClaims(func() *testClaims {
+				return &testClaims{}
+			}),
+		)
+		require.NoError(t, err)
+
+		// Create a token with 4 parts
+		invalidToken := "header.payload.signature.extra"
+
+		_, err = v.extractCustomClaims(context.Background(), invalidToken)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid JWT format")
+		assert.Contains(t, err.Error(), "expected 3 parts, got 4")
+	})
+}
+
+func TestValidator_IssuerValidationInValidateToken(t *testing.T) {
+	const (
+		tokenIssuer = "https://go-jwt-middleware.eu.auth0.com/"
+		audience    = "https://go-jwt-middleware-api/"
+	)
+
+	t.Run("it throws an error when token issuer does not match any expected issuer", func(t *testing.T) {
+		// Use a valid token with issuer "https://go-jwt-middleware.eu.auth0.com/"
+		// but configure validator to expect a different issuer
+		token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0"
+
+		// Configure validator to expect a different issuer
+		v, err := New(
+			WithKeyFunc(func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			}),
+			WithAlgorithm(HS256),
+			WithIssuer("https://different-issuer.example.com/"),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		_, err = v.ValidateToken(context.Background(), token)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer validation failed")
+		assert.Contains(t, err.Error(), "does not match any expected issuer")
+	})
+}
+
+func TestParseToken_DefensiveAlgorithmCheck(t *testing.T) {
+	// This test covers defensive code in parseToken that checks for unsupported algorithms.
+	// While WithAlgorithm validates algorithms at construction time, parseToken has
+	// defensive checks in case the Validator struct is modified directly.
+	t.Run("error when algorithm is unsupported in parseToken", func(t *testing.T) {
+		// Create a validator with an invalid algorithm by bypassing normal construction
+		// This tests the defensive code path in parseToken
+		v := &Validator{
+			signatureAlgorithm: "UNSUPPORTED",
+			keyFunc: func(context.Context) (interface{}, error) {
+				return []byte("secret"), nil
+			},
+			expectedIssuers:   []string{"https://issuer.example.com/"},
+			expectedAudiences: []string{"audience"},
+		}
+
+		token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0"
+		key := []byte("secret")
+
+		_, err := v.parseToken(context.Background(), token, key)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported algorithm")
+	})
+}
+
