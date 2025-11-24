@@ -14,13 +14,13 @@ import (
 
 func TestDefaultErrorHandler(t *testing.T) {
 	tests := []struct {
-		name                   string
-		err                    error
-		wantStatus             int
-		wantError              string
-		wantErrorDescription   string
-		wantErrorCode          string
-		wantWWWAuthenticate    string
+		name                 string
+		err                  error
+		wantStatus           int
+		wantError            string
+		wantErrorDescription string
+		wantErrorCode        string
+		wantWWWAuthenticate  string
 	}{
 		{
 			name:                 "ErrJWTMissing",

@@ -143,7 +143,7 @@ func Test_New_Defaults(t *testing.T) {
 	assert.NotNil(t, middleware.tokenExtractor)
 	assert.False(t, middleware.credentialsOptional)
 	assert.True(t, middleware.validateOnOptions)
-	assert.Nil(t, middleware.exclusionUrlHandler)
+	assert.Nil(t, middleware.exclusionURLHandler)
 }
 
 func Test_WithCredentialsOptional(t *testing.T) {
@@ -254,7 +254,7 @@ func Test_WithExclusionUrls(t *testing.T) {
 		WithExclusionUrls(exclusions),
 	)
 	require.NoError(t, err)
-	assert.NotNil(t, middleware.exclusionUrlHandler)
+	assert.NotNil(t, middleware.exclusionURLHandler)
 
 	// Test the exclusion handler
 	testCases := []struct {
@@ -274,7 +274,7 @@ func Test_WithExclusionUrls(t *testing.T) {
 			req, err := http.NewRequest(http.MethodGet, "http://example.com"+tc.path, nil)
 			require.NoError(t, err)
 
-			result := middleware.exclusionUrlHandler(req)
+			result := middleware.exclusionURLHandler(req)
 			assert.Equal(t, tc.excluded, result)
 		})
 	}

@@ -22,8 +22,8 @@ func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 	}
 
 	authHeaderParts := strings.Fields(authHeader)
-	if len(authHeaderParts) != 2 || strings.ToLower(authHeaderParts[0]) != "bearer" {
-		return "", errors.New("Authorization header format must be Bearer {token}")
+	if len(authHeaderParts) != 2 || !strings.EqualFold(authHeaderParts[0], "bearer") {
+		return "", errors.New("authorization header format must be Bearer {token}")
 	}
 
 	return authHeaderParts[1], nil
@@ -38,7 +38,7 @@ func CookieTokenExtractor(cookieName string) TokenExtractor {
 		}
 
 		cookie, err := r.Cookie(cookieName)
-		if err == http.ErrNoCookie {
+		if errors.Is(err, http.ErrNoCookie) {
 			return "", nil // No cookie, then no JWT, so no error.
 		}
 		if err != nil {

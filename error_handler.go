@@ -110,56 +110,56 @@ func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorRe
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token expired",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_token", error_description="The access token expired"`
 
 	case core.ErrorCodeTokenNotYetValid:
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token is not yet valid",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_token", error_description="The access token is not yet valid"`
 
 	case core.ErrorCodeInvalidSignature:
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token signature is invalid",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_token", error_description="The access token signature is invalid"`
 
 	case core.ErrorCodeTokenMalformed:
 		return http.StatusBadRequest, ErrorResponse{
 			Error:            "invalid_request",
 			ErrorDescription: "The access token is malformed",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_request", error_description="The access token is malformed"`
 
 	case core.ErrorCodeInvalidIssuer:
 		return http.StatusForbidden, ErrorResponse{
 			Error:            "insufficient_scope",
 			ErrorDescription: "The access token was issued by an untrusted issuer",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="insufficient_scope", error_description="The access token was issued by an untrusted issuer"`
 
 	case core.ErrorCodeInvalidAudience:
 		return http.StatusForbidden, ErrorResponse{
 			Error:            "insufficient_scope",
 			ErrorDescription: "The access token audience does not match",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="insufficient_scope", error_description="The access token audience does not match"`
 
 	case core.ErrorCodeInvalidAlgorithm:
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token uses an unsupported algorithm",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_token", error_description="The access token uses an unsupported algorithm"`
 
 	case core.ErrorCodeJWKSFetchFailed, core.ErrorCodeJWKSKeyNotFound:
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "Unable to verify the access token",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_token", error_description="Unable to verify the access token"`
 
 	default:
@@ -167,7 +167,7 @@ func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorRe
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token is invalid",
-			ErrorCode:        string(err.Code),
+			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_token", error_description="The access token is invalid"`
 	}
 }

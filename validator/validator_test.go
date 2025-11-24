@@ -802,4 +802,3 @@ func TestParseToken_WithJWKSet(t *testing.T) {
 		assert.NotContains(t, err.Error(), "unsupported algorithm")
 	})
 }
-

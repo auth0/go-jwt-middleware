@@ -16,20 +16,20 @@ import (
 
 // Signature algorithms
 const (
-	EdDSA   = SignatureAlgorithm("EdDSA")
-	HS256   = SignatureAlgorithm("HS256")   // HMAC using SHA-256
-	HS384   = SignatureAlgorithm("HS384")   // HMAC using SHA-384
-	HS512   = SignatureAlgorithm("HS512")   // HMAC using SHA-512
-	RS256   = SignatureAlgorithm("RS256")   // RSASSA-PKCS-v1.5 using SHA-256
-	RS384   = SignatureAlgorithm("RS384")   // RSASSA-PKCS-v1.5 using SHA-384
-	RS512   = SignatureAlgorithm("RS512")   // RSASSA-PKCS-v1.5 using SHA-512
-	ES256   = SignatureAlgorithm("ES256")   // ECDSA using P-256 and SHA-256
-	ES384   = SignatureAlgorithm("ES384")   // ECDSA using P-384 and SHA-384
-	ES512   = SignatureAlgorithm("ES512")   // ECDSA using P-521 and SHA-512
-	ES256K  = SignatureAlgorithm("ES256K")  // ECDSA using secp256k1 curve and SHA-256
-	PS256   = SignatureAlgorithm("PS256")   // RSASSA-PSS using SHA256 and MGF1-SHA256
-	PS384   = SignatureAlgorithm("PS384")   // RSASSA-PSS using SHA384 and MGF1-SHA384
-	PS512   = SignatureAlgorithm("PS512")   // RSASSA-PSS using SHA512 and MGF1-SHA512
+	EdDSA  = SignatureAlgorithm("EdDSA")
+	HS256  = SignatureAlgorithm("HS256")  // HMAC using SHA-256
+	HS384  = SignatureAlgorithm("HS384")  // HMAC using SHA-384
+	HS512  = SignatureAlgorithm("HS512")  // HMAC using SHA-512
+	RS256  = SignatureAlgorithm("RS256")  // RSASSA-PKCS-v1.5 using SHA-256
+	RS384  = SignatureAlgorithm("RS384")  // RSASSA-PKCS-v1.5 using SHA-384
+	RS512  = SignatureAlgorithm("RS512")  // RSASSA-PKCS-v1.5 using SHA-512
+	ES256  = SignatureAlgorithm("ES256")  // ECDSA using P-256 and SHA-256
+	ES384  = SignatureAlgorithm("ES384")  // ECDSA using P-384 and SHA-384
+	ES512  = SignatureAlgorithm("ES512")  // ECDSA using P-521 and SHA-512
+	ES256K = SignatureAlgorithm("ES256K") // ECDSA using secp256k1 curve and SHA-256
+	PS256  = SignatureAlgorithm("PS256")  // RSASSA-PSS using SHA256 and MGF1-SHA256
+	PS384  = SignatureAlgorithm("PS384")  // RSASSA-PSS using SHA384 and MGF1-SHA384
+	PS512  = SignatureAlgorithm("PS512")  // RSASSA-PSS using SHA512 and MGF1-SHA512
 )
 
 // Validator validates JWTs using the jwx v3 library.
@@ -132,12 +132,6 @@ func (v *Validator) validate() error {
 // ValidateToken validates the passed in JWT.
 // This method is optimized for performance and abstracts the underlying JWT library.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
-	// CVE-2025-27144 mitigation: Validate token format before parsing
-	// to prevent memory exhaustion from malicious tokens with excessive dots.
-	if err := validateTokenFormat(tokenString); err != nil {
-		return nil, fmt.Errorf("invalid token format: %w", err)
-	}
-
 	// Get the verification key
 	key, err := v.keyFunc(ctx)
 	if err != nil {
@@ -161,7 +155,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 
 // parseToken parses and performs basic validation on the token.
 // Abstraction point: This method wraps the underlying JWT library's parsing.
-func (v *Validator) parseToken(ctx context.Context, tokenString string, key interface{}) (jwt.Token, error) {
+func (v *Validator) parseToken(_ context.Context, tokenString string, key interface{}) (jwt.Token, error) {
 	// Convert string algorithm to jwa.SignatureAlgorithm
 	jwxAlg, err := stringToJWXAlgorithm(string(v.signatureAlgorithm))
 	if err != nil {

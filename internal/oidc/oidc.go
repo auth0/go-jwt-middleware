@@ -32,7 +32,7 @@ func GetWellKnownEndpointsFromIssuerURL(
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch well-known endpoints from %s: %w", issuerURL.String(), err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, _ := io.ReadAll(response.Body)

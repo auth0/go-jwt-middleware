@@ -49,20 +49,20 @@ func (e *ValidationError) Is(target error) bool {
 
 // Common error codes
 const (
-	ErrorCodeTokenMissing       = "token_missing"
-	ErrorCodeTokenMalformed     = "token_malformed"
-	ErrorCodeTokenExpired       = "token_expired"
-	ErrorCodeTokenNotYetValid   = "token_not_yet_valid"
-	ErrorCodeInvalidSignature   = "invalid_signature"
-	ErrorCodeInvalidAlgorithm   = "invalid_algorithm"
-	ErrorCodeInvalidIssuer      = "invalid_issuer"
-	ErrorCodeInvalidAudience    = "invalid_audience"
-	ErrorCodeInvalidClaims      = "invalid_claims"
-	ErrorCodeJWKSFetchFailed    = "jwks_fetch_failed"
-	ErrorCodeJWKSKeyNotFound    = "jwks_key_not_found"
-	ErrorCodeConfigInvalid      = "config_invalid"
-	ErrorCodeValidatorNotSet    = "validator_not_set"
-	ErrorCodeClaimsNotFound     = "claims_not_found"
+	ErrorCodeTokenMissing     = "token_missing" //nolint:gosec // False positive: this is not a credential
+	ErrorCodeTokenMalformed   = "token_malformed"
+	ErrorCodeTokenExpired     = "token_expired"
+	ErrorCodeTokenNotYetValid = "token_not_yet_valid" //nolint:gosec // False positive: this is not a credential
+	ErrorCodeInvalidSignature = "invalid_signature"
+	ErrorCodeInvalidAlgorithm = "invalid_algorithm"
+	ErrorCodeInvalidIssuer    = "invalid_issuer"
+	ErrorCodeInvalidAudience  = "invalid_audience"
+	ErrorCodeInvalidClaims    = "invalid_claims"
+	ErrorCodeJWKSFetchFailed  = "jwks_fetch_failed"
+	ErrorCodeJWKSKeyNotFound  = "jwks_key_not_found"
+	ErrorCodeConfigInvalid    = "config_invalid"
+	ErrorCodeValidatorNotSet  = "validator_not_set"
+	ErrorCodeClaimsNotFound   = "claims_not_found"
 )
 
 // NewValidationError creates a new ValidationError with the given code and message.
