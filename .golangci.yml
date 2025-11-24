@@ -2,218 +2,134 @@
 # golangci-lint v2.6.2
 # https://golangci-lint.run/usage/configuration/
 
-version: 2
+version: "2"
 
 run:
   timeout: 5m
   tests: false
   modules-download-mode: readonly
 
-output:
-  print-issued-lines: true
-  print-linter-name: true
-  sort-results: true
-
 linters:
   enable:
     # Enabled by default
-    - errcheck     # Check for unchecked errors
-    - govet        # Vet examines Go source code
-    - ineffassign  # Detect ineffectual assignments
-    - staticcheck  # Advanced Go linter
-    - unused       # Check for unused constants, variables, functions and types
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
 
     # Additional recommended linters
-    - revive       # Fast, configurable, extensible, flexible, and beautiful linter for Go
-    - misspell     # Finds commonly misspelled English words
-    - unconvert    # Remove unnecessary type conversions
-    - unparam      # Report unused function parameters
-    - wastedassign # Find wasted assignment statements
-    - whitespace   # Tool for detection of leading and trailing whitespace
+    - revive
+    - misspell
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
 
     # Security
-    - gosec        # Inspect source code for security problems
+    - gosec
 
     # Error handling
-    - errorlint    # Find code that will cause problems with Go 1.13+ error wrapping
+    - errorlint
 
     # Performance
-    - prealloc     # Find slice declarations that could potentially be preallocated
+    - prealloc
 
     # Code quality
-    - gocritic     # Provides diagnostics that check for bugs, performance and style issues
-    - gocyclo      # Computes and checks the cyclomatic complexity of functions
-    - dupl         # Code clone detection
+    - gocritic
+    - gocyclo
+    - dupl
 
-formatters:
-  enable:
-    - gofmt        # Check whether code was gofmt-ed
-    - goimports    # Check import statements are formatted
+  # Linter-specific settings
+  settings:
+    errcheck:
+      check-blank: false
+      check-type-assertions: false
 
-linters-settings:
-  errcheck:
-    check-blank: false
-    check-type-assertions: false
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
 
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment  # Too strict for this project
-      - shadow         # Too noisy
+    gocyclo:
+      min-complexity: 20
 
-  gocyclo:
-    min-complexity: 20
+    dupl:
+      threshold: 100
 
-  dupl:
-    threshold: 100
+    gocritic:
+      enabled-checks:
+        - appendAssign
+        - assignOp
+        - badCond
+        - boolExprSimplify
+        - builtinShadow
+        - dupArg
+        - dupBranchBody
+        - dupCase
+        - elseif
+        - emptyStringTest
+        - nilValReturn
 
-  gocritic:
-    enabled-checks:
-      - appendAssign
-      - assignOp
-      - badCond
-      - boolExprSimplify
-      - builtinShadow
-      - captLocal
-      - caseOrder
-      - codegenComment
-      - commentFormatting
-      - commentedOutCode
-      - defaultCaseOrder
-      - deprecatedComment
-      - docStub
-      - dupArg
-      - dupBranchBody
-      - dupCase
-      - dupSubExpr
-      - elseif
-      - emptyFallthrough
-      - emptyStringTest
-      - equalFold
-      - exitAfterDefer
-      - flagDeref
-      - flagName
-      - hexLiteral
-      - ifElseChain
-      - indexAlloc
-      - initClause
-      - methodExprCall
-      - nestingReduce
-      - newDeref
-      - nilValReturn
-      - octalLiteral
-      - offBy1
-      - paramTypeCombine
-      - rangeExprCopy
-      - rangeValCopy
-      - regexpMust
-      - regexpPattern
-      - singleCaseSwitch
-      - sloppyLen
-      - stringXbytes
-      - switchTrue
-      - typeAssertChain
-      - typeSwitchVar
-      - typeUnparen
-      - unlabelStmt
-      - unnamedResult
-      - unnecessaryBlock
-      - unnecessaryDefer
-      - weakCond
-      - wrapperFunc
-      - yodaStyleExpr
+    revive:
+      confidence: 0.8
 
-  revive:
-    confidence: 0.8
+    gosec:
+      severity: medium
+      confidence: medium
+      excludes:
+        - G104
+        - G307
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+  # Exclusions configuration
+  exclusions:
+    # Preset exclusion patterns
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+
+    # Exclude specific paths
+    paths:
+      - vendor
+      - examples
+      - ".*\\.pb\\.go$"
+      - ".*\\.gen\\.go$"
+
+    # Exclude specific rules for certain files
     rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: if-return
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-      - name: empty-block
-      - name: superfluous-else
-      - name: unreachable-code
-      - name: redefines-builtin-id
+      # Disable linters for test files
+      - path: '.*_test\.go'
+        linters:
+          - gocyclo
+          - dupl
+          - gosec
+          - gocritic
+          - revive
+          - errcheck
 
-  gosec:
-    severity: medium
-    confidence: medium
-    excludes:
-      - G104  # Audit errors not checked (covered by errcheck)
-      - G307  # Defer on file close (too noisy)
+      # Exclude specific staticcheck messages
+      - text: "SA9003:"
+        linters:
+          - staticcheck
 
-  errorlint:
-    errorf: true
-    asserts: true
-    comparison: true
+      # Exclude revive messages
+      - text: "don't use an underscore in package name"
+        linters:
+          - revive
 
+# Issues tuning
 issues:
   max-same-issues: 0
   max-issues-per-linter: 0
 
-  exclude-rules:
-    # Exclude some linters from running on tests files
-    - path: '.*_test\.go'
-      linters:
-        - gocyclo
-        - dupl
-        - gosec
-        - gocritic
-        - revive
-        - errcheck
-
-    # Exclude some staticcheck messages
-    - linters:
-        - staticcheck
-      text: "SA9003:"  # Empty branch
-
-    # Exclude some revive messages
-    - linters:
-        - revive
-      text: "don't use an underscore in package name"
-
-    # Exclude unused-parameter in test files
-    - path: '.*_test\.go'
-      text: "unused-parameter"
-
-    # Exclude errcheck Body.Close in test files
-    - path: '.*_test\.go'
-      text: "Error return value.*Body\\.Close"
-
-    # Exclude gosec hardcoded credentials in test files
-    - path: '.*_test\.go'
-      text: "G101.*hardcoded credentials"
-
-    # Exclude gocritic unlambda in test files
-    - path: '.*_test\.go'
-      text: "unlambda"
-
-  exclude-dirs:
-    - vendor
-    - examples
-
-  exclude-files:
-    - ".*\\.pb\\.go$"
-    - ".*\\.gen\\.go$"
-
-  # Exclude specific patterns
-  exclude:
-    - "unused-parameter.*_test\\.go"
-    - "Error return value.*Body\\.Close.*_test\\.go"
-    - "G101.*hardcoded credentials.*_test\\.go"
-    - "unlambda.*_test\\.go"
+formatters:
+  enable:
+    - gofmt
+    - goimports
