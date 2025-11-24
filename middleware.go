@@ -8,6 +8,11 @@ import (
 	"github.com/auth0/go-jwt-middleware/v3/core"
 )
 
+// JWTMiddleware is a middleware that validates JWTs and makes claims available in the request context.
+// It wraps the core validation engine and provides HTTP-specific functionality like token extraction
+// and error handling.
+//
+// Claims are stored in the context using core.SetClaims() and can be retrieved using core.GetClaims[T]().
 type JWTMiddleware struct {
 	core                *core.Core
 	errorHandler        ErrorHandler
