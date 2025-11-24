@@ -591,7 +591,7 @@ func Test_GetClaims(t *testing.T) {
 				return createContextWithClaims(wrongClaims)
 			},
 			wantErr: true,
-			errMsg:  "claims have wrong type",
+			errMsg:  "claims type assertion failed",
 		},
 	}
 

@@ -8,18 +8,11 @@ import (
 	"github.com/auth0/go-jwt-middleware/v3/core"
 )
 
-// contextKey is an unexported type for context keys to prevent collisions.
-// Only this package can create contextKey values, following Go best practices.
-type contextKey int
-
-const (
-	// claimsContextKey is the key for storing validated JWT claims in the request context.
-	claimsContextKey contextKey = iota
-)
-
 // JWTMiddleware is a middleware that validates JWTs and makes claims available in the request context.
 // It wraps the core validation engine and provides HTTP-specific functionality like token extraction
 // and error handling.
+//
+// Claims are stored in the context using core.SetClaims() and can be retrieved using core.GetClaims[T]().
 type JWTMiddleware struct {
 	core                *core.Core
 	errorHandler        ErrorHandler
@@ -148,19 +141,7 @@ func (m *JWTMiddleware) applyDefaults() {
 //	}
 //	fmt.Println(claims.RegisteredClaims.Subject)
 func GetClaims[T any](ctx context.Context) (T, error) {
-	var zero T
-
-	val := ctx.Value(claimsContextKey)
-	if val == nil {
-		return zero, fmt.Errorf("claims not found in context")
-	}
-
-	claims, ok := val.(T)
-	if !ok {
-		return zero, fmt.Errorf("claims have wrong type: expected %T, got %T", zero, val)
-	}
-
-	return claims, nil
+	return core.GetClaims[T](ctx)
 }
 
 // MustGetClaims retrieves claims from the context or panics.
@@ -171,7 +152,7 @@ func GetClaims[T any](ctx context.Context) (T, error) {
 //	claims := jwtmiddleware.MustGetClaims[*validator.ValidatedClaims](r.Context())
 //	fmt.Println(claims.RegisteredClaims.Subject)
 func MustGetClaims[T any](ctx context.Context) T {
-	claims, err := GetClaims[T](ctx)
+	claims, err := core.GetClaims[T](ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -187,7 +168,7 @@ func MustGetClaims[T any](ctx context.Context) T {
 //	    // Use claims...
 //	}
 func HasClaims(ctx context.Context) bool {
-	return ctx.Value(claimsContextKey) != nil
+	return core.HasClaims(ctx)
 }
 
 // CheckJWT is the main JWTMiddleware function which performs the main logic. It
@@ -267,7 +248,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		if m.logger != nil {
 			m.logger.Debug("JWT validation successful, setting claims in context")
 		}
-		r = r.Clone(context.WithValue(r.Context(), claimsContextKey, validToken))
+		r = r.Clone(core.SetClaims(r.Context(), validToken))
 		next.ServeHTTP(w, r)
 	})
 }
