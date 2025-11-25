@@ -136,7 +136,7 @@ func WithExclusionUrls(exclusions []string) Option {
 // Example:
 //
 //	middleware, err := jwtmiddleware.New(
-//	    jwtmiddleware.WithValidateToken(validator.ValidateToken),
+//	    jwtmiddleware.WithValidator(validator),
 //	    jwtmiddleware.WithLogger(slog.Default()),
 //	)
 func WithLogger(logger Logger) Option {

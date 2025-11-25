@@ -61,7 +61,7 @@ validator.New(
     // all other options...
 )
 jwtmiddleware.New(
-    jwtmiddleware.WithValidateToken(validator.ValidateToken),
+    jwtmiddleware.WithValidator(validator),
     // all other options...
 )
 jwks.NewCachingProvider(
@@ -295,8 +295,8 @@ middleware := jwtmiddleware.New(jwtValidator.ValidateToken)
 
 **v3:**
 ```go
-middleware, err := jwtmiddleware.New(
-    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+v3Middleware, err := v3.New(
+    v3.WithValidator(v3Validator),
 )
 if err != nil {
     log.Fatal(err)
@@ -317,7 +317,7 @@ middleware := jwtmiddleware.New(
 **v3:**
 ```go
 middleware, err := jwtmiddleware.New(
-    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+    jwtmiddleware.WithValidator(jwtValidator),
     jwtmiddleware.WithCredentialsOptional(true),
     jwtmiddleware.WithErrorHandler(customErrorHandler),
 )
@@ -487,7 +487,7 @@ func main() {
 
     // Middleware - now returns error
     middleware, err := jwtmiddleware.New(
-        jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+        jwtmiddleware.WithValidator(jwtValidator),
         jwtmiddleware.WithCredentialsOptional(true),
     )
     if err != nil {
@@ -522,7 +522,7 @@ import "log/slog"
 logger := slog.Default()
 
 middleware, err := jwtmiddleware.New(
-    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+    jwtmiddleware.WithValidator(jwtValidator),
     jwtmiddleware.WithLogger(logger),
 )
 ```
@@ -570,7 +570,7 @@ Easily exclude specific URLs from JWT validation:
 
 ```go
 middleware, err := jwtmiddleware.New(
-    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+    jwtmiddleware.WithValidator(jwtValidator),
     jwtmiddleware.WithExclusionUrls([]string{
         "/health",
         "/metrics",
@@ -624,7 +624,7 @@ v2Middleware := v2.New(v2Validator.ValidateToken)
 http.Handle("/api/v2/", v2Middleware.CheckJWT(v2Handler))
 
 // Test v3 on one route
-v3Middleware, _ := v3.New(v3.WithValidateToken(v3Validator.ValidateToken))
+v3Middleware, _ := v3.New(v3.WithValidator(v3Validator))
 http.Handle("/api/v3/", v3Middleware.CheckJWT(v3Handler))
 ```
 

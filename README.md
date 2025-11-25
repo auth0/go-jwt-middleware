@@ -62,7 +62,7 @@ Optional structured logging compatible with `log/slog`:
 
 ```go
 jwtmiddleware.New(
-    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+    jwtmiddleware.WithValidator(jwtValidator),
     jwtmiddleware.WithLogger(slog.Default()),
 )
 ```
@@ -139,7 +139,7 @@ func main() {
 
 	// Create middleware with options pattern
 	middleware, err := jwtmiddleware.New(
-		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+		jwtmiddleware.WithValidator(jwtValidator),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the middleware: %v", err)
@@ -211,7 +211,7 @@ func main() {
 
 	// Create middleware
 	middleware, err := jwtmiddleware.New(
-		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+		jwtmiddleware.WithValidator(jwtValidator),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the middleware: %v", err)
@@ -320,7 +320,7 @@ Allow both authenticated and public access:
 
 ```go
 middleware, err := jwtmiddleware.New(
-	jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithCredentialsOptional(true),
 )
 
@@ -343,19 +343,19 @@ Extract tokens from cookies or query parameters:
 ```go
 // From cookie
 middleware, err := jwtmiddleware.New(
-	jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithTokenExtractor(jwtmiddleware.CookieTokenExtractor("jwt")),
 )
 
 // From query parameter
 middleware, err := jwtmiddleware.New(
-	jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithTokenExtractor(jwtmiddleware.ParameterTokenExtractor("token")),
 )
 
 // Try multiple sources
 middleware, err := jwtmiddleware.New(
-	jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithTokenExtractor(jwtmiddleware.MultiTokenExtractor(
 		jwtmiddleware.AuthHeaderTokenExtractor,
 		jwtmiddleware.CookieTokenExtractor("jwt"),
@@ -369,7 +369,7 @@ Skip JWT validation for specific URLs:
 
 ```go
 middleware, err := jwtmiddleware.New(
-	jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithExclusionUrls([]string{
 		"/health",
 		"/metrics",
@@ -390,7 +390,7 @@ logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 }))
 
 middleware, err := jwtmiddleware.New(
-	jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithLogger(logger),
 )
 ```
@@ -423,7 +423,7 @@ func customErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 middleware, err := jwtmiddleware.New(
-	jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithErrorHandler(customErrorHandler),
 )
 ```

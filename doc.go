@@ -35,15 +35,13 @@ package serving as the HTTP transport adapter.
 	        log.Fatal(err)
 	    }
 
-	    // Create middleware
-	    middleware, err := jwtmiddleware.New(
-	        jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
-	    )
-	    if err != nil {
-	        log.Fatal(err)
-	    }
-
-	    // Use with your HTTP server
+	// Create middleware
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidator(jwtValidator),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}	    // Use with your HTTP server
 	    http.Handle("/api/", middleware.CheckJWT(apiHandler))
 	    http.ListenAndServe(":8080", nil)
 	}
@@ -83,7 +81,7 @@ v2 compatibility (type assertion):
 All configuration is done through functional options:
 
 Required:
-  - WithValidateToken: Token validation function (from validator)
+  - WithValidator: A configured validator instance
 
 Optional:
   - WithCredentialsOptional: Allow requests without JWT
@@ -98,11 +96,9 @@ Optional:
 Allow requests without JWT (useful for public + authenticated endpoints):
 
 	middleware, err := jwtmiddleware.New(
-	    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
-	    jwtmiddleware.WithCredentialsOptional(true),
-	)
-
-	func handler(w http.ResponseWriter, r *http.Request) {
+		jwtmiddleware.WithValidator(jwtValidator),
+		jwtmiddleware.WithCredentialsOptional(true),
+	)	func handler(w http.ResponseWriter, r *http.Request) {
 	    claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
 	    if err != nil {
 	        // No JWT provided - serve public content
@@ -142,11 +138,9 @@ Implement custom error responses:
 	}
 
 	middleware, err := jwtmiddleware.New(
-	    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
-	    jwtmiddleware.WithErrorHandler(myErrorHandler),
-	)
-
-# Token Extraction
+		jwtmiddleware.WithValidator(jwtValidator),
+		jwtmiddleware.WithErrorHandler(myErrorHandler),
+	)# Token Extraction
 
 Default: Authorization header with Bearer scheme
 
@@ -172,41 +166,35 @@ Multiple Sources (tries in order):
 Use with middleware:
 
 	middleware, err := jwtmiddleware.New(
-	    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
-	    jwtmiddleware.WithTokenExtractor(extractor),
-	)
-
-# URL Exclusions
+		jwtmiddleware.WithValidator(jwtValidator),
+		jwtmiddleware.WithTokenExtractor(extractor),
+	)# URL Exclusions
 
 Skip JWT validation for specific URLs:
 
 	middleware, err := jwtmiddleware.New(
-	    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
-	    jwtmiddleware.WithExclusionUrls([]string{
-	        "/health",
-	        "/metrics",
-	        "/public",
-	    }),
-	)
-
-# Logging
+		jwtmiddleware.WithValidator(jwtValidator),
+		jwtmiddleware.WithExclusionUrls([]string{
+		"/health",
+		"/metrics",
+		"/public",
+	}),
+	)# Logging
 
 Enable structured logging (compatible with log/slog):
 
-	import "log/slog"
+		import "log/slog"
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	middleware, err := jwtmiddleware.New(
-	    jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
-	    jwtmiddleware.WithLogger(logger),
-	)
-
-Logs will include:
-  - Token extraction attempts
-  - Validation success/failure with timing
-  - Excluded URLs
-  - OPTIONS request handling
+		middleware, err := jwtmiddleware.New(
+			jwtmiddleware.WithValidator(jwtValidator),
+			jwtmiddleware.WithLogger(logger),
+		)Logs will include:
+	  - Token extraction attempts
+	  - Validation success/failure with timing
+	  - Excluded URLs
+	  - OPTIONS request handling
 
 # Error Responses
 
@@ -347,11 +335,9 @@ Key changes from v2 to v3:
 
 	// v3
 	jwtmiddleware.New(
-	    jwtmiddleware.WithValidateToken(validator.ValidateToken),
-	    jwtmiddleware.WithCredentialsOptional(false),
-	)
-
-2. Generic Claims Retrieval: Type-safe with generics
+		jwtmiddleware.WithValidator(validator),
+		jwtmiddleware.WithCredentialsOptional(false),
+	)2. Generic Claims Retrieval: Type-safe with generics
 
 	// v2
 	claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
