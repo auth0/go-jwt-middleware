@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/labstack/echo/v4"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/labstack/echo/v4"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v3"
 	"github.com/auth0/go-jwt-middleware/v3/validator"
@@ -25,7 +26,6 @@ var (
 	keyFunc = func(ctx context.Context) (interface{}, error) {
 		return signingKey, nil
 	}
-
 )
 
 // checkJWT is an echo.HandlerFunc middleware
@@ -53,7 +53,7 @@ func checkJWT(next echo.HandlerFunc) echo.HandlerFunc {
 
 	// Set up the middleware using pure options pattern
 	middleware, err := jwtmiddleware.New(
-		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+		jwtmiddleware.WithValidator(jwtValidator),
 		jwtmiddleware.WithErrorHandler(errorHandler),
 	)
 	if err != nil {

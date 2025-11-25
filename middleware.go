@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 // JWTMiddleware is a middleware that validates JWTs and makes claims available in the request context.
@@ -22,7 +23,7 @@ type JWTMiddleware struct {
 	logger              Logger
 
 	// Temporary fields used during construction
-	validateToken       ValidateToken
+	validator           *validator.Validator
 	credentialsOptional bool
 }
 
@@ -49,10 +50,23 @@ type ExclusionURLHandler func(r *http.Request) bool
 // New constructs a new JWTMiddleware instance with the supplied options.
 // All parameters are passed via options (pure options pattern).
 //
+// Required options:
+//   - WithValidator: A configured validator instance
+//
 // Example:
 //
+//	v, err := validator.New(
+//	    validator.WithKeyFunc(keyFunc),
+//	    validator.WithAlgorithm(validator.RS256),
+//	    validator.WithIssuer("https://issuer.example.com/"),
+//	    validator.WithAudience("my-api"),
+//	)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
 //	middleware, err := jwtmiddleware.New(
-//	    jwtmiddleware.WithValidateToken(validator.ValidateToken),
+//	    jwtmiddleware.WithValidator(v),
 //	    jwtmiddleware.WithCredentialsOptional(false),
 //	)
 //	if err != nil {
@@ -90,15 +104,15 @@ func New(opts ...Option) (*JWTMiddleware, error) {
 
 // validate ensures all required fields are set
 func (m *JWTMiddleware) validate() error {
-	if m.validateToken == nil {
-		return ErrValidateTokenNil
+	if m.validator == nil {
+		return ErrValidatorNil
 	}
 	return nil
 }
 
 // createCore creates the core.Core instance with the configured options
 func (m *JWTMiddleware) createCore() error {
-	adapter := &validatorAdapter{validateFunc: m.validateToken}
+	adapter := &validatorAdapter{validator: m.validator}
 
 	// Build core options
 	coreOpts := []core.Option{

@@ -86,7 +86,7 @@ func setupHandler() http.Handler {
 
 	// Set up the middleware using pure options pattern
 	middleware, err := jwtmiddleware.New(
-		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+		jwtmiddleware.WithValidator(jwtValidator),
 		// Optional: Add a logger for debugging JWT validation flow
 		// jwtmiddleware.WithLogger(slog.Default()),
 	)

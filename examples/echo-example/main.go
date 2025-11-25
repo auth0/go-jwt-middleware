@@ -40,10 +40,14 @@ import (
 //	  "shouldReject": true
 //	}
 
-func main() {
+func setupRouter() *echo.Echo {
 	app := echo.New()
 
-	app.GET("/", func(ctx echo.Context) error {
+	app.GET("/api/public", func(ctx echo.Context) error {
+		return ctx.JSON(http.StatusOK, map[string]string{"message": "Hello from a public endpoint!"})
+	})
+
+	app.GET("/api/private", func(ctx echo.Context) error {
 		// Modern type-safe claims retrieval using generics
 		claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](ctx.Request().Context())
 		if err != nil {
@@ -74,6 +78,12 @@ func main() {
 		ctx.JSON(http.StatusOK, claims)
 		return nil
 	}, checkJWT)
+
+	return app
+}
+
+func main() {
+	app := setupRouter()
 
 	log.Print("Server listening on http://localhost:3000")
 	err := app.Start(":3000")

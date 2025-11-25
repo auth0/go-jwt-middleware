@@ -62,7 +62,7 @@ func setupHandler(issuer string, audience []string) http.Handler {
 
 	// Set up the middleware using pure options pattern
 	middleware, err := jwtmiddleware.New(
-		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+		jwtmiddleware.WithValidator(jwtValidator),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the middleware: %v", err)

@@ -25,7 +25,6 @@ var (
 	keyFunc = func(ctx context.Context) (interface{}, error) {
 		return signingKey, nil
 	}
-
 )
 
 // checkJWT is a gin.HandlerFunc middleware
@@ -53,7 +52,7 @@ func checkJWT() gin.HandlerFunc {
 
 	// Set up the middleware using pure options pattern
 	middleware, err := jwtmiddleware.New(
-		jwtmiddleware.WithValidateToken(jwtValidator.ValidateToken),
+		jwtmiddleware.WithValidator(jwtValidator),
 		jwtmiddleware.WithErrorHandler(errorHandler),
 	)
 	if err != nil {
