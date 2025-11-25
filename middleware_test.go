@@ -44,7 +44,7 @@ func Test_CheckJWT(t *testing.T) {
 
 	testCases := []struct {
 		name           string
-		validateToken  ValidateToken
+		validator      *validator.Validator // Changed from validateToken
 		options        []Option
 		method         string
 		token          string
@@ -55,7 +55,7 @@ func Test_CheckJWT(t *testing.T) {
 	}{
 		{
 			name:           "it can successfully validate a token",
-			validateToken:  jwtValidator.ValidateToken,
+			validator:      jwtValidator,
 			token:          validToken,
 			method:         http.MethodGet,
 			wantToken:      tokenClaims,
@@ -64,7 +64,7 @@ func Test_CheckJWT(t *testing.T) {
 		},
 		{
 			name:           "it can validate on options",
-			validateToken:  jwtValidator.ValidateToken,
+			validator:      jwtValidator,
 			method:         http.MethodOptions,
 			token:          validToken,
 			wantToken:      tokenClaims,
@@ -87,7 +87,7 @@ func Test_CheckJWT(t *testing.T) {
 		},
 		{
 			name:           "it fails to validate an invalid token",
-			validateToken:  jwtValidator.ValidateToken,
+			validator:      jwtValidator,
 			token:          invalidToken,
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusUnauthorized,
@@ -190,15 +190,22 @@ func Test_CheckJWT(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Use the test's validator if specified, otherwise use a default failing validator
-			validator := testCase.validateToken
-			if validator == nil {
-				validator = func(ctx context.Context, token string) (any, error) {
-					return nil, errors.New("token validation failed")
+			// Use the test's validator if specified, otherwise create a default failing validator
+			v := testCase.validator
+			if v == nil {
+				// Create a validator that always fails
+				keyFunc := func(context.Context) (interface{}, error) {
+					return nil, errors.New("no key")
 				}
+				v, _ = validator.New(
+					validator.WithKeyFunc(keyFunc),
+					validator.WithAlgorithm(validator.HS256),
+					validator.WithIssuer("fail"),
+					validator.WithAudience("fail"),
+				)
 			}
 
-			opts := append([]Option{WithValidateToken(validator)}, testCase.options...)
+			opts := append([]Option{WithValidator(v)}, testCase.options...)
 			middleware, err := New(opts...)
 			require.NoError(t, err)
 
