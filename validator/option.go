@@ -26,3 +26,13 @@ func WithCustomClaims(f func() CustomClaims) Option {
 		v.customClaims = f
 	}
 }
+
+// WithSkipIssuerURLVerification is an option which sets up the allowed
+// clock skew for the token. Note that in order to use this
+// the expected claims Time field MUST not be time.IsZero().
+// If this option is not used clock skew is not allowed.
+func WithSkipIssuerURLVerification(skip bool) Option {
+	return func(v *Validator) {
+		v.skipIssuerURLVerification = skip
+	}
+}
