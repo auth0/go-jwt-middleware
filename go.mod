@@ -1,8 +1,6 @@
-module github.com/auth0/go-jwt-middleware/v2
+module github.com/auth0/go-jwt-middleware/v3
 
 go 1.24.0
-
-toolchain go1.24.9
 
 require (
 	github.com/google/go-cmp v0.7.0
