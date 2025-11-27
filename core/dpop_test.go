@@ -1067,3 +1067,296 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		assert.Nil(t, dpopCtx)
 	})
 }
+
+// TestCheckTokenWithDPoP_LoggingPaths tests logging branches for better coverage
+func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
+	t.Run("successful validation with debug logging", func(t *testing.T) {
+		logger := &mockLogger{}
+		validator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "test-jkt",
+				}, nil
+			},
+			dpopValidateFunc: func(ctx context.Context, proof string) (DPoPProofClaims, error) {
+				return &mockDPoPProofClaims{
+					publicKeyThumbprint: "test-jkt",
+					htm:                 "POST",
+					htu:                 "https://example.com/api",
+					iat:                 time.Now().Unix(),
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(validator),
+			WithLogger(logger),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"token",
+			"proof",
+			"POST",
+			"https://example.com/api",
+		)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, claims)
+		assert.NotNil(t, dpopCtx)
+
+		// Verify debug logs for successful validation
+		assert.NotEmpty(t, logger.debugCalls)
+		foundTokenLog := false
+		foundProofLog := false
+		for _, call := range logger.debugCalls {
+			if call.msg == "Access token validated successfully" {
+				foundTokenLog = true
+			}
+			if call.msg == "DPoP proof validated successfully" {
+				foundProofLog = true
+			}
+		}
+		assert.True(t, foundTokenLog, "Expected debug log for token validation")
+		assert.True(t, foundProofLog, "Expected debug log for DPoP proof validation")
+	})
+
+	t.Run("DPoP disabled with warning logging", func(t *testing.T) {
+		logger := &mockLogger{}
+		validator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: false,
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(validator),
+			WithLogger(logger),
+			WithDPoPMode(DPoPDisabled),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"token",
+			"proof-present-but-disabled", // DPoP proof present
+			"POST",
+			"https://example.com/api",
+		)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, claims)
+		assert.Nil(t, dpopCtx)
+
+		// Verify warning log
+		assert.NotEmpty(t, logger.warnCalls)
+		found := false
+		for _, call := range logger.warnCalls {
+			if call.msg == "DPoP header present but DPoP is disabled, treating as Bearer token" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "Expected warning log for DPoP disabled")
+	})
+
+	t.Run("JKT mismatch with error logging", func(t *testing.T) {
+		logger := &mockLogger{}
+		validator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "expected-jkt",
+				}, nil
+			},
+			dpopValidateFunc: func(ctx context.Context, proof string) (DPoPProofClaims, error) {
+				return &mockDPoPProofClaims{
+					publicKeyThumbprint: "different-jkt",
+					htm:                 "POST",
+					htu:                 "https://example.com/api",
+					iat:                 time.Now().Unix(),
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(validator),
+			WithLogger(logger),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"token",
+			"proof",
+			"POST",
+			"https://example.com/api",
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Nil(t, dpopCtx)
+
+		// Verify error log for JKT mismatch
+		assert.NotEmpty(t, logger.errorCalls)
+		found := false
+		for _, call := range logger.errorCalls {
+			if call.msg == "DPoP JKT mismatch" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "Expected error log for JKT mismatch")
+	})
+
+	t.Run("HTM mismatch with error logging", func(t *testing.T) {
+		logger := &mockLogger{}
+		validator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "test-jkt",
+				}, nil
+			},
+			dpopValidateFunc: func(ctx context.Context, proof string) (DPoPProofClaims, error) {
+				return &mockDPoPProofClaims{
+					publicKeyThumbprint: "test-jkt",
+					htm:                 "GET",
+					htu:                 "https://example.com/api",
+					iat:                 time.Now().Unix(),
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(validator),
+			WithLogger(logger),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"token",
+			"proof",
+			"POST", // Different from proof HTM
+			"https://example.com/api",
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Nil(t, dpopCtx)
+
+		// Verify error log for HTM mismatch
+		assert.NotEmpty(t, logger.errorCalls)
+		found := false
+		for _, call := range logger.errorCalls {
+			if call.msg == "DPoP HTM mismatch" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "Expected error log for HTM mismatch")
+	})
+
+	t.Run("HTU mismatch with error logging", func(t *testing.T) {
+		logger := &mockLogger{}
+		validator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "test-jkt",
+				}, nil
+			},
+			dpopValidateFunc: func(ctx context.Context, proof string) (DPoPProofClaims, error) {
+				return &mockDPoPProofClaims{
+					publicKeyThumbprint: "test-jkt",
+					htm:                 "POST",
+					htu:                 "https://example.com/wrong-url",
+					iat:                 time.Now().Unix(),
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(validator),
+			WithLogger(logger),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"token",
+			"proof",
+			"POST",
+			"https://example.com/api", // Different from proof HTU
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Nil(t, dpopCtx)
+
+		// Verify error log for HTU mismatch
+		assert.NotEmpty(t, logger.errorCalls)
+		found := false
+		for _, call := range logger.errorCalls {
+			if call.msg == "DPoP HTU mismatch" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "Expected error log for HTU mismatch")
+	})
+
+	t.Run("DPoP proof validation failure with error logging", func(t *testing.T) {
+		logger := &mockLogger{}
+		validator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "test-jkt",
+				}, nil
+			},
+			dpopValidateFunc: func(ctx context.Context, proof string) (DPoPProofClaims, error) {
+				return nil, errors.New("proof validation failed")
+			},
+		}
+
+		c, err := New(
+			WithValidator(validator),
+			WithLogger(logger),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"token",
+			"invalid-proof",
+			"POST",
+			"https://example.com/api",
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Nil(t, dpopCtx)
+
+		// Verify error log for proof validation
+		assert.NotEmpty(t, logger.errorCalls)
+		found := false
+		for _, call := range logger.errorCalls {
+			if call.msg == "DPoP proof validation failed" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "Expected error log for proof validation failure")
+	})
+}
