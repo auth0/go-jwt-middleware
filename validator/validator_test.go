@@ -30,7 +30,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 	testCases := []struct {
 		name           string
 		token          string
-		keyFunc        func(context.Context) (interface{}, error)
+		keyFunc        func(context.Context) (any, error)
 		algorithm      SignatureAlgorithm
 		customClaims   func() CustomClaims
 		expectedError  error
@@ -39,7 +39,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it successfully validates a token",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm: HS256,
@@ -54,7 +54,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it successfully validates a token with custom claims",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJzY29wZSI6InJlYWQ6bWVzc2FnZXMifQ.oqtUZQ-Q8un4CPduUBdGVq5gXpQVIFT_QSQjkOXFT5I",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm: HS256,
@@ -75,7 +75,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when token has a different signing algorithm than the validator",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     RS256,
@@ -84,7 +84,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when it cannot parse the token",
 			token: "a.b",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
@@ -93,7 +93,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when it fails to fetch the keys from the key func",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.-R2K2tZHDrgsEh9JNWcyk4aljtR6gZK0s2anNGlfwz0",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return nil, errors.New("key func error message")
 			},
 			algorithm:     HS256,
@@ -102,7 +102,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when it fails to deserialize the claims because the signature is invalid",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdfQ.vR2K2tZHDrgsEh9zNWcyk4aljtR6gZK0s2anNGlfwz0",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
@@ -111,7 +111,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when it fails to validate the registered claims",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIn0.VoIwDVmb--26wGrv93NmjNZYa4nrzjLw4JANgEjPI28",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
@@ -120,7 +120,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when it fails to validate the custom claims",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJzY29wZSI6InJlYWQ6bWVzc2FnZXMifQ.oqtUZQ-Q8un4CPduUBdGVq5gXpQVIFT_QSQjkOXFT5I",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm: HS256,
@@ -134,7 +134,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it successfully validates a token even if customClaims() returns nil",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJzY29wZSI6InJlYWQ6bWVzc2FnZXMifQ.oqtUZQ-Q8un4CPduUBdGVq5gXpQVIFT_QSQjkOXFT5I",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm: HS256,
@@ -153,7 +153,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it successfully validates a token with exp, nbf and iat",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJpYXQiOjE2NjY5Mzc2ODYsIm5iZiI6MTY2NjkzOTAwMCwiZXhwIjo5NjY3OTM3Njg2fQ.FKZogkm08gTfYfPU6eYu7OHCjJKnKGLiC0IfoIOPEhs",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm: HS256,
@@ -171,7 +171,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when token is not valid yet",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJpYXQiOjE2NjY5Mzc2ODYsIm5iZiI6OTY2NjkzOTAwMCwiZXhwIjoxNjY3OTM3Njg2fQ.yUizJ-zK_33tv1qBVvDKO0RuCWtvJ02UQKs8gBadgGY",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
@@ -180,7 +180,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when token is expired",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJpYXQiOjE2NjY5Mzc2ODYsIm5iZiI6MTY2NjkzOTAwMCwiZXhwIjo2Njc5Mzc2ODZ9.SKvz82VOXRi_sjvZWIsPG9vSWAXKKgVS4DkGZcwFKL8",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
@@ -189,7 +189,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when token is issued in the future",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJpYXQiOjkxNjY2OTM3Njg2LCJuYmYiOjE2NjY5MzkwMDAsImV4cCI6ODY2NzkzNzY4Nn0.ieFV7XNJxiJyw8ARq9yHw-01Oi02e3P2skZO10ypxL8",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
@@ -198,7 +198,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 		{
 			name:  "it throws an error when token issuer is invalid",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2hhY2tlZC1qd3QtbWlkZGxld2FyZS5ldS5hdXRoMC5jb20vIiwic3ViIjoiMTIzNDU2Nzg5MCIsImF1ZCI6WyJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLWFwaS8iXSwiaWF0Ijo5MTY2NjkzNzY4NiwibmJmIjoxNjY2OTM5MDAwLCJleHAiOjg2Njc5Mzc2ODZ9.b5gXNrUNfd_jyCWZF-6IPK_UFfvTr9wBQk9_QgRQ8rA",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
@@ -244,7 +244,7 @@ func TestNewValidator(t *testing.T) {
 		algorithm = HS256
 	)
 
-	var keyFunc = func(context.Context) (interface{}, error) {
+	var keyFunc = func(context.Context) (any, error) {
 		return []byte("secret"), nil
 	}
 
@@ -492,7 +492,7 @@ func TestAllSignatureAlgorithms(t *testing.T) {
 		audience = "https://go-jwt-middleware-api/"
 	)
 
-	keyFunc := func(context.Context) (interface{}, error) {
+	keyFunc := func(context.Context) (any, error) {
 		return []byte("secret"), nil
 	}
 
@@ -629,7 +629,7 @@ func TestExtractCustomClaims(t *testing.T) {
 		audience = "https://go-jwt-middleware-api/"
 	)
 
-	keyFunc := func(context.Context) (interface{}, error) {
+	keyFunc := func(context.Context) (any, error) {
 		return []byte("secret"), nil
 	}
 
@@ -731,7 +731,7 @@ func TestValidator_IssuerValidationInValidateToken(t *testing.T) {
 
 		// Configure validator to expect a different issuer
 		v, err := New(
-			WithKeyFunc(func(context.Context) (interface{}, error) {
+			WithKeyFunc(func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			}),
 			WithAlgorithm(HS256),
@@ -756,7 +756,7 @@ func TestParseToken_DefensiveAlgorithmCheck(t *testing.T) {
 		// This tests the defensive code path in parseToken
 		v := &Validator{
 			signatureAlgorithm: "UNSUPPORTED",
-			keyFunc: func(context.Context) (interface{}, error) {
+			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
 			expectedIssuers:   []string{"https://issuer.example.com/"},

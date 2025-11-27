@@ -121,7 +121,7 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 })
 
 func main() {
-	keyFunc := func(ctx context.Context) (interface{}, error) {
+	keyFunc := func(ctx context.Context) (any, error) {
 		// Our token must be signed using this secret
 		return []byte("secret"), nil
 	}

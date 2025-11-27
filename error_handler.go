@@ -162,6 +162,32 @@ func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorRe
 			ErrorCode:        err.Code,
 		}, `Bearer error="invalid_token", error_description="Unable to verify the access token"`
 
+	// DPoP-specific error codes
+	// All DPoP proof validation errors (missing, invalid, HTM/HTU mismatch, expired, future)
+	case core.ErrorCodeDPoPProofInvalid, core.ErrorCodeDPoPProofMissing,
+		core.ErrorCodeDPoPHTMMismatch, core.ErrorCodeDPoPHTUMismatch,
+		core.ErrorCodeDPoPProofExpired, core.ErrorCodeDPoPProofTooNew:
+		return http.StatusBadRequest, ErrorResponse{
+			Error:            "invalid_dpop_proof",
+			ErrorDescription: err.Message,
+			ErrorCode:        err.Code,
+		}, `Bearer error="invalid_dpop_proof", error_description="` + err.Message + `"`
+
+	// DPoP binding mismatch is treated as invalid_token (token binding issue)
+	case core.ErrorCodeDPoPBindingMismatch:
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: err.Message,
+			ErrorCode:        err.Code,
+		}, `Bearer error="invalid_token", error_description="` + err.Message + `"`
+
+	case core.ErrorCodeBearerNotAllowed:
+		return http.StatusBadRequest, ErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "Bearer tokens are not allowed (DPoP required)",
+			ErrorCode:        err.Code,
+		}, `DPoP error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`
+
 	default:
 		// Generic invalid token error for other cases
 		return http.StatusUnauthorized, ErrorResponse{

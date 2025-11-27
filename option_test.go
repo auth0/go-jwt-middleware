@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ const testToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsidGVzdC1hdWRp
 // createTestValidator creates a basic validator for testing
 func createTestValidator(t *testing.T) *validator.Validator {
 	t.Helper()
-	keyFunc := func(context.Context) (interface{}, error) {
+	keyFunc := func(context.Context) (any, error) {
 		return []byte("secret"), nil
 	}
 	v, err := validator.New(
@@ -539,7 +540,7 @@ func Test_GetClaims(t *testing.T) {
 			name: "valid claims from middleware",
 			setupCtx: func() context.Context {
 				// Create a validator that matches the token we'll use
-				keyFunc := func(context.Context) (interface{}, error) {
+				keyFunc := func(context.Context) (any, error) {
 					return []byte("secret"), nil
 				}
 				v, err := validator.New(
@@ -792,4 +793,172 @@ func (m *mockLogger) Warn(msg string, args ...any) {
 
 func (m *mockLogger) Error(msg string, args ...any) {
 	m.errorCalls = append(m.errorCalls, append([]any{msg}, args...))
+}
+
+// TestWithDPoPHeaderExtractor_NilExtractor tests nil extractor validation
+func TestWithDPoPHeaderExtractor_NilExtractor(t *testing.T) {
+	validValidator := createTestValidator(t)
+
+	_, err := New(
+		WithValidator(validValidator),
+		WithDPoPHeaderExtractor(nil),
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DPoP header extractor cannot be nil")
+}
+
+// TestWithValidator_NilValidator tests nil validator validation
+func TestWithValidator_NilValidator(t *testing.T) {
+	_, err := New(
+		WithValidator(nil),
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "validator cannot be nil")
+}
+
+func TestWithDPoPHeaderExtractor(t *testing.T) {
+	validValidator := createTestValidator(t)
+
+	customExtractor := func(r *http.Request) (string, error) {
+		return "custom-dpop-proof", nil
+	}
+
+	middleware, err := New(
+		WithValidator(validValidator),
+		WithDPoPHeaderExtractor(customExtractor),
+	)
+	require.NoError(t, err)
+	assert.NotNil(t, middleware.dpopHeaderExtractor)
+}
+
+func TestWithDPoPMode(t *testing.T) {
+	validValidator := createTestValidator(t)
+
+	tests := []struct {
+		name string
+		mode DPoPMode
+	}{
+		{
+			name: "DPoP Allowed mode",
+			mode: DPoPAllowed,
+		},
+		{
+			name: "DPoP Required mode",
+			mode: DPoPRequired,
+		},
+		{
+			name: "DPoP Disabled mode",
+			mode: DPoPDisabled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			middleware, err := New(
+				WithValidator(validValidator),
+				WithDPoPMode(tt.mode),
+			)
+			require.NoError(t, err)
+			assert.NotNil(t, middleware)
+		})
+	}
+}
+
+func TestWithDPoPProofOffset(t *testing.T) {
+	validValidator := createTestValidator(t)
+
+	tests := []struct {
+		name    string
+		offset  time.Duration
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid positive offset",
+			offset:  5 * time.Minute,
+			wantErr: false,
+		},
+		{
+			name:    "zero offset",
+			offset:  0,
+			wantErr: false,
+		},
+		{
+			name:    "negative offset",
+			offset:  -1 * time.Minute,
+			wantErr: true,
+			errMsg:  "DPoP proof offset cannot be negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			middleware, err := New(
+				WithValidator(validValidator),
+				WithDPoPProofOffset(tt.offset),
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+				assert.Nil(t, middleware)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, middleware)
+			}
+		})
+	}
+}
+
+func TestWithDPoPIATLeeway(t *testing.T) {
+	validValidator := createTestValidator(t)
+
+	tests := []struct {
+		name    string
+		leeway  time.Duration
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid positive leeway",
+			leeway:  30 * time.Second,
+			wantErr: false,
+		},
+		{
+			name:    "zero leeway",
+			leeway:  0,
+			wantErr: false,
+		},
+		{
+			name:    "negative leeway",
+			leeway:  -10 * time.Second,
+			wantErr: true,
+			errMsg:  "DPoP IAT leeway cannot be negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			middleware, err := New(
+				WithValidator(validValidator),
+				WithDPoPIATLeeway(tt.leeway),
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+				assert.Nil(t, middleware)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, middleware)
+			}
+		})
+	}
+}
+
+func TestDPoPModeConstants(t *testing.T) {
+	// Verify that the DPoP mode constants have the correct values
+	assert.Equal(t, core.DPoPAllowed, DPoPAllowed)
+	assert.Equal(t, core.DPoPRequired, DPoPRequired)
+	assert.Equal(t, core.DPoPDisabled, DPoPDisabled)
 }

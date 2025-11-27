@@ -17,9 +17,12 @@ vendor/
 
 # Docs
 docs/
-# Example binaries
-examples/echo-example/echo
-examples/gin-example/gin
-examples/http-example/http
-examples/http-jwks-example/http-jwks
-examples/iris-example/iris
+
+# Example binaries - ignore executables (not .go, .mod, .sum, .md files)
+examples/*/echo
+examples/*/gin
+examples/*/iris
+examples/*/http
+examples/*/http-jwks
+examples/*/http-dpop
+examples/*/http-dpop-*

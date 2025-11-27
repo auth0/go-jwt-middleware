@@ -2,6 +2,7 @@ package jwtmiddleware
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -30,7 +31,7 @@ func Test_CheckJWT(t *testing.T) {
 		},
 	}
 
-	keyFunc := func(context.Context) (interface{}, error) {
+	keyFunc := func(context.Context) (any, error) {
 		return []byte("secret"), nil
 	}
 
@@ -48,7 +49,7 @@ func Test_CheckJWT(t *testing.T) {
 		options        []Option
 		method         string
 		token          string
-		wantToken      interface{}
+		wantToken      any
 		wantStatusCode int
 		wantBody       string
 		path           string
@@ -194,7 +195,7 @@ func Test_CheckJWT(t *testing.T) {
 			v := testCase.validator
 			if v == nil {
 				// Create a validator that always fails
-				keyFunc := func(context.Context) (interface{}, error) {
+				keyFunc := func(context.Context) (any, error) {
 					return nil, errors.New("no key")
 				}
 				v, _ = validator.New(
@@ -250,6 +251,368 @@ func Test_CheckJWT(t *testing.T) {
 
 			if want, got := testCase.wantToken, actualValidatedClaims; !cmp.Equal(want, got) {
 				t.Fatal(cmp.Diff(want, got))
+			}
+		})
+	}
+}
+
+// TestCheckJWT_WithLogging tests middleware with logging enabled to cover log branches
+func TestCheckJWT_WithLogging(t *testing.T) {
+	const (
+		validToken = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+		issuer     = "testIssuer"
+		audience   = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	t.Run("successful validation with debug logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", validToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("exclusion URL with debug logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithExclusionUrls([]string{"/public"}),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL+"/public", nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		// Should have debug log for exclusion
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("OPTIONS with skip validation and logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithValidateOnOptions(false),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodOptions, testServer.URL, nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("token extractor error with logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithTokenExtractor(func(r *http.Request) (string, error) {
+				return "", errors.New("extractor failed")
+			}),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusInternalServerError, response.StatusCode)
+		assert.NotEmpty(t, mockLog.errorCalls)
+	})
+
+	t.Run("credentials optional with no token and logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithCredentialsOptional(true),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		// Should have debug log for optional credentials
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("standard JWT validation failure with warn logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		// Send invalid token
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", "Bearer invalid.token.here")
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusUnauthorized, response.StatusCode)
+		assert.NotEmpty(t, mockLog.warnCalls)
+	})
+}
+
+func TestCheckJWT_WithTrustedProxies(t *testing.T) {
+	const (
+		issuer   = "testIssuer"
+		audience = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name               string
+		proxyOption        Option
+		setupRequest       func(*http.Request)
+		expectSuccess      bool
+		expectedStatusCode int
+	}{
+		{
+			name:        "no proxy config - ignores X-Forwarded headers",
+			proxyOption: nil,
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "api.example.com")
+				r.Header.Set("X-Forwarded-Prefix", "/api/v1")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "WithStandardProxy - trusts Proto and Host",
+			proxyOption: WithStandardProxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "api.example.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "WithAPIGatewayProxy - trusts Proto, Host, and Prefix",
+			proxyOption: WithAPIGatewayProxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "api.example.com")
+				r.Header.Set("X-Forwarded-Prefix", "/api/v1")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "WithRFC7239Proxy - trusts Forwarded header",
+			proxyOption: WithRFC7239Proxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("Forwarded", "proto=https;host=api.example.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name: "custom proxy config - selective trust",
+			proxyOption: WithTrustedProxies(&TrustedProxyConfig{
+				TrustXForwardedProto: true,
+				TrustXForwardedHost:  false, // Don't trust host
+			}),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "malicious.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "multiple proxies - uses leftmost value",
+			proxyOption: WithStandardProxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https, http, http")
+				r.Header.Set("X-Forwarded-Host", "client.example.com, proxy1.internal, proxy2.internal")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name: "RFC 7239 takes precedence over X-Forwarded",
+			proxyOption: WithTrustedProxies(&TrustedProxyConfig{
+				TrustForwarded:       true,
+				TrustXForwardedProto: true,
+				TrustXForwardedHost:  true,
+			}),
+			setupRequest: func(r *http.Request) {
+				// RFC 7239 should win
+				r.Header.Set("Forwarded", "proto=https;host=rfc7239.example.com")
+				r.Header.Set("X-Forwarded-Proto", "http")
+				r.Header.Set("X-Forwarded-Host", "xforwarded.example.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			options := []Option{WithValidator(jwtValidator)}
+			if tc.proxyOption != nil {
+				options = append(options, tc.proxyOption)
+			}
+
+			middleware, err := New(options...)
+			require.NoError(t, err)
+
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				claims, err := GetClaims[*validator.ValidatedClaims](r.Context())
+				if err != nil {
+					http.Error(w, "failed to get claims", http.StatusInternalServerError)
+					return
+				}
+
+				response := map[string]any{
+					"authenticated": true,
+					"issuer":        claims.RegisteredClaims.Issuer,
+					"audience":      claims.RegisteredClaims.Audience,
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+			})
+
+			// Create test server
+			testServer := httptest.NewServer(middleware.CheckJWT(handler))
+			defer testServer.Close()
+
+			// Create request
+			request, err := http.NewRequest(http.MethodGet, testServer.URL+"/test", nil)
+			require.NoError(t, err)
+
+			// Apply proxy headers
+			tc.setupRequest(request)
+
+			// Add valid JWT token
+			validToken := "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+			request.Header.Set("Authorization", validToken)
+
+			// Send request
+			response, err := testServer.Client().Do(request)
+			require.NoError(t, err)
+			defer response.Body.Close()
+
+			// Verify status code
+			assert.Equal(t, tc.expectedStatusCode, response.StatusCode)
+
+			if tc.expectSuccess {
+				// Verify we got a valid response
+				var result map[string]any
+				err = json.NewDecoder(response.Body).Decode(&result)
+				require.NoError(t, err)
+				assert.True(t, result["authenticated"].(bool))
 			}
 		})
 	}

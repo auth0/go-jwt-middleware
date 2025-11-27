@@ -10,10 +10,11 @@ import (
 	"time"
 )
 
-// TokenValidator defines the interface for JWT validation.
-// Implementations should validate the token and return the validated claims.
-type TokenValidator interface {
+// Validator defines the interface for JWT and DPoP validation.
+// Implementations should validate tokens and DPoP proofs, returning the validated claims.
+type Validator interface {
 	ValidateToken(ctx context.Context, token string) (any, error)
+	ValidateDPoPProof(ctx context.Context, proofString string) (DPoPProofClaims, error)
 }
 
 // Logger defines an optional logging interface for the core middleware.
@@ -28,9 +29,14 @@ type Logger interface {
 // It contains the core logic for token validation without any dependency
 // on specific transport protocols (HTTP, gRPC, etc.).
 type Core struct {
-	validator           TokenValidator
+	validator           Validator
 	credentialsOptional bool
 	logger              Logger
+
+	// DPoP fields
+	dpopMode        DPoPMode
+	dpopProofOffset time.Duration
+	dpopIATLeeway   time.Duration
 }
 
 // CheckToken validates a JWT token string and returns the validated claims.

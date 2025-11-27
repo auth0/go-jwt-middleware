@@ -38,7 +38,7 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 					"Authorization": []string{"i-am-a-token"},
 				},
 			},
-			wantError: "authorization header format must be Bearer {token}",
+			wantError: "authorization header format must be Bearer {token} or DPoP {token}",
 		},
 		{
 			name: "bearer with uppercase",
@@ -74,7 +74,34 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 					"Authorization": []string{"Bearer token extra-part"},
 				},
 			},
-			wantError: "authorization header format must be Bearer {token}",
+			wantError: "authorization header format must be Bearer {token} or DPoP {token}",
+		},
+		{
+			name: "DPoP scheme with token",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"DPoP i-am-a-dpop-token"},
+				},
+			},
+			wantToken: "i-am-a-dpop-token",
+		},
+		{
+			name: "DPoP scheme with uppercase",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"DPOP i-am-a-dpop-token"},
+				},
+			},
+			wantToken: "i-am-a-dpop-token",
+		},
+		{
+			name: "DPoP scheme with mixed case",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"DpOp i-am-a-dpop-token"},
+				},
+			},
+			wantToken: "i-am-a-dpop-token",
 		},
 	}
 
@@ -222,5 +249,94 @@ func Test_MultiTokenExtractor(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Empty(t, gotToken)
+	})
+}
+
+// TestCookieTokenExtractor_EdgeCases tests edge cases for cookie extractor
+func TestCookieTokenExtractor_EdgeCases(t *testing.T) {
+	t.Run("empty cookie name returns error", func(t *testing.T) {
+		extractor := CookieTokenExtractor("")
+		req := &http.Request{}
+
+		token, err := extractor(req)
+
+		assert.Empty(t, token)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cookie name")
+	})
+
+	t.Run("missing cookie returns empty token", func(t *testing.T) {
+		extractor := CookieTokenExtractor("auth-token")
+		req := &http.Request{
+			Header: http.Header{},
+		}
+
+		token, err := extractor(req)
+
+		assert.Empty(t, token)
+		assert.NoError(t, err)
+	})
+
+	t.Run("cookie with value returns token", func(t *testing.T) {
+		extractor := CookieTokenExtractor("auth-token")
+		req := &http.Request{
+			Header: http.Header{
+				"Cookie": []string{"auth-token=test-token-value"},
+			},
+		}
+
+		token, err := extractor(req)
+
+		assert.Equal(t, "test-token-value", token)
+		assert.NoError(t, err)
+	})
+}
+
+// TestMultiTokenExtractor_EdgeCases tests edge cases for multi-token extractor
+func TestMultiTokenExtractor_EdgeCases(t *testing.T) {
+	t.Run("empty extractors returns empty", func(t *testing.T) {
+		extractor := MultiTokenExtractor()
+		req := &http.Request{}
+
+		token, err := extractor(req)
+
+		assert.Empty(t, token)
+		assert.NoError(t, err)
+	})
+
+	t.Run("first extractor returns error, stops", func(t *testing.T) {
+		testError := errors.New("extraction failed")
+		extractor := MultiTokenExtractor(
+			func(r *http.Request) (string, error) {
+				return "", testError
+			},
+			func(r *http.Request) (string, error) {
+				return "should-not-be-called", nil
+			},
+		)
+		req := &http.Request{}
+
+		token, err := extractor(req)
+
+		assert.Empty(t, token)
+		require.Error(t, err)
+		assert.Equal(t, testError, err)
+	})
+
+	t.Run("second extractor returns token after first is empty", func(t *testing.T) {
+		extractor := MultiTokenExtractor(
+			func(r *http.Request) (string, error) {
+				return "", nil
+			},
+			func(r *http.Request) (string, error) {
+				return "found-token", nil
+			},
+		)
+		req := &http.Request{}
+
+		token, err := extractor(req)
+
+		assert.Equal(t, "found-token", token)
+		assert.NoError(t, err)
 	})
 }

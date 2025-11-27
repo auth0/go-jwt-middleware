@@ -15,6 +15,7 @@ type TokenExtractor func(r *http.Request) (string, error)
 
 // AuthHeaderTokenExtractor is a TokenExtractor that takes a request
 // and extracts the token from the Authorization header.
+// Supports both "Bearer" and "DPoP" authorization schemes.
 func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
@@ -22,8 +23,14 @@ func AuthHeaderTokenExtractor(r *http.Request) (string, error) {
 	}
 
 	authHeaderParts := strings.Fields(authHeader)
-	if len(authHeaderParts) != 2 || !strings.EqualFold(authHeaderParts[0], "bearer") {
-		return "", errors.New("authorization header format must be Bearer {token}")
+	if len(authHeaderParts) != 2 {
+		return "", errors.New("authorization header format must be Bearer {token} or DPoP {token}")
+	}
+
+	// Accept both "Bearer" and "DPoP" schemes (case-insensitive)
+	scheme := strings.ToLower(authHeaderParts[0])
+	if scheme != "bearer" && scheme != "dpop" {
+		return "", errors.New("authorization header format must be Bearer {token} or DPoP {token}")
 	}
 
 	return authHeaderParts[1], nil

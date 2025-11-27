@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
 	"github.com/auth0/go-jwt-middleware/v3/validator"
@@ -22,9 +23,16 @@ type JWTMiddleware struct {
 	exclusionURLHandler ExclusionURLHandler
 	logger              Logger
 
+	// DPoP support
+	dpopHeaderExtractor func(*http.Request) (string, error)
+	trustedProxies      *TrustedProxyConfig
+
 	// Temporary fields used during construction
 	validator           *validator.Validator
 	credentialsOptional bool
+	dpopMode            *core.DPoPMode
+	dpopProofOffset     *time.Duration
+	dpopIATLeeway       *time.Duration
 }
 
 // Logger defines an optional logging interface compatible with log/slog.
@@ -35,13 +43,6 @@ type Logger interface {
 	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
 }
-
-// ValidateToken takes in a string JWT and makes sure it is valid and
-// returns the valid token. If it is not valid it will return nil and
-// an error message describing why validation failed.
-// Inside ValidateToken things like key and alg checking can happen.
-// In the default implementation we can add safe defaults for those.
-type ValidateToken func(context.Context, string) (any, error)
 
 // ExclusionURLHandler is a function that takes in a http.Request and returns
 // true if the request should be excluded from JWT validation.
@@ -112,6 +113,7 @@ func (m *JWTMiddleware) validate() error {
 
 // createCore creates the core.Core instance with the configured options
 func (m *JWTMiddleware) createCore() error {
+	// Wrap validator in adapter that implements core.Validator interface
 	adapter := &validatorAdapter{validator: m.validator}
 
 	// Build core options
@@ -123,6 +125,17 @@ func (m *JWTMiddleware) createCore() error {
 	// Add logger if configured
 	if m.logger != nil {
 		coreOpts = append(coreOpts, core.WithLogger(m.logger))
+	}
+
+	// Add DPoP mode options
+	if m.dpopMode != nil {
+		coreOpts = append(coreOpts, core.WithDPoPMode(*m.dpopMode))
+	}
+	if m.dpopProofOffset != nil {
+		coreOpts = append(coreOpts, core.WithDPoPProofOffset(*m.dpopProofOffset))
+	}
+	if m.dpopIATLeeway != nil {
+		coreOpts = append(coreOpts, core.WithDPoPIATLeeway(*m.dpopIATLeeway))
 	}
 
 	coreInstance, err := core.New(coreOpts...)
@@ -140,6 +153,9 @@ func (m *JWTMiddleware) applyDefaults() {
 	}
 	if m.tokenExtractor == nil {
 		m.tokenExtractor = AuthHeaderTokenExtractor
+	}
+	if m.dpopHeaderExtractor == nil {
+		m.dpopHeaderExtractor = DPoPHeaderExtractor
 	}
 }
 
@@ -185,26 +201,69 @@ func HasClaims(ctx context.Context) bool {
 	return core.HasClaims(ctx)
 }
 
+// shouldSkipValidation checks if JWT validation should be skipped for this request.
+func (m *JWTMiddleware) shouldSkipValidation(r *http.Request) bool {
+	// Check exclusion handler
+	if m.exclusionURLHandler != nil && m.exclusionURLHandler(r) {
+		if m.logger != nil {
+			m.logger.Debug("skipping JWT validation for excluded URL",
+				"method", r.Method,
+				"path", r.URL.Path)
+		}
+		return true
+	}
+
+	// Check OPTIONS method
+	if !m.validateOnOptions && r.Method == http.MethodOptions {
+		if m.logger != nil {
+			m.logger.Debug("skipping JWT validation for OPTIONS request")
+		}
+		return true
+	}
+
+	return false
+}
+
+// validateToken performs JWT validation with or without DPoP support.
+func (m *JWTMiddleware) validateToken(r *http.Request, token string) (any, *core.DPoPContext, error) {
+	// Extract DPoP proof header (will be empty string if header not present)
+	dpopProof, err := m.dpopHeaderExtractor(r)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to extract DPoP proof from request",
+				"error", err,
+				"method", r.Method,
+				"path", r.URL.Path)
+		}
+		// Wrap in ValidationError for proper error handling
+		validationErr := core.NewValidationError(
+			core.ErrorCodeDPoPProofInvalid,
+			fmt.Sprintf("Failed to extract DPoP proof: %s", err.Error()),
+			err,
+		)
+		return nil, nil, validationErr
+	}
+
+	// Build full request URL for HTU validation using secure reconstruction
+	requestURL := reconstructRequestURL(r, m.trustedProxies)
+
+	// Validate token with DPoP support (handles both Bearer and DPoP tokens)
+	// The core will handle DPoP mode (Allowed/Required/Disabled) logic
+	return m.core.CheckTokenWithDPoP(
+		r.Context(),
+		token,
+		dpopProof,
+		r.Method,
+		requestURL,
+	)
+}
+
 // CheckJWT is the main JWTMiddleware function which performs the main logic. It
 // is passed a http.Handler which will be called if the JWT passes validation.
 func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// If there's an exclusion handler and the URL matches, skip JWT validation
-		if m.exclusionURLHandler != nil && m.exclusionURLHandler(r) {
-			if m.logger != nil {
-				m.logger.Debug("skipping JWT validation for excluded URL",
-					"method", r.Method,
-					"path", r.URL.Path)
-			}
-			next.ServeHTTP(w, r)
-			return
-		}
-		// If we don't validate on OPTIONS and this is OPTIONS
-		// then continue onto next without validating.
-		if !m.validateOnOptions && r.Method == http.MethodOptions {
-			if m.logger != nil {
-				m.logger.Debug("skipping JWT validation for OPTIONS request")
-			}
+		// Skip validation if excluded
+		if m.shouldSkipValidation(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -215,10 +274,9 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 				"path", r.URL.Path)
 		}
 
+		// Extract token
 		token, err := m.tokenExtractor(r)
 		if err != nil {
-			// This is not ErrJWTMissing because an error here means that the
-			// tokenExtractor had an error and _not_ that the token was missing.
 			if m.logger != nil {
 				m.logger.Error("failed to extract token from request",
 					"error", err,
@@ -233,9 +291,8 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 			m.logger.Debug("validating JWT")
 		}
 
-		// Validate the token using the core validator.
-		// Core handles empty token logic based on credentialsOptional setting.
-		validToken, err := m.core.CheckToken(r.Context(), token)
+		// Validate token (with or without DPoP)
+		validToken, dpopCtx, err := m.validateToken(r, token)
 		if err != nil {
 			if m.logger != nil {
 				m.logger.Warn("JWT validation failed",
@@ -248,7 +305,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// If credentials are optional and no token was provided,
-		// core.CheckToken returns (nil, nil), so we continue without setting claims
+		// core methods return (nil, nil, nil), so we continue without setting claims
 		if validToken == nil {
 			if m.logger != nil {
 				m.logger.Debug("no credentials provided, continuing without claims (credentials optional)")
@@ -260,9 +317,19 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		// No err means we have a valid token, so set
 		// it into the context and continue onto next.
 		if m.logger != nil {
-			m.logger.Debug("JWT validation successful, setting claims in context")
+			if dpopCtx != nil {
+				m.logger.Debug("JWT validation successful (DPoP), setting claims and DPoP context in context",
+					"jkt", dpopCtx.PublicKeyThumbprint)
+			} else {
+				m.logger.Debug("JWT validation successful (Bearer), setting claims in context")
+			}
 		}
-		r = r.Clone(core.SetClaims(r.Context(), validToken))
+
+		ctx := core.SetClaims(r.Context(), validToken)
+		if dpopCtx != nil {
+			ctx = core.SetDPoPContext(ctx, dpopCtx)
+		}
+		r = r.Clone(ctx)
 		next.ServeHTTP(w, r)
 	})
 }

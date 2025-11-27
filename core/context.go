@@ -9,6 +9,7 @@ type contextKey int
 
 const (
 	claimsKey contextKey = iota
+	dpopContextKey
 )
 
 // GetClaims retrieves claims from the context with type safety using generics.
@@ -52,4 +53,49 @@ func SetClaims(ctx context.Context, claims any) context.Context {
 // HasClaims checks if claims exist in the context without retrieving them.
 func HasClaims(ctx context.Context) bool {
 	return ctx.Value(claimsKey) != nil
+}
+
+// SetDPoPContext stores DPoP context in the context.
+// This is a helper function for adapters to set DPoP context after validation.
+//
+// DPoP context contains information about the validated DPoP proof, including
+// the public key thumbprint, issued-at timestamp, and the raw proof JWT.
+func SetDPoPContext(ctx context.Context, dpopCtx *DPoPContext) context.Context {
+	return context.WithValue(ctx, dpopContextKey, dpopCtx)
+}
+
+// GetDPoPContext retrieves DPoP context from the context.
+// Returns nil if no DPoP context exists (e.g., for Bearer tokens).
+//
+// Example usage:
+//
+//	dpopCtx := core.GetDPoPContext(ctx)
+//	if dpopCtx != nil {
+//	    log.Printf("DPoP token from key: %s", dpopCtx.PublicKeyThumbprint)
+//	}
+func GetDPoPContext(ctx context.Context) *DPoPContext {
+	val := ctx.Value(dpopContextKey)
+	if val == nil {
+		return nil
+	}
+
+	dpopCtx, ok := val.(*DPoPContext)
+	if !ok {
+		return nil
+	}
+
+	return dpopCtx
+}
+
+// HasDPoPContext checks if a DPoP context exists in the context.
+// Returns true for DPoP-bound tokens, false for Bearer tokens.
+//
+// Example usage:
+//
+//	if core.HasDPoPContext(ctx) {
+//	    dpopCtx := core.GetDPoPContext(ctx)
+//	    // Handle DPoP-specific logic...
+//	}
+func HasDPoPContext(ctx context.Context) bool {
+	return ctx.Value(dpopContextKey) != nil
 }
