@@ -225,7 +225,7 @@ func (m *JWTMiddleware) shouldSkipValidation(r *http.Request) bool {
 }
 
 // validateToken performs JWT validation with or without DPoP support.
-func (m *JWTMiddleware) validateToken(r *http.Request, token string) (any, *core.DPoPContext, error) {
+func (m *JWTMiddleware) validateToken(r *http.Request, tokenWithScheme ExtractedToken) (any, *core.DPoPContext, error) {
 	// Extract DPoP proof header (will be empty string if header not present)
 	dpopProof, err := m.dpopHeaderExtractor(r)
 	if err != nil {
@@ -244,18 +244,50 @@ func (m *JWTMiddleware) validateToken(r *http.Request, token string) (any, *core
 		return nil, nil, validationErr
 	}
 
+	// Convert authorization scheme to core.AuthScheme
+	coreAuthScheme := convertAuthScheme(tokenWithScheme.Scheme)
+
+	// Security check: If Authorization header uses DPoP scheme but no DPoP proof header,
+	// this is a potential attack (RFC 9449 requires proof for DPoP scheme).
+	// This prevents accepting a DPoP-scheme token without proof validation.
+	if tokenWithScheme.Scheme == AuthSchemeDPoP && dpopProof == "" {
+		if m.logger != nil {
+			m.logger.Error("DPoP authorization scheme used without DPoP proof header",
+				"method", r.Method,
+				"path", r.URL.Path)
+		}
+		return nil, nil, core.NewValidationError(
+			core.ErrorCodeDPoPProofMissing,
+			"DPoP authorization scheme requires DPoP proof header",
+			core.ErrInvalidDPoPProof,
+		)
+	}
+
 	// Build full request URL for HTU validation using secure reconstruction
 	requestURL := reconstructRequestURL(r, m.trustedProxies)
 
 	// Validate token with DPoP support (handles both Bearer and DPoP tokens)
-	// The core will handle DPoP mode (Allowed/Required/Disabled) logic
+	// Pass authScheme for RFC 9449 Section 6.1 compliance
 	return m.core.CheckTokenWithDPoP(
 		r.Context(),
-		token,
+		tokenWithScheme.Token,
+		coreAuthScheme,
 		dpopProof,
 		r.Method,
 		requestURL,
 	)
+}
+
+// convertAuthScheme converts middleware AuthScheme to core.AuthScheme
+func convertAuthScheme(scheme AuthScheme) core.AuthScheme {
+	switch scheme {
+	case AuthSchemeBearer:
+		return core.AuthSchemeBearer
+	case AuthSchemeDPoP:
+		return core.AuthSchemeDPoP
+	default:
+		return core.AuthSchemeUnknown
+	}
 }
 
 // CheckJWT is the main JWTMiddleware function which performs the main logic. It
@@ -274,8 +306,8 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 				"path", r.URL.Path)
 		}
 
-		// Extract token
-		token, err := m.tokenExtractor(r)
+		// Extract token and scheme
+		tokenWithScheme, err := m.tokenExtractor(r)
 		if err != nil {
 			if m.logger != nil {
 				m.logger.Error("failed to extract token from request",
@@ -292,7 +324,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		}
 
 		// Validate token (with or without DPoP)
-		validToken, dpopCtx, err := m.validateToken(r, token)
+		validToken, dpopCtx, err := m.validateToken(r, tokenWithScheme)
 		if err != nil {
 			if m.logger != nil {
 				m.logger.Warn("JWT validation failed",

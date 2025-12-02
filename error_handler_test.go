@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 func TestDefaultErrorHandler(t *testing.T) {
@@ -189,7 +190,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_dpop_proof",
 			wantErrorDescription: "DPoP proof is required",
 			wantErrorCode:        "dpop_proof_missing",
-			wantWWWAuthenticate:  `Bearer error="invalid_dpop_proof", error_description="DPoP proof is required"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof is required"`,
 		},
 		{
 			name:                 "DPoP proof invalid",
@@ -198,7 +199,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_dpop_proof",
 			wantErrorDescription: "DPoP proof JWT validation failed",
 			wantErrorCode:        "dpop_proof_invalid",
-			wantWWWAuthenticate:  `Bearer error="invalid_dpop_proof", error_description="DPoP proof JWT validation failed"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof JWT validation failed"`,
 		},
 		{
 			name:                 "DPoP HTM mismatch",
@@ -207,7 +208,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_dpop_proof",
 			wantErrorDescription: "DPoP proof HTM does not match",
 			wantErrorCode:        "dpop_htm_mismatch",
-			wantWWWAuthenticate:  `Bearer error="invalid_dpop_proof", error_description="DPoP proof HTM does not match"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof HTM does not match"`,
 		},
 		{
 			name:                 "DPoP HTU mismatch",
@@ -216,7 +217,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_dpop_proof",
 			wantErrorDescription: "DPoP proof HTU does not match",
 			wantErrorCode:        "dpop_htu_mismatch",
-			wantWWWAuthenticate:  `Bearer error="invalid_dpop_proof", error_description="DPoP proof HTU does not match"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof HTU does not match"`,
 		},
 		{
 			name:                 "DPoP proof expired",
@@ -225,7 +226,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_dpop_proof",
 			wantErrorDescription: "DPoP proof is too old",
 			wantErrorCode:        "dpop_proof_expired",
-			wantWWWAuthenticate:  `Bearer error="invalid_dpop_proof", error_description="DPoP proof is too old"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof is too old"`,
 		},
 		{
 			name:                 "DPoP proof too new",
@@ -234,7 +235,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_dpop_proof",
 			wantErrorDescription: "DPoP proof iat is in the future",
 			wantErrorCode:        "dpop_proof_too_new",
-			wantWWWAuthenticate:  `Bearer error="invalid_dpop_proof", error_description="DPoP proof iat is in the future"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof iat is in the future"`,
 		},
 		{
 			name:                 "DPoP binding mismatch",
@@ -243,7 +244,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "JKT does not match cnf claim",
 			wantErrorCode:        "dpop_binding_mismatch",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="JKT does not match cnf claim"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="JKT does not match cnf claim"`,
 		},
 		{
 			name:                 "Bearer not allowed",
@@ -252,7 +253,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_request",
 			wantErrorDescription: "Bearer tokens are not allowed (DPoP required)",
 			wantErrorCode:        "bearer_not_allowed",
-			wantWWWAuthenticate:  `DPoP error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`,
 		},
 		{
 			name:                 "Config invalid",

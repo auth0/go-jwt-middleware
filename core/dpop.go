@@ -2,9 +2,25 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
+)
+
+// AuthScheme represents the authorization scheme used in the request.
+// This is used to enforce RFC 9449 Section 6.1 which specifies that
+// Bearer tokens without cnf claims should ignore DPoP headers.
+type AuthScheme string
+
+const (
+	// AuthSchemeBearer represents Bearer token authorization.
+	AuthSchemeBearer AuthScheme = "bearer"
+	// AuthSchemeDPoP represents DPoP token authorization.
+	AuthSchemeDPoP AuthScheme = "dpop"
+	// AuthSchemeUnknown represents an unknown or missing authorization scheme.
+	AuthSchemeUnknown AuthScheme = ""
 )
 
 // DPoPMode represents the operational mode for DPoP token validation.
@@ -47,6 +63,7 @@ const (
 	ErrorCodeDPoPBindingMismatch = "dpop_binding_mismatch"
 	ErrorCodeDPoPHTMMismatch     = "dpop_htm_mismatch"
 	ErrorCodeDPoPHTUMismatch     = "dpop_htu_mismatch"
+	ErrorCodeDPoPATHMismatch     = "dpop_ath_mismatch"
 	ErrorCodeDPoPProofExpired    = "dpop_proof_expired"
 	ErrorCodeDPoPProofTooNew     = "dpop_proof_too_new"
 	ErrorCodeBearerNotAllowed    = "bearer_not_allowed"
@@ -87,6 +104,10 @@ type DPoPProofClaims interface {
 
 	// GetIAT returns the issued-at timestamp (iat) from the DPoP proof.
 	GetIAT() int64
+
+	// GetATH returns the access token hash (ath) from the DPoP proof, if present.
+	// Returns empty string if the ath claim is not included in the proof.
+	GetATH() string
 
 	// GetPublicKeyThumbprint returns the calculated JKT from the DPoP proof's JWK.
 	GetPublicKeyThumbprint() string
@@ -136,6 +157,7 @@ type DPoPContext struct {
 // Parameters:
 //   - ctx: Request context
 //   - accessToken: JWT access token string
+//   - authScheme: The authorization scheme from the request (Bearer, DPoP, or Unknown)
 //   - dpopProof: DPoP proof JWT string (empty for Bearer tokens)
 //   - httpMethod: HTTP method for HTM validation (empty for Bearer tokens)
 //   - requestURL: Full request URL for HTU validation (empty for Bearer tokens)
@@ -145,10 +167,14 @@ type DPoPContext struct {
 //   - dpopCtx: DPoP context (nil for Bearer tokens)
 //   - error: Validation error or nil
 //
+// The authScheme parameter is used to enforce RFC 9449 Section 6.1 which specifies
+// that Bearer tokens without cnf claims should ignore DPoP headers.
+//
 // When dpopProof is empty, this method behaves identically to CheckToken for Bearer tokens.
 func (c *Core) CheckTokenWithDPoP(
 	ctx context.Context,
 	accessToken string,
+	authScheme AuthScheme,
 	dpopProof string,
 	httpMethod string,
 	requestURL string,
@@ -185,37 +211,76 @@ func (c *Core) CheckTokenWithDPoP(
 		c.logger.Debug("Access token validated successfully", "duration", duration)
 	}
 
-	// Step 3: Determine if this is a Bearer or DPoP token
-	isDPoPToken := dpopProof != ""
+	// Step 3: Determine token type based on scheme and proof presence
+	hasDPoPProof := dpopProof != ""
 
 	// Try to cast to TokenClaims to check for cnf claim
 	tokenClaims, supportsConfirmation := validatedClaims.(TokenClaims)
 	hasConfirmationClaim := supportsConfirmation && tokenClaims.HasConfirmation()
 
-	// Step 4: Handle Bearer token flow
-	if !isDPoPToken {
-		return c.handleBearerToken(validatedClaims, hasConfirmationClaim)
-	}
-
-	// Step 5: Handle DPoP token flow
-	if c.dpopMode == DPoPDisabled {
+	// Step 4: Reject DPoP scheme when DPoP is disabled (security check)
+	// If DPoP is explicitly disabled, requests using the DPoP authorization scheme must be rejected.
+	// This prevents accepting DPoP-scheme tokens without proper validation.
+	if c.dpopMode == DPoPDisabled && authScheme == AuthSchemeDPoP {
 		if c.logger != nil {
-			c.logger.Warn("DPoP header present but DPoP is disabled, treating as Bearer token")
+			c.logger.Error("DPoP authorization scheme used but DPoP is disabled")
 		}
-		return c.handleBearerToken(validatedClaims, hasConfirmationClaim)
+		return nil, nil, NewValidationError(
+			ErrorCodeDPoPNotAllowed,
+			"DPoP tokens are not allowed (DPoP is disabled)",
+			ErrDPoPNotAllowed,
+		)
 	}
 
-	// Step 6: Validate DPoP proof
+	// Step 5: RFC 9449 Section 6.1 - Bearer tokens without cnf claim should ignore DPoP headers
+	// If Authorization scheme is Bearer, DPoP proof is present, but token has no cnf claim,
+	// treat this as a regular Bearer token request (ignore the DPoP header).
+	// Note: This only applies when DPoP is not required. In DPoPRequired mode, we continue
+	// to validateDPoPToken which will reject the token for missing cnf claim.
+	if c.dpopMode != DPoPRequired && authScheme == AuthSchemeBearer && hasDPoPProof && !hasConfirmationClaim {
+		if c.logger != nil {
+			c.logger.Debug("Bearer scheme with DPoP proof but no cnf claim, treating as Bearer token (RFC 9449 Section 6.1)")
+		}
+		return c.handleBearerToken(validatedClaims, hasConfirmationClaim, authScheme)
+	}
+
+	// Step 6: Handle Bearer token flow (no DPoP proof)
+	if !hasDPoPProof {
+		return c.handleBearerToken(validatedClaims, hasConfirmationClaim, authScheme)
+	}
+
+	// Step 7: Handle DPoP disabled mode with Bearer scheme and DPoP proof present
+	// At this point: DPoP proof is present, and if DPoP is disabled, we already rejected
+	// AuthSchemeDPoP in step 4. So authScheme must be AuthSchemeBearer here.
+	// If the token has cnf claim, it's a DPoP-bound token - we can't validate it with DPoP disabled.
+	// If the token has no cnf claim, step 5 already handled it (RFC 9449 Section 6.1).
+	// This is a safety check that should not normally be reached.
+	if c.dpopMode == DPoPDisabled {
+		// Token has cnf claim but DPoP is disabled - we can't properly validate this
+		if c.logger != nil {
+			c.logger.Error("DPoP-bound token (has cnf claim) received but DPoP is disabled")
+		}
+		return nil, nil, NewValidationError(
+			ErrorCodeDPoPNotAllowed,
+			"Cannot validate DPoP-bound token when DPoP is disabled",
+			ErrDPoPNotAllowed,
+		)
+	}
+
+	// Step 8: Validate DPoP proof
 	return c.validateDPoPToken(ctx, validatedClaims, tokenClaims, supportsConfirmation,
-		hasConfirmationClaim, dpopProof, httpMethod, requestURL)
+		hasConfirmationClaim, accessToken, dpopProof, httpMethod, requestURL)
 }
 
 // handleBearerToken processes Bearer token validation logic.
-func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool) (any, *DPoPContext, error) {
+// The authScheme parameter is used for logging purposes to distinguish
+// between true Bearer tokens and Bearer tokens with ignored DPoP headers.
+func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool, authScheme AuthScheme) (any, *DPoPContext, error) {
 	// Check if token has cnf claim but no DPoP proof (orphaned DPoP token)
 	if hasConfirmationClaim {
 		if c.logger != nil {
-			c.logger.Error("Token has cnf claim but no DPoP proof provided")
+			c.logger.Error("Token has cnf claim but no DPoP proof provided",
+				"authScheme", string(authScheme))
 		}
 		return nil, nil, NewValidationError(
 			ErrorCodeDPoPProofMissing,
@@ -227,7 +292,8 @@ func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool) (any, *D
 	// Check if Bearer tokens are allowed
 	if c.dpopMode == DPoPRequired {
 		if c.logger != nil {
-			c.logger.Error("Bearer token provided but DPoP is required")
+			c.logger.Error("Bearer token provided but DPoP is required",
+				"authScheme", string(authScheme))
 		}
 		return nil, nil, NewValidationError(
 			ErrorCodeBearerNotAllowed,
@@ -237,7 +303,8 @@ func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool) (any, *D
 	}
 
 	if c.logger != nil {
-		c.logger.Debug("Bearer token accepted")
+		c.logger.Debug("Bearer token accepted",
+			"authScheme", string(authScheme))
 	}
 
 	return claims, nil, nil
@@ -250,6 +317,7 @@ func (c *Core) validateDPoPToken(
 	tokenClaims TokenClaims,
 	supportsConfirmation bool,
 	hasConfirmationClaim bool,
+	accessToken string,
 	dpopProof string,
 	httpMethod string,
 	requestURL string,
@@ -314,7 +382,27 @@ func (c *Core) validateDPoPToken(
 		)
 	}
 
-	// Step 4: Validate HTM (HTTP method)
+	// Step 4: Validate ATH (Access Token Hash) if present per RFC 9449 Section 4.2
+	// The ath claim is optional, but if present, it MUST match the SHA-256 hash of the access token
+	proofATH := proofClaims.GetATH()
+	if proofATH != "" {
+		expectedATH := computeAccessTokenHash(accessToken)
+		if proofATH != expectedATH {
+			if c.logger != nil {
+				c.logger.Error("DPoP ATH mismatch", "expected", expectedATH, "actual", proofATH)
+			}
+			return nil, nil, NewValidationError(
+				ErrorCodeDPoPATHMismatch,
+				fmt.Sprintf("DPoP proof ath %q does not match access token hash %q", proofATH, expectedATH),
+				ErrInvalidDPoPProof,
+			)
+		}
+		if c.logger != nil {
+			c.logger.Debug("DPoP ATH validated successfully")
+		}
+	}
+
+	// Step 5: Validate HTM (HTTP method)
 	if proofClaims.GetHTM() != httpMethod {
 		if c.logger != nil {
 			c.logger.Error("DPoP HTM mismatch", "expected", httpMethod, "actual", proofClaims.GetHTM())
@@ -326,7 +414,7 @@ func (c *Core) validateDPoPToken(
 		)
 	}
 
-	// Step 5: Validate HTU (HTTP URI)
+	// Step 6: Validate HTU (HTTP URI)
 	if proofClaims.GetHTU() != requestURL {
 		if c.logger != nil {
 			c.logger.Error("DPoP HTU mismatch", "expected", requestURL, "actual", proofClaims.GetHTU())
@@ -338,7 +426,7 @@ func (c *Core) validateDPoPToken(
 		)
 	}
 
-	// Step 6: Validate IAT freshness
+	// Step 7: Validate IAT freshness
 	now := time.Now().Unix()
 	proofIAT := proofClaims.GetIAT()
 
@@ -368,7 +456,7 @@ func (c *Core) validateDPoPToken(
 		)
 	}
 
-	// Step 7: Create DPoP context
+	// Step 8: Create DPoP context
 	dpopCtx := &DPoPContext{
 		PublicKeyThumbprint: actualJKT,
 		IssuedAt:            time.Unix(proofIAT, 0),
@@ -382,4 +470,12 @@ func (c *Core) validateDPoPToken(
 	}
 
 	return claims, dpopCtx, nil
+}
+
+// computeAccessTokenHash computes the SHA-256 hash of the access token
+// and returns it as a base64url-encoded string (without padding) per RFC 9449.
+// This is used for validating the ath claim in DPoP proofs.
+func computeAccessTokenHash(accessToken string) string {
+	hash := sha256.Sum256([]byte(accessToken))
+	return base64.RawURLEncoding.EncodeToString(hash[:])
 }

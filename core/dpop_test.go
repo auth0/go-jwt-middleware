@@ -51,6 +51,7 @@ type mockDPoPProofClaims struct {
 	iat                 int64
 	publicKeyThumbprint string
 	publicKey           any
+	ath                 string
 }
 
 func (m *mockDPoPProofClaims) GetJTI() string                 { return m.jti }
@@ -59,6 +60,7 @@ func (m *mockDPoPProofClaims) GetHTU() string                 { return m.htu }
 func (m *mockDPoPProofClaims) GetIAT() int64                  { return m.iat }
 func (m *mockDPoPProofClaims) GetPublicKeyThumbprint() string { return m.publicKeyThumbprint }
 func (m *mockDPoPProofClaims) GetPublicKey() any              { return m.publicKey }
+func (m *mockDPoPProofClaims) GetATH() string                 { return m.ath }
 
 // Test Bearer token scenarios
 
@@ -72,6 +74,7 @@ func TestCheckTokenWithDPoP_BearerToken_Success(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"valid-bearer-token",
+		AuthSchemeBearer,
 		"", // No DPoP proof
 		"",
 		"",
@@ -99,6 +102,7 @@ func TestCheckTokenWithDPoP_BearerTokenWithCnf_MissingProof(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeBearer,
 		"", // No DPoP proof provided
 		"",
 		"",
@@ -121,6 +125,7 @@ func TestCheckTokenWithDPoP_BearerToken_DPoPRequired(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"bearer-token",
+		AuthSchemeBearer,
 		"", // No DPoP proof
 		"",
 		"",
@@ -143,6 +148,7 @@ func TestCheckTokenWithDPoP_EmptyToken_CredentialsOptional(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"", // Empty token
+		AuthSchemeUnknown,
 		"",
 		"",
 		"",
@@ -163,6 +169,7 @@ func TestCheckTokenWithDPoP_EmptyToken_CredentialsRequired(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"", // Empty token
+		AuthSchemeUnknown,
 		"",
 		"",
 		"",
@@ -207,6 +214,7 @@ func TestCheckTokenWithDPoP_DPoPToken_Success(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"valid-dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -237,6 +245,7 @@ func TestCheckTokenWithDPoP_DPoPToken_NoCnfClaim(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"bearer-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -277,6 +286,7 @@ func TestCheckTokenWithDPoP_DPoPToken_JKTMismatch(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -323,6 +333,7 @@ func TestCheckTokenWithDPoP_DPoPToken_HTMMismatch(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET", // Request method is GET
 		"https://api.example.com/resource",
@@ -369,6 +380,7 @@ func TestCheckTokenWithDPoP_DPoPToken_HTUMismatch(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource", // Different URL
@@ -415,6 +427,7 @@ func TestCheckTokenWithDPoP_DPoPToken_IATExpired(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -433,7 +446,7 @@ func TestCheckTokenWithDPoP_DPoPToken_IATExpired(t *testing.T) {
 
 func TestCheckTokenWithDPoP_DPoPToken_IATTooNew(t *testing.T) {
 	expectedJKT := "test-jkt"
-	futureIAT := time.Now().Unix() + 10 // 10 seconds in future (default leeway is 5s)
+	futureIAT := time.Now().Unix() + 60 // 60 seconds in future (default leeway is 30s)
 
 	tokenValidator := &mockTokenValidator{
 		validateFunc: func(ctx context.Context, token string) (any, error) {
@@ -461,6 +474,7 @@ func TestCheckTokenWithDPoP_DPoPToken_IATTooNew(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -493,20 +507,21 @@ func TestCheckTokenWithDPoP_DPoPDisabled_IgnoresProof(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Even with DPoP proof and cnf claim, should be treated as Bearer
+	// Using DPoP scheme when DPoP is disabled should be rejected (security)
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
-		"dpop-proof", // Proof is ignored
+		AuthSchemeDPoP,
+		"dpop-proof", // Proof is present
 		"GET",
 		"https://api.example.com/resource",
 	)
 
-	// Should fail because token has cnf but no proof validation
+	// Should fail because DPoP scheme is not allowed when DPoP is disabled
 	assert.Error(t, err)
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
-	assert.ErrorIs(t, err, ErrInvalidDPoPProof)
+	assert.ErrorIs(t, err, ErrDPoPNotAllowed)
 }
 
 func TestCheckTokenWithDPoP_TokenValidationFails(t *testing.T) {
@@ -524,6 +539,7 @@ func TestCheckTokenWithDPoP_TokenValidationFails(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"invalid-token",
+		AuthSchemeBearer,
 		"",
 		"",
 		"",
@@ -556,6 +572,7 @@ func TestCheckTokenWithDPoP_DPoPProofValidationFails(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"invalid-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -588,6 +605,7 @@ func TestCheckTokenWithDPoP_NonTokenClaimsType(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"bearer-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -705,6 +723,7 @@ func TestCheckTokenWithDPoP_WithLogger_Success(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"valid-dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -730,6 +749,7 @@ func TestCheckTokenWithDPoP_WithLogger_BearerAccepted(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"bearer-token",
+		AuthSchemeBearer,
 		"",
 		"",
 		"",
@@ -771,6 +791,7 @@ func TestCheckTokenWithDPoP_WithLogger_MissingProof(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeBearer,
 		"", // No proof
 		"",
 		"",
@@ -797,6 +818,7 @@ func TestCheckTokenWithDPoP_WithLogger_BearerNotAllowed(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"bearer-token",
+		AuthSchemeBearer,
 		"",
 		"",
 		"",
@@ -828,9 +850,11 @@ func TestCheckTokenWithDPoP_WithLogger_DPoPDisabled(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// Using DPoP scheme when DPoP is disabled should be rejected (security)
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -839,8 +863,9 @@ func TestCheckTokenWithDPoP_WithLogger_DPoPDisabled(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
-	require.NotEmpty(t, logger.warnCalls)
-	assert.Equal(t, "DPoP header present but DPoP is disabled, treating as Bearer token", logger.warnCalls[0].msg)
+	// Should log error about DPoP scheme being used when disabled
+	require.NotEmpty(t, logger.errorCalls)
+	assert.Equal(t, "DPoP authorization scheme used but DPoP is disabled", logger.errorCalls[0].msg)
 }
 
 func TestCheckTokenWithDPoP_WithLogger_NoCnfClaim(t *testing.T) {
@@ -863,6 +888,7 @@ func TestCheckTokenWithDPoP_WithLogger_NoCnfClaim(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"bearer-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -906,6 +932,7 @@ func TestCheckTokenWithDPoP_WithLogger_JKTMismatch(t *testing.T) {
 	claims, dpopCtx, err := c.CheckTokenWithDPoP(
 		context.Background(),
 		"dpop-bound-token",
+		AuthSchemeDPoP,
 		"dpop-proof",
 		"GET",
 		"https://api.example.com/resource",
@@ -935,6 +962,7 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"invalid-token",
+			AuthSchemeBearer,
 			"",
 			"",
 			"",
@@ -965,6 +993,7 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeBearer,
 			"",
 			"POST",
 			"https://example.com",
@@ -993,6 +1022,7 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeBearer,
 			"",
 			"POST",
 			"https://example.com",
@@ -1022,6 +1052,7 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeBearer,
 			"", // No DPoP proof
 			"POST",
 			"https://example.com",
@@ -1056,6 +1087,7 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeDPoP,
 			"proof",
 			"POST",
 			"https://example.com",
@@ -1063,6 +1095,155 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "does not match")
+		assert.Nil(t, claims)
+		assert.Nil(t, dpopCtx)
+	})
+
+	t.Run("DPoP disabled with Bearer scheme and cnf claim - error", func(t *testing.T) {
+		// This tests Step 7: Bearer scheme + DPoP proof + HAS cnf claim when DPoP is disabled
+		// Should reject because we can't validate DPoP-bound token with DPoP disabled
+		tokenValidator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "test-jkt",
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(tokenValidator),
+			WithDPoPMode(DPoPDisabled),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"dpop-bound-token",
+			AuthSchemeBearer, // Bearer scheme, not DPoP
+			"dpop-proof",     // DPoP proof present
+			"POST",
+			"https://example.com",
+		)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrDPoPNotAllowed)
+		assert.Contains(t, err.Error(), "Cannot validate DPoP-bound token when DPoP is disabled")
+		assert.Nil(t, claims)
+		assert.Nil(t, dpopCtx)
+	})
+
+	t.Run("DPoPRequired with Bearer scheme and DPoP proof but no cnf - error", func(t *testing.T) {
+		// In DPoPRequired mode, Bearer scheme with DPoP proof but no cnf should fail
+		// because validateDPoPToken will reject missing cnf claim
+		tokenValidator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: false, // No cnf claim
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(tokenValidator),
+			WithDPoPMode(DPoPRequired),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"token",
+			AuthSchemeBearer,
+			"dpop-proof",
+			"POST",
+			"https://example.com",
+		)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrDPoPBindingMismatch)
+		assert.Nil(t, claims)
+		assert.Nil(t, dpopCtx)
+	})
+
+	t.Run("ATH validation success", func(t *testing.T) {
+		// Test that ATH (access token hash) is validated when present
+		accessToken := "test-access-token"
+		expectedATH := computeAccessTokenHash(accessToken)
+
+		tokenValidator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "test-jkt",
+				}, nil
+			},
+			dpopValidateFunc: func(ctx context.Context, proof string) (DPoPProofClaims, error) {
+				return &mockDPoPProofClaims{
+					publicKeyThumbprint: "test-jkt",
+					htm:                 "POST",
+					htu:                 "https://example.com/api",
+					iat:                 time.Now().Unix(),
+					ath:                 expectedATH, // Correct ATH
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(tokenValidator),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			accessToken,
+			AuthSchemeDPoP,
+			"dpop-proof",
+			"POST",
+			"https://example.com/api",
+		)
+
+		require.NoError(t, err)
+		assert.NotNil(t, claims)
+		assert.NotNil(t, dpopCtx)
+	})
+
+	t.Run("ATH validation failure - mismatch", func(t *testing.T) {
+		// Test that ATH mismatch is rejected
+		tokenValidator := &mockTokenValidator{
+			validateFunc: func(ctx context.Context, token string) (any, error) {
+				return &mockTokenClaims{
+					hasConfirmation: true,
+					jkt:             "test-jkt",
+				}, nil
+			},
+			dpopValidateFunc: func(ctx context.Context, proof string) (DPoPProofClaims, error) {
+				return &mockDPoPProofClaims{
+					publicKeyThumbprint: "test-jkt",
+					htm:                 "POST",
+					htu:                 "https://example.com/api",
+					iat:                 time.Now().Unix(),
+					ath:                 "wrong-ath-value", // Wrong ATH
+				}, nil
+			},
+		}
+
+		c, err := New(
+			WithValidator(tokenValidator),
+		)
+		require.NoError(t, err)
+
+		claims, dpopCtx, err := c.CheckTokenWithDPoP(
+			context.Background(),
+			"test-access-token",
+			AuthSchemeDPoP,
+			"dpop-proof",
+			"POST",
+			"https://example.com/api",
+		)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidDPoPProof)
+		assert.Contains(t, err.Error(), "ath")
 		assert.Nil(t, claims)
 		assert.Nil(t, dpopCtx)
 	})
@@ -1099,6 +1280,7 @@ func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeDPoP,
 			"proof",
 			"POST",
 			"https://example.com/api",
@@ -1141,9 +1323,12 @@ func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
 		)
 		require.NoError(t, err)
 
+		// Using Bearer scheme with DPoP proof but no cnf claim - should be accepted as Bearer
+		// per RFC 9449 Section 6.1 (ignore DPoP header when token has no cnf claim)
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeBearer,             // Use Bearer scheme, not DPoP
 			"proof-present-but-disabled", // DPoP proof present
 			"POST",
 			"https://example.com/api",
@@ -1153,16 +1338,16 @@ func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
 		assert.NotNil(t, claims)
 		assert.Nil(t, dpopCtx)
 
-		// Verify warning log
-		assert.NotEmpty(t, logger.warnCalls)
+		// Verify debug log for RFC 9449 Section 6.1 path
+		assert.NotEmpty(t, logger.debugCalls)
 		found := false
-		for _, call := range logger.warnCalls {
-			if call.msg == "DPoP header present but DPoP is disabled, treating as Bearer token" {
+		for _, call := range logger.debugCalls {
+			if call.msg == "Bearer scheme with DPoP proof but no cnf claim, treating as Bearer token (RFC 9449 Section 6.1)" {
 				found = true
 				break
 			}
 		}
-		assert.True(t, found, "Expected warning log for DPoP disabled")
+		assert.True(t, found, "Expected debug log for RFC 9449 Section 6.1")
 	})
 
 	t.Run("JKT mismatch with error logging", func(t *testing.T) {
@@ -1194,6 +1379,7 @@ func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeDPoP,
 			"proof",
 			"POST",
 			"https://example.com/api",
@@ -1244,6 +1430,7 @@ func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeDPoP,
 			"proof",
 			"POST", // Different from proof HTM
 			"https://example.com/api",
@@ -1294,6 +1481,7 @@ func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeDPoP,
 			"proof",
 			"POST",
 			"https://example.com/api", // Different from proof HTU
@@ -1339,6 +1527,7 @@ func TestCheckTokenWithDPoP_LoggingPaths(t *testing.T) {
 		claims, dpopCtx, err := c.CheckTokenWithDPoP(
 			context.Background(),
 			"token",
+			AuthSchemeDPoP,
 			"invalid-proof",
 			"POST",
 			"https://example.com/api",

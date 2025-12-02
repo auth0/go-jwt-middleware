@@ -232,6 +232,76 @@ func TestDPoPRequired_ExpiredDPoPProof(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
+// Test that symmetric algorithms (HS256) are rejected for DPoP proofs
+// Per RFC 9449, DPoP proofs MUST use asymmetric algorithms
+func TestDPoPRequired_SymmetricAlgorithmRejected(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	// Create a symmetric key for signing
+	symmetricKey := []byte("test-symmetric-key-for-dpop-proof")
+
+	// Create access token (using the real JKT from an ECDSA key for the cnf claim)
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	accessToken, err := createDPoPBoundToken(jkt, "user123", "dpop-required-user")
+	require.NoError(t, err)
+
+	// Create DPoP proof with HS256 (symmetric - should be rejected per RFC 9449)
+	dpopProof, err := createDPoPProofWithOptions(symmetricKey, "GET", server.URL+"/", time.Now(), jwa.HS256())
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+accessToken)
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should fail because DPoP proofs must use asymmetric algorithms
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var response map[string]any
+	body, _ := io.ReadAll(resp.Body)
+	json.Unmarshal(body, &response)
+	assert.Equal(t, "invalid_dpop_proof", response["error"])
+}
+
+// Test WWW-Authenticate header contains DPoP scheme with algs parameter
+func TestDPoPRequired_WWWAuthenticateWithAlgs(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	// Send Bearer token to DPoP-required endpoint
+	bearerToken := createBearerToken("user123", "read")
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+bearerToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	// Per RFC 9449, when DPoP is required, response should use DPoP scheme with algs
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "algs=")
+	// Should list supported asymmetric algorithms
+	assert.Contains(t, wwwAuth, "ES256")
+}
+
 // Helper functions
 func createBearerToken(sub, scope string) string {
 	token := jwt.New()
@@ -269,10 +339,15 @@ func createDPoPBoundToken(jkt []byte, sub, scope string) (string, error) {
 }
 
 func createDPoPProof(key jwk.Key, httpMethod, httpURL string) (string, error) {
-	return createDPoPProofWithTime(key, httpMethod, httpURL, time.Now())
+	return createDPoPProofWithOptions(key, httpMethod, httpURL, time.Now(), jwa.ES256())
 }
 
 func createDPoPProofWithTime(key jwk.Key, httpMethod, httpURL string, timestamp time.Time) (string, error) {
+	return createDPoPProofWithOptions(key, httpMethod, httpURL, timestamp, jwa.ES256())
+}
+
+// createDPoPProofWithOptions creates a DPoP proof with configurable algorithm and timestamp
+func createDPoPProofWithOptions(key any, httpMethod, httpURL string, timestamp time.Time, alg jwa.SignatureAlgorithm) (string, error) {
 	token := jwt.New()
 	token.Set(jwt.JwtIDKey, "test-jti-"+timestamp.Format("20060102150405"))
 	token.Set("htm", httpMethod)
@@ -281,10 +356,14 @@ func createDPoPProofWithTime(key jwk.Key, httpMethod, httpURL string, timestamp 
 
 	headers := jws.NewHeaders()
 	headers.Set(jws.TypeKey, "dpop+jwt")
-	headers.Set(jws.JWKKey, key)
+
+	// Only embed JWK for asymmetric algorithms (jwk.Key type)
+	if jwkKey, ok := key.(jwk.Key); ok {
+		headers.Set(jws.JWKKey, jwkKey)
+	}
 
 	signed, err := jwt.Sign(token,
-		jwt.WithKey(jwa.ES256(), key, jws.WithProtectedHeaders(headers)),
+		jwt.WithKey(alg, key, jws.WithProtectedHeaders(headers)),
 	)
 	if err != nil {
 		return "", err

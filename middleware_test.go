@@ -109,8 +109,8 @@ func Test_CheckJWT(t *testing.T) {
 		{
 			name: "it fails validation if there are errors with the token extractor",
 			options: []Option{
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", errors.New("token extractor error")
+				WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+					return ExtractedToken{}, errors.New("token extractor error")
 				}),
 			},
 			method:         http.MethodGet,
@@ -121,8 +121,8 @@ func Test_CheckJWT(t *testing.T) {
 			name: "credentialsOptional true",
 			options: []Option{
 				WithCredentialsOptional(true),
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", nil
+				WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+					return ExtractedToken{}, nil
 				}),
 			},
 			method:         http.MethodGet,
@@ -134,8 +134,8 @@ func Test_CheckJWT(t *testing.T) {
 				"a custom extractor and credentialsOptional is false",
 			options: []Option{
 				WithCredentialsOptional(false),
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", nil
+				WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+					return ExtractedToken{}, nil
 				}),
 			},
 			method:         http.MethodGet,
@@ -318,8 +318,8 @@ func TestNew_EdgeCases(t *testing.T) {
 
 	t.Run("successful creation with all configuration options", func(t *testing.T) {
 		mockLog := &mockLogger{}
-		customExtractor := func(r *http.Request) (string, error) {
-			return "custom-token", nil
+		customExtractor := func(r *http.Request) (ExtractedToken, error) {
+			return ExtractedToken{Scheme: AuthSchemeBearer, Token: "custom-token"}, nil
 		}
 		customDPoPExtractor := func(r *http.Request) (string, error) {
 			return "custom-dpop", nil
@@ -559,8 +559,8 @@ func TestCheckJWT_WithLogging(t *testing.T) {
 
 		middleware, err := New(
 			WithValidator(jwtValidator),
-			WithTokenExtractor(func(r *http.Request) (string, error) {
-				return "", errors.New("extractor failed")
+			WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+				return ExtractedToken{}, errors.New("extractor failed")
 			}),
 			WithLogger(mockLog),
 		)

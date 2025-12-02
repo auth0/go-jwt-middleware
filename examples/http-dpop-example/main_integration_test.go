@@ -533,6 +533,148 @@ func TestHTTPDPoPExample_DPoPProofFuture(t *testing.T) {
 }
 
 // =============================================================================
+// WWW-Authenticate Header Tests (RFC 9449 Compliance)
+// =============================================================================
+
+func TestHTTPDPoPExample_WWWAuthenticate_DPoPSchemeWithAlgs(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	accessToken, err := createDPoPBoundToken(jkt, "user456", "Jane Smith", "janesmith")
+	require.NoError(t, err)
+
+	// Send request with DPoP token but invalid proof
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+accessToken)
+	req.Header.Set("DPoP", "invalid.dpop.proof")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	// Per RFC 9449, DPoP errors should return WWW-Authenticate: DPoP with algs parameter
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "algs=")
+	// Should contain supported algorithms
+	assert.Contains(t, wwwAuth, "ES256")
+}
+
+func TestHTTPDPoPExample_WWWAuthenticate_DPoPHTMMismatch(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	accessToken, err := createDPoPBoundToken(jkt, "user456", "Jane Smith", "janesmith")
+	require.NoError(t, err)
+
+	// Create DPoP proof with wrong HTTP method
+	dpopProof, err := createDPoPProof(key, "POST", server.URL)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+accessToken)
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	// Verify WWW-Authenticate header has DPoP scheme with algs
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "algs=")
+	assert.Contains(t, wwwAuth, "invalid_dpop_proof")
+}
+
+func TestHTTPDPoPExample_WWWAuthenticate_BearerSchemeForTokenErrors(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Send request with invalid Bearer token
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer invalid.token")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// Bearer token errors should use Bearer scheme (NOT DPoP)
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "Bearer")
+	// Bearer scheme should NOT have algs parameter (per RFC 6750)
+	assert.NotContains(t, wwwAuth, "algs=")
+}
+
+func TestHTTPDPoPExample_WWWAuthenticate_DPoPBindingMismatch(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Generate two different key pairs
+	privateKey1, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key1, err := jwk.Import(privateKey1)
+	require.NoError(t, err)
+	jkt1, err := key1.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	privateKey2, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key2, err := jwk.Import(privateKey2)
+	require.NoError(t, err)
+
+	// Create access token bound to key1
+	accessToken, err := createDPoPBoundToken(jkt1, "user456", "Jane Smith", "janesmith")
+	require.NoError(t, err)
+
+	// Create DPoP proof with key2 (mismatch!)
+	dpopProof, err := createDPoPProof(key2, "GET", server.URL)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+accessToken)
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// DPoP binding mismatch should use DPoP scheme with algs
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "algs=")
+}
+
+// =============================================================================
 // Helper Functions
 // =============================================================================
 

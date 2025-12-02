@@ -110,40 +110,43 @@ func TestAuthHeaderTokenExtractor_DPoP(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 		req.Header.Set("Authorization", "DPoP test-access-token")
 
-		token, err := AuthHeaderTokenExtractor(req)
+		result, err := AuthHeaderTokenExtractor(req)
 
 		require.NoError(t, err)
-		assert.Equal(t, "test-access-token", token)
+		assert.Equal(t, "test-access-token", result.Token)
+		assert.Equal(t, AuthSchemeDPoP, result.Scheme)
 	})
 
 	t.Run("extracts token from Bearer authorization header", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 		req.Header.Set("Authorization", "Bearer test-access-token")
 
-		token, err := AuthHeaderTokenExtractor(req)
+		result, err := AuthHeaderTokenExtractor(req)
 
 		require.NoError(t, err)
-		assert.Equal(t, "test-access-token", token)
+		assert.Equal(t, "test-access-token", result.Token)
+		assert.Equal(t, AuthSchemeBearer, result.Scheme)
 	})
 
 	t.Run("handles mixed case DPoP scheme", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 		req.Header.Set("Authorization", "dpop test-access-token")
 
-		token, err := AuthHeaderTokenExtractor(req)
+		result, err := AuthHeaderTokenExtractor(req)
 
 		require.NoError(t, err)
-		assert.Equal(t, "test-access-token", token)
+		assert.Equal(t, "test-access-token", result.Token)
+		assert.Equal(t, AuthSchemeDPoP, result.Scheme)
 	})
 
 	t.Run("rejects invalid authorization scheme", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 		req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
 
-		token, err := AuthHeaderTokenExtractor(req)
+		result, err := AuthHeaderTokenExtractor(req)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "authorization header format must be Bearer {token} or DPoP {token}")
-		assert.Equal(t, "", token)
+		assert.Empty(t, result.Token)
 	})
 }

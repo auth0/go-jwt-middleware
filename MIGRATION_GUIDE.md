@@ -28,6 +28,8 @@ This guide helps you migrate from go-jwt-middleware v2 to v3. While v3 introduce
 | **Architecture** | Monolithic | Core-Adapter pattern |
 | **Context Key** | `ContextKey{}` struct | Unexported `contextKey int` |
 | **Type Names** | `ExclusionUrlHandler` | `ExclusionURLHandler` |
+| **TokenExtractor** | Returns `string` | Returns `ExtractedToken` |
+| **DPoP Support** | Not available | Full RFC 9449 support |
 
 ### Why Upgrade?
 
@@ -35,7 +37,7 @@ This guide helps you migrate from go-jwt-middleware v2 to v3. While v3 introduce
 - ✅ **More Algorithms**: Support for EdDSA, ES256K, and all modern algorithms
 - ✅ **Type Safety**: Generics eliminate type assertion errors at compile time
 - ✅ **Better IDE Support**: Self-documenting options with autocomplete
-- ✅ **Enhanced Security**: CVE mitigations and RFC 6750 compliance
+- ✅ **Enhanced Security**: CVE mitigations, RFC 6750 compliance, and DPoP support
 - ✅ **Modern Go**: Built for Go 1.23+ with modern patterns
 
 ## Breaking Changes
@@ -119,6 +121,26 @@ type ExclusionUrlHandler func(r *http.Request) bool
 ```go
 type ExclusionURLHandler func(r *http.Request) bool
 ```
+
+### 5. TokenExtractor Signature Change
+
+`TokenExtractor` now returns `ExtractedToken` (with scheme) instead of `string`:
+
+**v2:**
+```go
+type TokenExtractor func(r *http.Request) (string, error)
+```
+
+**v3:**
+```go
+type ExtractedToken struct {
+    Token  string
+    Scheme AuthScheme  // AuthSchemeBearer, AuthSchemeDPoP, or AuthSchemeUnknown
+}
+type TokenExtractor func(r *http.Request) (ExtractedToken, error)
+```
+
+**Note:** Built-in extractors (`CookieTokenExtractor`, `ParameterTokenExtractor`, `MultiTokenExtractor`) work unchanged. Only custom extractors need updating.
 
 ## Step-by-Step Migration
 
@@ -328,13 +350,46 @@ if err != nil {
 
 #### Token Extractors
 
-No changes needed - same API:
+**v3 Breaking Change**: `TokenExtractor` now returns `ExtractedToken` instead of `string`:
 
+**v2:**
 ```go
-// Both v2 and v3
+// TokenExtractor returned string
+type TokenExtractor func(r *http.Request) (string, error)
+```
+
+**v3:**
+```go
+// TokenExtractor returns ExtractedToken with both token and scheme
+type ExtractedToken struct {
+    Token  string
+    Scheme AuthScheme  // bearer, dpop, or unknown
+}
+type TokenExtractor func(r *http.Request) (ExtractedToken, error)
+```
+
+Built-in extractors work the same way:
+```go
+// These all work unchanged - internal implementation updated
 jwtmiddleware.CookieTokenExtractor("jwt")
 jwtmiddleware.ParameterTokenExtractor("token")
 jwtmiddleware.MultiTokenExtractor(extractors...)
+```
+
+**Custom extractors must be updated:**
+```go
+// v2
+customExtractor := func(r *http.Request) (string, error) {
+    return r.Header.Get("X-Custom-Token"), nil
+}
+
+// v3
+customExtractor := func(r *http.Request) (jwtmiddleware.ExtractedToken, error) {
+    return jwtmiddleware.ExtractedToken{
+        Token:  r.Header.Get("X-Custom-Token"),
+        Scheme: jwtmiddleware.AuthSchemeUnknown, // or AuthSchemeBearer if you know
+    }, nil
+}
 ```
 
 ### 5. Update Claims Access
@@ -577,6 +632,31 @@ middleware, err := jwtmiddleware.New(
     }),
 )
 ```
+
+### 6. DPoP (Demonstrating Proof-of-Possession)
+
+v3 adds full support for RFC 9449 DPoP, which provides proof-of-possession for access tokens:
+
+```go
+// DPoP modes:
+// - DPoPAllowed (default): Accept both Bearer and DPoP tokens
+// - DPoPRequired: Only accept DPoP tokens  
+// - DPoPDisabled: Ignore DPoP, reject DPoP scheme
+
+middleware, err := jwtmiddleware.New(
+    jwtmiddleware.WithValidator(jwtValidator),
+    jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
+)
+```
+
+DPoP validates:
+- Proof signature using asymmetric algorithms (RS256, ES256, etc.)
+- HTTP method and URL binding (`htm` and `htu` claims)
+- Token binding via thumbprint (`jkt` claim in access token's `cnf`)
+- Access token hash (`ath` claim) matching
+- Replay protection via `jti` and `iat` claims
+
+See the [DPoP examples](./examples/http-dpop-example) for complete working code.
 
 ## FAQ
 

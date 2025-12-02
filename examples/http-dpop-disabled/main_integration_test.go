@@ -111,14 +111,14 @@ func TestDPoPDisabled_DPoPSchemeRejected(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	// DPoP scheme is not supported, token has cnf claim but no proof validation
+	// DPoP scheme is rejected when DPoP is disabled (security: prevents accepting DPoP tokens without validation)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	var response map[string]any
 	body, _ := io.ReadAll(resp.Body)
 	json.Unmarshal(body, &response)
-	// In DPoP Disabled mode, the token with cnf gets validated but has no proof
-	assert.Equal(t, "invalid_dpop_proof", response["error"])
+	// In DPoP Disabled mode, using DPoP authorization scheme is not allowed
+	assert.Equal(t, "invalid_request", response["error"])
 }
 
 func TestDPoPDisabled_BearerTokenWithDPoPHeaderIgnored(t *testing.T) {

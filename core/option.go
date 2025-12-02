@@ -29,7 +29,7 @@ func New(opts ...Option) (*Core, error) {
 		credentialsOptional: false, // Secure default: require credentials
 		dpopMode:            DPoPAllowed,
 		dpopProofOffset:     300 * time.Second, // Default: 300s (5 minutes) max age for DPoP proofs
-		dpopIATLeeway:       5 * time.Second,   // Default: 5s clock skew allowance
+		dpopIATLeeway:       30 * time.Second,  // Default: 30s clock skew allowance
 	}
 
 	// Apply all options

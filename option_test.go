@@ -242,8 +242,8 @@ func Test_WithErrorHandler(t *testing.T) {
 func Test_WithTokenExtractor(t *testing.T) {
 	validValidator := createTestValidator(t)
 
-	customExtractor := func(r *http.Request) (string, error) {
-		return "custom-token", nil
+	customExtractor := func(r *http.Request) (ExtractedToken, error) {
+		return ExtractedToken{Scheme: AuthSchemeBearer, Token: "custom-token"}, nil
 	}
 
 	middleware, err := New(
@@ -299,8 +299,8 @@ func Test_WithLogger(t *testing.T) {
 			WithValidator(validator),
 			WithLogger(logger),
 			WithCredentialsOptional(true),
-			WithTokenExtractor(func(r *http.Request) (string, error) {
-				return "", nil // No token
+			WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+				return ExtractedToken{}, nil // No token
 			}),
 		)
 		require.NoError(t, err)
@@ -496,8 +496,8 @@ func Test_WithLogger(t *testing.T) {
 		logger := &mockLogger{}
 		validator := createTestValidator(t)
 
-		customExtractor := func(r *http.Request) (string, error) {
-			return "", errors.New("extraction failed")
+		customExtractor := func(r *http.Request) (ExtractedToken, error) {
+			return ExtractedToken{}, errors.New("extraction failed")
 		}
 
 		middleware, err := New(

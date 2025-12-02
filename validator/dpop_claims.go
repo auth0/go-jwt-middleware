@@ -73,3 +73,10 @@ func (d *DPoPProofClaims) GetPublicKeyThumbprint() string {
 func (d *DPoPProofClaims) GetPublicKey() any {
 	return d.PublicKey
 }
+
+// GetATH returns the access token hash (ath) from the DPoP proof.
+// This is an optional claim that binds the proof to a specific access token.
+// This method implements the core.DPoPProofClaims interface.
+func (d *DPoPProofClaims) GetATH() string {
+	return d.ATH
+}

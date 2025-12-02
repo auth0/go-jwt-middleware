@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 var (
@@ -164,6 +165,7 @@ func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorRe
 
 	// DPoP-specific error codes
 	// All DPoP proof validation errors (missing, invalid, HTM/HTU mismatch, expired, future)
+	// Per RFC 9449 Section 7.1, use "DPoP" scheme for DPoP-related errors with algs parameter
 	case core.ErrorCodeDPoPProofInvalid, core.ErrorCodeDPoPProofMissing,
 		core.ErrorCodeDPoPHTMMismatch, core.ErrorCodeDPoPHTUMismatch,
 		core.ErrorCodeDPoPProofExpired, core.ErrorCodeDPoPProofTooNew:
@@ -171,7 +173,7 @@ func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorRe
 			Error:            "invalid_dpop_proof",
 			ErrorDescription: err.Message,
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_dpop_proof", error_description="` + err.Message + `"`
+		}, fmt.Sprintf(`DPoP algs="%s", error="invalid_dpop_proof", error_description="%s"`, validator.DPoPSupportedAlgorithms, err.Message)
 
 	// DPoP binding mismatch is treated as invalid_token (token binding issue)
 	case core.ErrorCodeDPoPBindingMismatch:
@@ -179,14 +181,21 @@ func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorRe
 			Error:            "invalid_token",
 			ErrorDescription: err.Message,
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_token", error_description="` + err.Message + `"`
+		}, fmt.Sprintf(`DPoP algs="%s", error="invalid_token", error_description="%s"`, validator.DPoPSupportedAlgorithms, err.Message)
 
 	case core.ErrorCodeBearerNotAllowed:
 		return http.StatusBadRequest, ErrorResponse{
 			Error:            "invalid_request",
 			ErrorDescription: "Bearer tokens are not allowed (DPoP required)",
 			ErrorCode:        err.Code,
-		}, `DPoP error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`
+		}, fmt.Sprintf(`DPoP algs="%s", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`, validator.DPoPSupportedAlgorithms)
+
+	case core.ErrorCodeDPoPNotAllowed:
+		return http.StatusBadRequest, ErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "DPoP tokens are not allowed (Bearer only)",
+			ErrorCode:        err.Code,
+		}, fmt.Sprintf(`DPoP algs="%s", error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`, validator.DPoPSupportedAlgorithms)
 
 	default:
 		// Generic invalid token error for other cases

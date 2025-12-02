@@ -256,13 +256,6 @@ func parseForwardedHeader(forwarded string) (scheme, host string) {
 		} else if strings.HasPrefix(part, "host=") {
 			host = strings.TrimPrefix(part, "host=")
 			host = strings.Trim(host, `"`) // Remove quotes if present
-			// Remove port if present (HTU validation uses host without port)
-			if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
-				// Check if it's IPv6 (contains brackets)
-				if !strings.Contains(host, "[") {
-					host = host[:colonIdx]
-				}
-			}
 		}
 	}
 

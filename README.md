@@ -70,6 +70,17 @@ jwtmiddleware.New(
 ### 🛡️ Enhanced Security
 - RFC 6750 compliant error responses
 - Secure defaults (credentials required, clock skew = 0)
+- **DPoP support** (RFC 9449) for proof-of-possession tokens
+
+### 🔑 DPoP (Demonstrating Proof-of-Possession)
+Prevent token theft with proof-of-possession:
+
+```go
+jwtmiddleware.New(
+    jwtmiddleware.WithValidator(jwtValidator),
+    jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
+)
+```
 
 ## Getting Started
 
@@ -442,12 +453,60 @@ jwtValidator, err := validator.New(
 )
 ```
 
+### DPoP (Demonstrating Proof-of-Possession)
+
+v3 adds support for [DPoP (RFC 9449)](https://datatracker.ietf.org/doc/html/rfc9449), which provides proof-of-possession for access tokens. This prevents token theft and replay attacks.
+
+#### DPoP Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **DPoPAllowed** (default) | Accepts both Bearer and DPoP tokens | Migration period, backward compatibility |
+| **DPoPRequired** | Only accepts DPoP tokens | Maximum security |
+| **DPoPDisabled** | Ignores DPoP proofs, rejects DPoP scheme | Legacy systems |
+
+#### Basic DPoP Setup
+
+```go
+middleware, err := jwtmiddleware.New(
+	jwtmiddleware.WithValidator(jwtValidator),
+	jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPAllowed), // Default
+)
+```
+
+#### Require DPoP for Maximum Security
+
+```go
+middleware, err := jwtmiddleware.New(
+	jwtmiddleware.WithValidator(jwtValidator),
+	jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
+)
+```
+
+#### Behind a Proxy
+
+When running behind a reverse proxy, configure trusted proxy headers:
+
+```go
+middleware, err := jwtmiddleware.New(
+	jwtmiddleware.WithValidator(jwtValidator),
+	jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
+	jwtmiddleware.WithStandardProxy(),  // Trust X-Forwarded-* headers
+)
+```
+
+See the [DPoP examples](./examples/http-dpop-example) for complete working code.
+
 ## Examples
 
 For complete working examples, check the [examples](./examples) directory:
 
 - **[http-example](./examples/http-example)** - Basic HTTP server with HMAC
 - **[http-jwks-example](./examples/http-jwks-example)** - Production setup with JWKS and Auth0
+- **[http-dpop-example](./examples/http-dpop-example)** - DPoP support (allowed mode)
+- **[http-dpop-required](./examples/http-dpop-required)** - DPoP required mode
+- **[http-dpop-disabled](./examples/http-dpop-disabled)** - DPoP disabled mode
+- **[http-dpop-trusted-proxy](./examples/http-dpop-trusted-proxy)** - DPoP behind reverse proxy
 - **[gin-example](./examples/gin-example)** - Integration with Gin framework
 - **[echo-example](./examples/echo-example)** - Integration with Echo framework
 - **[iris-example](./examples/iris-example)** - Integration with Iris framework

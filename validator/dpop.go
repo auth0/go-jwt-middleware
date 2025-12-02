@@ -77,10 +77,10 @@ func (v *Validator) ValidateDPoPProof(ctx context.Context, proofString string) (
 		return nil, fmt.Errorf("failed to parse JWK from DPoP proof header: %w", err)
 	}
 
-	// Step 6: Validate the algorithm is allowed
+	// Step 6: Validate the algorithm is allowed (asymmetric only per RFC 9449 Section 4.3.2)
 	algorithm := SignatureAlgorithm(header.Alg)
-	if !allowedSigningAlgorithms[algorithm] {
-		return nil, fmt.Errorf("unsupported DPoP proof algorithm: %s", header.Alg)
+	if !allowedDPoPAlgorithms[algorithm] {
+		return nil, fmt.Errorf("unsupported DPoP proof algorithm: %s (DPoP requires asymmetric algorithms)", header.Alg)
 	}
 
 	// Step 7: Convert algorithm to jwx type
