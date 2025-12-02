@@ -238,6 +238,15 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof iat is in the future"`,
 		},
 		{
+			name:                 "DPoP ATH mismatch",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPATHMismatch, "DPoP proof ath does not match access token hash", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_dpop_proof",
+			wantErrorDescription: "DPoP proof ath does not match access token hash",
+			wantErrorCode:        "dpop_ath_mismatch",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof ath does not match access token hash"`,
+		},
+		{
 			name:                 "DPoP binding mismatch",
 			err:                  core.NewValidationError(core.ErrorCodeDPoPBindingMismatch, "JKT does not match cnf claim", core.ErrDPoPBindingMismatch),
 			wantStatus:           http.StatusUnauthorized,
@@ -254,6 +263,15 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantErrorDescription: "Bearer tokens are not allowed (DPoP required)",
 			wantErrorCode:        "bearer_not_allowed",
 			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`,
+		},
+		{
+			name:                 "DPoP not allowed",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPNotAllowed, "DPoP tokens are not allowed", core.ErrDPoPNotAllowed),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_request",
+			wantErrorDescription: "DPoP tokens are not allowed (Bearer only)",
+			wantErrorCode:        "dpop_not_allowed",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`,
 		},
 		{
 			name:                 "Config invalid",

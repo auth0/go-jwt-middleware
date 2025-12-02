@@ -908,3 +908,195 @@ func TestCheckJWT_WithTrustedProxies(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateToken_DPoPSchemeWithoutProof tests the security check for DPoP scheme without proof
+func TestValidateToken_DPoPSchemeWithoutProof(t *testing.T) {
+	const (
+		issuer   = "testIssuer"
+		audience = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	t.Run("DPoP scheme without proof header returns error", func(t *testing.T) {
+		// Token extractor that returns DPoP scheme
+		dpopSchemeExtractor := func(r *http.Request) (ExtractedToken, error) {
+			token := r.Header.Get("Authorization")
+			if len(token) > 5 && token[:5] == "DPoP " {
+				return ExtractedToken{
+					Token:  token[5:],
+					Scheme: AuthSchemeDPoP,
+				}, nil
+			}
+			return ExtractedToken{}, nil
+		}
+
+		// DPoP extractor that returns no proof (empty string)
+		noDPoPProofExtractor := func(r *http.Request) (string, error) {
+			return "", nil // No DPoP proof header
+		}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithTokenExtractor(dpopSchemeExtractor),
+			WithDPoPHeaderExtractor(noDPoPProofExtractor),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		// Send a request with DPoP scheme but no DPoP header
+		dpopToken := "DPoP eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", dpopToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		// Should fail with bad request for missing DPoP proof
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+
+		// Verify error response
+		var errResp ErrorResponse
+		err = json.NewDecoder(response.Body).Decode(&errResp)
+		require.NoError(t, err)
+		assert.Equal(t, "invalid_dpop_proof", errResp.Error)
+		assert.Equal(t, "dpop_proof_missing", errResp.ErrorCode)
+	})
+
+	t.Run("DPoP scheme without proof header with logger", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		// Token extractor that returns DPoP scheme
+		dpopSchemeExtractor := func(r *http.Request) (ExtractedToken, error) {
+			return ExtractedToken{
+				Token:  "test-token",
+				Scheme: AuthSchemeDPoP,
+			}, nil
+		}
+
+		// DPoP extractor that returns no proof
+		noDPoPProofExtractor := func(r *http.Request) (string, error) {
+			return "", nil
+		}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithTokenExtractor(dpopSchemeExtractor),
+			WithDPoPHeaderExtractor(noDPoPProofExtractor),
+			WithDPoPMode(DPoPAllowed),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", "DPoP test-token")
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+
+		// Verify error logging occurred
+		assert.NotEmpty(t, mockLog.errorCalls)
+		found := false
+		for _, call := range mockLog.errorCalls {
+			if len(call) > 0 {
+				if msg, ok := call[0].(string); ok && msg == "DPoP authorization scheme used without DPoP proof header" {
+					found = true
+					break
+				}
+			}
+		}
+		assert.True(t, found, "Expected error log for DPoP scheme without proof")
+	})
+}
+
+// TestConvertAuthScheme tests the convertAuthScheme function
+func TestConvertAuthScheme(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    AuthScheme
+		expected core.AuthScheme
+	}{
+		{
+			name:     "Bearer scheme",
+			input:    AuthSchemeBearer,
+			expected: core.AuthSchemeBearer,
+		},
+		{
+			name:     "DPoP scheme",
+			input:    AuthSchemeDPoP,
+			expected: core.AuthSchemeDPoP,
+		},
+		{
+			name:     "Unknown scheme",
+			input:    AuthSchemeUnknown,
+			expected: core.AuthSchemeUnknown,
+		},
+		{
+			name:     "Empty string scheme",
+			input:    AuthScheme(""),
+			expected: core.AuthSchemeUnknown,
+		},
+		{
+			name:     "Random string scheme",
+			input:    AuthScheme("custom"),
+			expected: core.AuthSchemeUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertAuthScheme(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestMustGetClaims_Panic tests that MustGetClaims panics when claims don't exist
+func TestMustGetClaims_Panic(t *testing.T) {
+	ctx := context.Background()
+
+	assert.Panics(t, func() {
+		MustGetClaims[map[string]any](ctx)
+	})
+}
+
+// TestMustGetClaims_Success tests that MustGetClaims returns claims when they exist
+func TestMustGetClaims_Success(t *testing.T) {
+	expectedClaims := map[string]any{"sub": "user123"}
+	ctx := core.SetClaims(context.Background(), expectedClaims)
+
+	assert.NotPanics(t, func() {
+		claims := MustGetClaims[map[string]any](ctx)
+		assert.Equal(t, expectedClaims, claims)
+	})
+}

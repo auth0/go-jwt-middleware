@@ -164,10 +164,10 @@ func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorRe
 		}, `Bearer error="invalid_token", error_description="Unable to verify the access token"`
 
 	// DPoP-specific error codes
-	// All DPoP proof validation errors (missing, invalid, HTM/HTU mismatch, expired, future)
+	// All DPoP proof validation errors (missing, invalid, HTM/HTU mismatch, ATH mismatch, expired, future)
 	// Per RFC 9449 Section 7.1, use "DPoP" scheme for DPoP-related errors with algs parameter
 	case core.ErrorCodeDPoPProofInvalid, core.ErrorCodeDPoPProofMissing,
-		core.ErrorCodeDPoPHTMMismatch, core.ErrorCodeDPoPHTUMismatch,
+		core.ErrorCodeDPoPHTMMismatch, core.ErrorCodeDPoPHTUMismatch, core.ErrorCodeDPoPATHMismatch,
 		core.ErrorCodeDPoPProofExpired, core.ErrorCodeDPoPProofTooNew:
 		return http.StatusBadRequest, ErrorResponse{
 			Error:            "invalid_dpop_proof",
