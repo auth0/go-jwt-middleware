@@ -182,16 +182,11 @@ func (c *Core) CheckTokenWithDPoP(
 	// Step 1: Handle empty token case
 	if accessToken == "" {
 		if c.credentialsOptional {
-			if c.logger != nil {
-				c.logger.Debug("No token provided, but credentials are optional")
-			}
+			c.logDebug("No token provided, but credentials are optional")
 			return nil, nil, nil
 		}
 
-		if c.logger != nil {
-			c.logger.Warn("No token provided and credentials are required")
-		}
-
+		c.logWarn("No token provided and credentials are required")
 		return nil, nil, ErrJWTMissing
 	}
 
@@ -201,15 +196,11 @@ func (c *Core) CheckTokenWithDPoP(
 	duration := time.Since(start)
 
 	if err != nil {
-		if c.logger != nil {
-			c.logger.Error("Access token validation failed", "error", err, "duration", duration)
-		}
+		c.logError("Access token validation failed", "error", err, "duration", duration)
 		return nil, nil, err
 	}
 
-	if c.logger != nil {
-		c.logger.Debug("Access token validated successfully", "duration", duration)
-	}
+	c.logDebug("Access token validated successfully", "duration", duration)
 
 	// Step 3: Determine token type based on scheme and proof presence
 	hasDPoPProof := dpopProof != ""
@@ -222,9 +213,7 @@ func (c *Core) CheckTokenWithDPoP(
 	// If DPoP is explicitly disabled, requests using the DPoP authorization scheme must be rejected.
 	// This prevents accepting DPoP-scheme tokens without proper validation.
 	if c.dpopMode == DPoPDisabled && authScheme == AuthSchemeDPoP {
-		if c.logger != nil {
-			c.logger.Error("DPoP authorization scheme used but DPoP is disabled")
-		}
+		c.logError("DPoP authorization scheme used but DPoP is disabled")
 		return nil, nil, NewValidationError(
 			ErrorCodeDPoPNotAllowed,
 			"DPoP tokens are not allowed (DPoP is disabled)",
@@ -238,9 +227,7 @@ func (c *Core) CheckTokenWithDPoP(
 	// Note: This only applies when DPoP is not required. In DPoPRequired mode, we continue
 	// to validateDPoPToken which will reject the token for missing cnf claim.
 	if c.dpopMode != DPoPRequired && authScheme == AuthSchemeBearer && hasDPoPProof && !hasConfirmationClaim {
-		if c.logger != nil {
-			c.logger.Debug("Bearer scheme with DPoP proof but no cnf claim, treating as Bearer token (RFC 9449 Section 6.1)")
-		}
+		c.logDebug("Bearer scheme with DPoP proof but no cnf claim, treating as Bearer token (RFC 9449 Section 6.1)")
 		return c.handleBearerToken(validatedClaims, hasConfirmationClaim, authScheme)
 	}
 
@@ -257,9 +244,7 @@ func (c *Core) CheckTokenWithDPoP(
 	// This is a safety check that should not normally be reached.
 	if c.dpopMode == DPoPDisabled {
 		// Token has cnf claim but DPoP is disabled - we can't properly validate this
-		if c.logger != nil {
-			c.logger.Error("DPoP-bound token (has cnf claim) received but DPoP is disabled")
-		}
+		c.logError("DPoP-bound token (has cnf claim) received but DPoP is disabled")
 		return nil, nil, NewValidationError(
 			ErrorCodeDPoPNotAllowed,
 			"Cannot validate DPoP-bound token when DPoP is disabled",
@@ -278,10 +263,8 @@ func (c *Core) CheckTokenWithDPoP(
 func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool, authScheme AuthScheme) (any, *DPoPContext, error) {
 	// Check if token has cnf claim but no DPoP proof (orphaned DPoP token)
 	if hasConfirmationClaim {
-		if c.logger != nil {
-			c.logger.Error("Token has cnf claim but no DPoP proof provided",
-				"authScheme", string(authScheme))
-		}
+		c.logError("Token has cnf claim but no DPoP proof provided",
+			"authScheme", string(authScheme))
 		return nil, nil, NewValidationError(
 			ErrorCodeDPoPProofMissing,
 			"DPoP proof is required for DPoP-bound tokens",
@@ -291,10 +274,8 @@ func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool, authSche
 
 	// Check if Bearer tokens are allowed
 	if c.dpopMode == DPoPRequired {
-		if c.logger != nil {
-			c.logger.Error("Bearer token provided but DPoP is required",
-				"authScheme", string(authScheme))
-		}
+		c.logError("Bearer token provided but DPoP is required",
+			"authScheme", string(authScheme))
 		return nil, nil, NewValidationError(
 			ErrorCodeBearerNotAllowed,
 			"Bearer tokens are not allowed (DPoP required)",
@@ -302,10 +283,8 @@ func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool, authSche
 		)
 	}
 
-	if c.logger != nil {
-		c.logger.Debug("Bearer token accepted",
-			"authScheme", string(authScheme))
-	}
+	c.logDebug("Bearer token accepted",
+		"authScheme", string(authScheme))
 
 	return claims, nil, nil
 }
@@ -324,10 +303,7 @@ func (c *Core) validateDPoPToken(
 ) (any, *DPoPContext, error) {
 	// Step 1: Check if claims type implements TokenClaims interface
 	if !supportsConfirmation {
-		// Claims type doesn't implement TokenClaims interface
-		if c.logger != nil {
-			c.logger.Error("Token claims do not implement TokenClaims interface")
-		}
+		c.logError("Token claims do not implement TokenClaims interface")
 		return nil, nil, NewValidationError(
 			ErrorCodeConfigInvalid,
 			"Token claims do not support DPoP confirmation",
@@ -337,9 +313,7 @@ func (c *Core) validateDPoPToken(
 
 	// Step 2: Check if token has cnf claim
 	if !hasConfirmationClaim {
-		if c.logger != nil {
-			c.logger.Error("DPoP proof provided but token has no cnf claim")
-		}
+		c.logError("DPoP proof provided but token has no cnf claim")
 		return nil, nil, NewValidationError(
 			ErrorCodeDPoPBindingMismatch,
 			"Token must have cnf claim for DPoP binding",
@@ -347,113 +321,33 @@ func (c *Core) validateDPoPToken(
 		)
 	}
 
-	// Step 2: Validate DPoP proof JWT
-	dpopStart := time.Now()
-	proofClaims, err := c.validator.ValidateDPoPProof(ctx, dpopProof)
-	dpopDuration := time.Since(dpopStart)
-
+	// Step 3: Validate DPoP proof JWT
+	proofClaims, err := c.validateDPoPProofJWT(ctx, dpopProof)
 	if err != nil {
-		if c.logger != nil {
-			c.logger.Error("DPoP proof validation failed", "error", err, "duration", dpopDuration)
-		}
-		return nil, nil, NewValidationError(
-			ErrorCodeDPoPProofInvalid,
-			"DPoP proof JWT validation failed",
-			ErrInvalidDPoPProof,
-		)
+		return nil, nil, err
 	}
 
-	if c.logger != nil {
-		c.logger.Debug("DPoP proof validated successfully", "duration", dpopDuration)
-	}
-
-	// Step 3: Verify JKT binding
+	// Step 4: Verify JKT binding
 	expectedJKT := tokenClaims.GetConfirmationJKT()
 	actualJKT := proofClaims.GetPublicKeyThumbprint()
-
-	if expectedJKT != actualJKT {
-		if c.logger != nil {
-			c.logger.Error("DPoP JKT mismatch", "expected", expectedJKT, "actual", actualJKT)
-		}
-		return nil, nil, NewValidationError(
-			ErrorCodeDPoPBindingMismatch,
-			fmt.Sprintf("DPoP proof JKT %q does not match token cnf.jkt %q", actualJKT, expectedJKT),
-			ErrDPoPBindingMismatch,
-		)
+	if err := c.validateJKTBinding(expectedJKT, actualJKT); err != nil {
+		return nil, nil, err
 	}
 
-	// Step 4: Validate ATH (Access Token Hash) if present per RFC 9449 Section 4.2
-	// The ath claim is optional, but if present, it MUST match the SHA-256 hash of the access token
-	proofATH := proofClaims.GetATH()
-	if proofATH != "" {
-		expectedATH := computeAccessTokenHash(accessToken)
-		if proofATH != expectedATH {
-			if c.logger != nil {
-				c.logger.Error("DPoP ATH mismatch", "expected", expectedATH, "actual", proofATH)
-			}
-			return nil, nil, NewValidationError(
-				ErrorCodeDPoPATHMismatch,
-				fmt.Sprintf("DPoP proof ath %q does not match access token hash %q", proofATH, expectedATH),
-				ErrInvalidDPoPProof,
-			)
-		}
-		if c.logger != nil {
-			c.logger.Debug("DPoP ATH validated successfully")
-		}
+	// Step 5: Validate ATH (Access Token Hash) if present per RFC 9449 Section 4.2
+	if err := c.validateATH(proofClaims.GetATH(), accessToken); err != nil {
+		return nil, nil, err
 	}
 
-	// Step 5: Validate HTM (HTTP method)
-	if proofClaims.GetHTM() != httpMethod {
-		if c.logger != nil {
-			c.logger.Error("DPoP HTM mismatch", "expected", httpMethod, "actual", proofClaims.GetHTM())
-		}
-		return nil, nil, NewValidationError(
-			ErrorCodeDPoPHTMMismatch,
-			fmt.Sprintf("DPoP proof HTM %q does not match request method %q", proofClaims.GetHTM(), httpMethod),
-			ErrInvalidDPoPProof,
-		)
-	}
-
-	// Step 6: Validate HTU (HTTP URI)
-	if proofClaims.GetHTU() != requestURL {
-		if c.logger != nil {
-			c.logger.Error("DPoP HTU mismatch", "expected", requestURL, "actual", proofClaims.GetHTU())
-		}
-		return nil, nil, NewValidationError(
-			ErrorCodeDPoPHTUMismatch,
-			fmt.Sprintf("DPoP proof HTU %q does not match request URL %q", proofClaims.GetHTU(), requestURL),
-			ErrInvalidDPoPProof,
-		)
+	// Step 6: Validate HTM and HTU
+	if err := c.validateHTMAndHTU(proofClaims, httpMethod, requestURL); err != nil {
+		return nil, nil, err
 	}
 
 	// Step 7: Validate IAT freshness
-	now := time.Now().Unix()
 	proofIAT := proofClaims.GetIAT()
-
-	// Check if proof is too far in the future (beyond clock skew leeway)
-	if proofIAT > (now + int64(c.dpopIATLeeway.Seconds())) {
-		if c.logger != nil {
-			c.logger.Error("DPoP proof iat is too far in the future",
-				"iat", proofIAT, "now", now, "leeway", c.dpopIATLeeway.Seconds())
-		}
-		return nil, nil, NewValidationError(
-			ErrorCodeDPoPProofTooNew,
-			fmt.Sprintf("DPoP proof iat %d is too far in the future", proofIAT),
-			ErrInvalidDPoPProof,
-		)
-	}
-
-	// Check if proof is too old (expired)
-	if proofIAT < (now - int64(c.dpopProofOffset.Seconds())) {
-		if c.logger != nil {
-			c.logger.Error("DPoP proof is expired",
-				"iat", proofIAT, "now", now, "offset", c.dpopProofOffset.Seconds())
-		}
-		return nil, nil, NewValidationError(
-			ErrorCodeDPoPProofExpired,
-			fmt.Sprintf("DPoP proof is too old (iat: %d)", proofIAT),
-			ErrInvalidDPoPProof,
-		)
+	if err := c.validateIATFreshness(proofIAT); err != nil {
+		return nil, nil, err
 	}
 
 	// Step 8: Create DPoP context
@@ -465,11 +359,141 @@ func (c *Core) validateDPoPToken(
 		DPoPProof:           dpopProof,
 	}
 
-	if c.logger != nil {
-		c.logger.Info("DPoP token validated successfully", "jkt", actualJKT)
+	c.logInfo("DPoP token validated successfully", "jkt", actualJKT)
+	return claims, dpopCtx, nil
+}
+
+// validateDPoPProofJWT validates the DPoP proof JWT and returns the claims.
+func (c *Core) validateDPoPProofJWT(ctx context.Context, dpopProof string) (DPoPProofClaims, error) {
+	dpopStart := time.Now()
+	proofClaims, err := c.validator.ValidateDPoPProof(ctx, dpopProof)
+	dpopDuration := time.Since(dpopStart)
+
+	if err != nil {
+		c.logError("DPoP proof validation failed", "error", err, "duration", dpopDuration)
+		return nil, NewValidationError(
+			ErrorCodeDPoPProofInvalid,
+			"DPoP proof JWT validation failed",
+			ErrInvalidDPoPProof,
+		)
 	}
 
-	return claims, dpopCtx, nil
+	c.logDebug("DPoP proof validated successfully", "duration", dpopDuration)
+	return proofClaims, nil
+}
+
+// validateJKTBinding verifies that the DPoP proof JKT matches the token's cnf.jkt claim.
+func (c *Core) validateJKTBinding(expectedJKT, actualJKT string) error {
+	if expectedJKT != actualJKT {
+		c.logError("DPoP JKT mismatch", "expected", expectedJKT, "actual", actualJKT)
+		return NewValidationError(
+			ErrorCodeDPoPBindingMismatch,
+			fmt.Sprintf("DPoP proof JKT %q does not match token cnf.jkt %q", actualJKT, expectedJKT),
+			ErrDPoPBindingMismatch,
+		)
+	}
+	return nil
+}
+
+// validateATH validates the ATH (Access Token Hash) claim if present.
+// The ath claim is optional, but if present, it MUST match the SHA-256 hash of the access token.
+func (c *Core) validateATH(proofATH, accessToken string) error {
+	if proofATH == "" {
+		return nil
+	}
+
+	expectedATH := computeAccessTokenHash(accessToken)
+	if proofATH != expectedATH {
+		c.logError("DPoP ATH mismatch", "expected", expectedATH, "actual", proofATH)
+		return NewValidationError(
+			ErrorCodeDPoPATHMismatch,
+			fmt.Sprintf("DPoP proof ath %q does not match access token hash %q", proofATH, expectedATH),
+			ErrInvalidDPoPProof,
+		)
+	}
+
+	c.logDebug("DPoP ATH validated successfully")
+	return nil
+}
+
+// validateHTMAndHTU validates the HTM (HTTP method) and HTU (HTTP URI) claims.
+func (c *Core) validateHTMAndHTU(proofClaims DPoPProofClaims, httpMethod, requestURL string) error {
+	if proofClaims.GetHTM() != httpMethod {
+		c.logError("DPoP HTM mismatch", "expected", httpMethod, "actual", proofClaims.GetHTM())
+		return NewValidationError(
+			ErrorCodeDPoPHTMMismatch,
+			fmt.Sprintf("DPoP proof HTM %q does not match request method %q", proofClaims.GetHTM(), httpMethod),
+			ErrInvalidDPoPProof,
+		)
+	}
+
+	if proofClaims.GetHTU() != requestURL {
+		c.logError("DPoP HTU mismatch", "expected", requestURL, "actual", proofClaims.GetHTU())
+		return NewValidationError(
+			ErrorCodeDPoPHTUMismatch,
+			fmt.Sprintf("DPoP proof HTU %q does not match request URL %q", proofClaims.GetHTU(), requestURL),
+			ErrInvalidDPoPProof,
+		)
+	}
+
+	return nil
+}
+
+// validateIATFreshness validates that the DPoP proof IAT is within acceptable bounds.
+func (c *Core) validateIATFreshness(proofIAT int64) error {
+	now := time.Now().Unix()
+
+	// Check if proof is too far in the future (beyond clock skew leeway)
+	if proofIAT > (now + int64(c.dpopIATLeeway.Seconds())) {
+		c.logError("DPoP proof iat is too far in the future",
+			"iat", proofIAT, "now", now, "leeway", c.dpopIATLeeway.Seconds())
+		return NewValidationError(
+			ErrorCodeDPoPProofTooNew,
+			fmt.Sprintf("DPoP proof iat %d is too far in the future", proofIAT),
+			ErrInvalidDPoPProof,
+		)
+	}
+
+	// Check if proof is too old (expired)
+	if proofIAT < (now - int64(c.dpopProofOffset.Seconds())) {
+		c.logError("DPoP proof is expired",
+			"iat", proofIAT, "now", now, "offset", c.dpopProofOffset.Seconds())
+		return NewValidationError(
+			ErrorCodeDPoPProofExpired,
+			fmt.Sprintf("DPoP proof is too old (iat: %d)", proofIAT),
+			ErrInvalidDPoPProof,
+		)
+	}
+
+	return nil
+}
+
+// logError logs an error message if the logger is configured.
+func (c *Core) logError(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Error(msg, args...)
+	}
+}
+
+// logWarn logs a warning message if the logger is configured.
+func (c *Core) logWarn(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Warn(msg, args...)
+	}
+}
+
+// logDebug logs a debug message if the logger is configured.
+func (c *Core) logDebug(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Debug(msg, args...)
+	}
+}
+
+// logInfo logs an info message if the logger is configured.
+func (c *Core) logInfo(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Info(msg, args...)
+	}
 }
 
 // computeAccessTokenHash computes the SHA-256 hash of the access token

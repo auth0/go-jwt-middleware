@@ -52,16 +52,11 @@ func (c *Core) CheckToken(ctx context.Context, token string) (any, error) {
 	// Handle empty token case
 	if token == "" {
 		if c.credentialsOptional {
-			if c.logger != nil {
-				c.logger.Debug("No token provided, but credentials are optional")
-			}
+			c.logDebug("No token provided, but credentials are optional")
 			return nil, nil
 		}
 
-		if c.logger != nil {
-			c.logger.Warn("No token provided and credentials are required")
-		}
-
+		c.logWarn("No token provided and credentials are required")
 		return nil, ErrJWTMissing
 	}
 
@@ -71,17 +66,12 @@ func (c *Core) CheckToken(ctx context.Context, token string) (any, error) {
 	duration := time.Since(start)
 
 	if err != nil {
-		if c.logger != nil {
-			c.logger.Error("Token validation failed", "error", err, "duration", duration)
-		}
-
+		c.logError("Token validation failed", "error", err, "duration", duration)
 		return nil, err
 	}
 
 	// Success
-	if c.logger != nil {
-		c.logger.Debug("Token validated successfully", "duration", duration)
-	}
+	c.logDebug("Token validated successfully", "duration", duration)
 
 	return claims, nil
 }
