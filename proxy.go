@@ -154,6 +154,11 @@ func WithRFC7239Proxy() Option {
 //
 // When no proxy config is set or all flags are false (secure default),
 // it uses the request URL as-is without trusting any forwarded headers.
+//
+// Per RFC 9449 and RFC 3986 Section 6.2.3, default ports are normalized:
+// - http://example.com:80/ → http://example.com/
+// - https://example.com:443/ → https://example.com/
+// - Non-standard ports are preserved: http://example.com:8080/ → http://example.com:8080/
 func reconstructRequestURL(r *http.Request, config *TrustedProxyConfig) string {
 	scheme := "https"
 	if r.TLS == nil {
@@ -166,6 +171,7 @@ func reconstructRequestURL(r *http.Request, config *TrustedProxyConfig) string {
 
 	// If no proxy config or all flags false, use request URL as-is (secure default)
 	if config == nil || !config.hasAnyTrustedHeaders() {
+		host = normalizePort(host, scheme)
 		url := scheme + "://" + host + path
 		if query != "" {
 			url += "?" + query
@@ -213,7 +219,10 @@ func reconstructRequestURL(r *http.Request, config *TrustedProxyConfig) string {
 		}
 	}
 
-	// 3. Build reconstructed URL with optional prefix
+	// 3. Normalize port based on scheme (strip default ports)
+	host = normalizePort(host, scheme)
+
+	// 4. Build reconstructed URL with optional prefix
 	fullPath := pathPrefix + path
 	reconstructed := scheme + "://" + host + fullPath
 	if query != "" {
@@ -260,4 +269,49 @@ func parseForwardedHeader(forwarded string) (scheme, host string) {
 	}
 
 	return scheme, host
+}
+
+// normalizePort normalizes the host by stripping default ports per RFC 3986 Section 6.2.3.
+// This is required for DPoP HTU validation to avoid false mismatches on semantically equivalent URLs.
+//
+// Examples:
+//   - http://example.com:80 → http://example.com
+//   - https://example.com:443 → https://example.com
+//   - http://example.com:8080 → http://example.com:8080 (preserved)
+func normalizePort(host, scheme string) string {
+	// Split host and port
+	colonIdx := strings.LastIndex(host, ":")
+	if colonIdx == -1 {
+		// No port specified
+		return host
+	}
+
+	// Check for IPv6 addresses (contain brackets)
+	if strings.Contains(host, "[") {
+		// IPv6 address like [::1]:8080
+		closeBracketIdx := strings.Index(host, "]")
+		if closeBracketIdx == -1 || colonIdx < closeBracketIdx {
+			// Malformed or no port after bracket
+			return host
+		}
+		port := host[colonIdx+1:]
+		hostPart := host[:colonIdx]
+
+		// Strip default ports
+		if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+			return hostPart
+		}
+		return host
+	}
+
+	// IPv4 or hostname
+	port := host[colonIdx+1:]
+	hostPart := host[:colonIdx]
+
+	// Strip default ports
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		return hostPart
+	}
+
+	return host
 }

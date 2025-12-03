@@ -78,8 +78,8 @@ func Test_CheckJWT(t *testing.T) {
 			name:           "it fails to validate a token with a bad format",
 			token:          "bad",
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusInternalServerError,
-			wantBody:       `{"error":"server_error","error_description":"An internal error occurred while processing the request"}`,
+			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"error":"invalid_request","error_description":"Failed to extract token from request: authorization header format must be Bearer {token} or DPoP {token}","error_code":"invalid_request"}`,
 		},
 		{
 			name:           "it fails to validate if token is missing and credentials are not optional",
@@ -114,8 +114,8 @@ func Test_CheckJWT(t *testing.T) {
 				}),
 			},
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusInternalServerError,
-			wantBody:       `{"error":"server_error","error_description":"An internal error occurred while processing the request"}`,
+			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"error":"invalid_request","error_description":"Failed to extract token from request: token extractor error","error_code":"invalid_request"}`,
 		},
 		{
 			name: "credentialsOptional true",
@@ -580,7 +580,8 @@ func TestCheckJWT_WithLogging(t *testing.T) {
 		require.NoError(t, err)
 		defer response.Body.Close()
 
-		assert.Equal(t, http.StatusInternalServerError, response.StatusCode)
+		// Token extraction errors now return 400 Bad Request (invalid_request) instead of 500
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 		assert.NotEmpty(t, mockLog.errorCalls)
 	})
 

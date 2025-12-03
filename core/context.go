@@ -10,6 +10,8 @@ type contextKey int
 const (
 	claimsKey contextKey = iota
 	dpopContextKey
+	authSchemeKey
+	dpopModeKey
 )
 
 // GetClaims retrieves claims from the context with type safety using generics.
@@ -98,4 +100,62 @@ func GetDPoPContext(ctx context.Context) *DPoPContext {
 //	}
 func HasDPoPContext(ctx context.Context) bool {
 	return ctx.Value(dpopContextKey) != nil
+}
+
+// SetAuthScheme stores the authorization scheme in the context.
+// This is used by adapters to track which auth scheme was used in the request.
+func SetAuthScheme(ctx context.Context, scheme AuthScheme) context.Context {
+	return context.WithValue(ctx, authSchemeKey, scheme)
+}
+
+// GetAuthScheme retrieves the authorization scheme from the context.
+// Returns AuthSchemeUnknown if no scheme was set.
+//
+// Example usage:
+//
+//	scheme := core.GetAuthScheme(ctx)
+//	if scheme == core.AuthSchemeDPoP {
+//	    // Handle DPoP-specific logic...
+//	}
+func GetAuthScheme(ctx context.Context) AuthScheme {
+	val := ctx.Value(authSchemeKey)
+	if val == nil {
+		return AuthSchemeUnknown
+	}
+
+	scheme, ok := val.(AuthScheme)
+	if !ok {
+		return AuthSchemeUnknown
+	}
+
+	return scheme
+}
+
+// SetDPoPMode stores the DPoP mode in the context.
+// This is used by adapters to track the DPoP mode configuration for error handling.
+func SetDPoPMode(ctx context.Context, mode DPoPMode) context.Context {
+	return context.WithValue(ctx, dpopModeKey, mode)
+}
+
+// GetDPoPMode retrieves the DPoP mode from the context.
+// Returns DPoPAllowed if no mode was set (default).
+//
+// Example usage:
+//
+//	mode := core.GetDPoPMode(ctx)
+//	if mode == core.DPoPRequired {
+//	    // Only accept DPoP tokens
+//	}
+func GetDPoPMode(ctx context.Context) DPoPMode {
+	val := ctx.Value(dpopModeKey)
+	if val == nil {
+		return DPoPAllowed // Default mode
+	}
+
+	mode, ok := val.(DPoPMode)
+	if !ok {
+		return DPoPAllowed
+	}
+
+	return mode
 }

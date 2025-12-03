@@ -315,7 +315,17 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 					"method", r.Method,
 					"path", r.URL.Path)
 			}
-			m.errorHandler(w, r, fmt.Errorf("error extracting token: %w", err))
+			// Store auth context for error handler using core functions
+			ctx := core.SetAuthScheme(r.Context(), tokenWithScheme.Scheme)
+			ctx = core.SetDPoPMode(ctx, m.getDPoPMode())
+			r = r.Clone(ctx)
+			// Wrap extraction error as invalid_request per RFC 9449
+			validationErr := core.NewValidationError(
+				core.ErrorCodeInvalidRequest,
+				fmt.Sprintf("Failed to extract token from request: %s", err.Error()),
+				err,
+			)
+			m.errorHandler(w, r, validationErr)
 			return
 		}
 
@@ -332,6 +342,10 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 					"method", r.Method,
 					"path", r.URL.Path)
 			}
+			// Store auth context for error handler using core functions
+			ctx := core.SetAuthScheme(r.Context(), tokenWithScheme.Scheme)
+			ctx = core.SetDPoPMode(ctx, m.getDPoPMode())
+			r = r.Clone(ctx)
 			m.errorHandler(w, r, &invalidError{details: err})
 			return
 		}
@@ -364,4 +378,13 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 		r = r.Clone(ctx)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// getDPoPMode returns the DPoP mode from the middleware.
+// Returns the configured mode or DPoPAllowed as default.
+func (m *JWTMiddleware) getDPoPMode() core.DPoPMode {
+	if m.dpopMode != nil {
+		return *m.dpopMode
+	}
+	return core.DPoPAllowed // Default mode
 }

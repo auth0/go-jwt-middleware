@@ -4,18 +4,21 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/auth0/go-jwt-middleware/v3/core"
 )
 
-// AuthScheme represents the authorization scheme used in the request.
-type AuthScheme string
+// AuthScheme is an alias for core.AuthScheme for backward compatibility.
+// New code should use core.AuthScheme directly.
+type AuthScheme = core.AuthScheme
 
 const (
 	// AuthSchemeBearer represents Bearer token authorization.
-	AuthSchemeBearer AuthScheme = "bearer"
+	AuthSchemeBearer = core.AuthSchemeBearer
 	// AuthSchemeDPoP represents DPoP token authorization.
-	AuthSchemeDPoP AuthScheme = "dpop"
+	AuthSchemeDPoP = core.AuthSchemeDPoP
 	// AuthSchemeUnknown represents an unknown or missing authorization scheme.
-	AuthSchemeUnknown AuthScheme = ""
+	AuthSchemeUnknown = core.AuthSchemeUnknown
 )
 
 // ExtractedToken holds both the extracted token and the authorization scheme used.
@@ -39,12 +42,22 @@ type TokenExtractor func(r *http.Request) (ExtractedToken, error)
 // AuthHeaderTokenExtractor is a TokenExtractor that takes a request
 // and extracts the token and scheme from the Authorization header.
 // Supports both "Bearer" and "DPoP" authorization schemes.
+//
+// Security: Rejects requests with multiple Authorization headers per RFC 9449.
 func AuthHeaderTokenExtractor(r *http.Request) (ExtractedToken, error) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
+	// Check for multiple Authorization headers (security issue)
+	// Per RFC 9449 Section 7.2, having both Bearer and DPoP Authorization headers
+	// is a malformed request that should be rejected
+	authHeaders := r.Header.Values("Authorization")
+	if len(authHeaders) == 0 {
 		return ExtractedToken{}, nil // No error, just no JWT.
 	}
 
+	if len(authHeaders) > 1 {
+		return ExtractedToken{}, errors.New("multiple Authorization headers are not allowed")
+	}
+
+	authHeader := authHeaders[0]
 	authHeaderParts := strings.Fields(authHeader)
 	if len(authHeaderParts) != 2 {
 		return ExtractedToken{}, errors.New("authorization header format must be Bearer {token} or DPoP {token}")

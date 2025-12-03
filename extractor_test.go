@@ -160,6 +160,19 @@ func Test_ParameterTokenExtractor(t *testing.T) {
 		assert.EqualError(t, err, "parameter name cannot be empty")
 		assert.Empty(t, result.Token)
 	})
+
+	t.Run("returns empty token when parameter exists but value is empty", func(t *testing.T) {
+		testURL, err := url.Parse("http://localhost?token=")
+		require.NoError(t, err)
+
+		request := &http.Request{URL: testURL}
+		tokenExtractor := ParameterTokenExtractor("token")
+
+		result, err := tokenExtractor(request)
+		require.NoError(t, err)
+		assert.Empty(t, result.Token)
+		assert.Equal(t, AuthSchemeUnknown, result.Scheme)
+	})
 }
 
 func Test_CookieTokenExtractor(t *testing.T) {
@@ -356,6 +369,74 @@ func TestMultiTokenExtractor_EdgeCases(t *testing.T) {
 		assert.Equal(t, "found-token", result.Token)
 		assert.Equal(t, AuthSchemeBearer, result.Scheme)
 		assert.NoError(t, err)
+	})
+}
+
+// TestAuthHeaderTokenExtractor_MultipleHeaders tests the security feature for multiple Authorization headers
+func TestAuthHeaderTokenExtractor_MultipleHeaders(t *testing.T) {
+	t.Run("rejects multiple Authorization headers per RFC 9449 Section 7.2", func(t *testing.T) {
+		req := &http.Request{
+			Header: http.Header{
+				"Authorization": []string{
+					"Bearer token1",
+					"DPoP token2",
+				},
+			},
+		}
+
+		result, err := AuthHeaderTokenExtractor(req)
+
+		assert.Empty(t, result.Token)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "multiple Authorization headers are not allowed")
+	})
+
+	t.Run("rejects multiple Bearer Authorization headers", func(t *testing.T) {
+		req := &http.Request{
+			Header: http.Header{
+				"Authorization": []string{
+					"Bearer token1",
+					"Bearer token2",
+				},
+			},
+		}
+
+		result, err := AuthHeaderTokenExtractor(req)
+
+		assert.Empty(t, result.Token)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "multiple Authorization headers")
+	})
+
+	t.Run("rejects multiple DPoP Authorization headers", func(t *testing.T) {
+		req := &http.Request{
+			Header: http.Header{
+				"Authorization": []string{
+					"DPoP token1",
+					"DPoP token2",
+				},
+			},
+		}
+
+		result, err := AuthHeaderTokenExtractor(req)
+
+		assert.Empty(t, result.Token)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "multiple Authorization headers")
+	})
+
+	t.Run("accepts single Authorization header", func(t *testing.T) {
+		req := &http.Request{
+			Header: http.Header{
+				"Authorization": []string{"Bearer valid-token"},
+			},
+		}
+
+		result, err := AuthHeaderTokenExtractor(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, "valid-token", result.Token)
+		assert.Equal(t, AuthSchemeBearer, result.Scheme)
 	})
 }
 

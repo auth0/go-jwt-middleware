@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -23,6 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// computeATH computes the ATH (Access Token Hash) claim for DPoP proofs
+func computeATH(accessToken string) string {
+	hash := sha256.Sum256([]byte(accessToken))
+	return base64.RawURLEncoding.EncodeToString(hash[:])
+}
 
 func setupHandler() http.Handler {
 	keyFunc := func(ctx context.Context) (any, error) {
@@ -73,7 +80,7 @@ func TestDPoPRequired_ValidDPoPToken(t *testing.T) {
 	accessToken, err := createDPoPBoundToken(jkt, "user123", "dpop-required-user")
 	require.NoError(t, err)
 
-	dpopProof, err := createDPoPProof(key, "GET", server.URL+"/")
+	dpopProof, err := createDPoPProof(key, "GET", server.URL+"/", accessToken)
 	require.NoError(t, err)
 
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -217,7 +224,7 @@ func TestDPoPRequired_ExpiredDPoPProof(t *testing.T) {
 	require.NoError(t, err)
 
 	oldTime := time.Now().Add(-2 * time.Minute)
-	dpopProof, err := createDPoPProofWithTime(key, "GET", server.URL+"/", oldTime)
+	dpopProof, err := createDPoPProofWithTime(key, "GET", server.URL+"/", accessToken, oldTime)
 	require.NoError(t, err)
 
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -254,7 +261,7 @@ func TestDPoPRequired_SymmetricAlgorithmRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create DPoP proof with HS256 (symmetric - should be rejected per RFC 9449)
-	dpopProof, err := createDPoPProofWithOptions(symmetricKey, "GET", server.URL+"/", time.Now(), jwa.HS256())
+	dpopProof, err := createDPoPProofWithOptions(symmetricKey, "GET", server.URL+"/", accessToken, time.Now(), jwa.HS256())
 	require.NoError(t, err)
 
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -338,21 +345,27 @@ func createDPoPBoundToken(jkt []byte, sub, scope string) (string, error) {
 	return string(signed), nil
 }
 
-func createDPoPProof(key jwk.Key, httpMethod, httpURL string) (string, error) {
-	return createDPoPProofWithOptions(key, httpMethod, httpURL, time.Now(), jwa.ES256())
+func createDPoPProof(key jwk.Key, httpMethod, httpURL, accessToken string) (string, error) {
+	return createDPoPProofWithOptions(key, httpMethod, httpURL, accessToken, time.Now(), jwa.ES256())
 }
 
-func createDPoPProofWithTime(key jwk.Key, httpMethod, httpURL string, timestamp time.Time) (string, error) {
-	return createDPoPProofWithOptions(key, httpMethod, httpURL, timestamp, jwa.ES256())
+func createDPoPProofWithTime(key jwk.Key, httpMethod, httpURL, accessToken string, timestamp time.Time) (string, error) {
+	return createDPoPProofWithOptions(key, httpMethod, httpURL, accessToken, timestamp, jwa.ES256())
 }
 
 // createDPoPProofWithOptions creates a DPoP proof with configurable algorithm and timestamp
-func createDPoPProofWithOptions(key any, httpMethod, httpURL string, timestamp time.Time, alg jwa.SignatureAlgorithm) (string, error) {
+func createDPoPProofWithOptions(key any, httpMethod, httpURL, accessToken string, timestamp time.Time, alg jwa.SignatureAlgorithm) (string, error) {
 	token := jwt.New()
 	token.Set(jwt.JwtIDKey, "test-jti-"+timestamp.Format("20060102150405"))
 	token.Set("htm", httpMethod)
 	token.Set("htu", httpURL)
 	token.Set(jwt.IssuedAtKey, timestamp)
+
+	// Compute and set ATH (Access Token Hash) - required per RFC 9449
+	if accessToken != "" {
+		ath := computeATH(accessToken)
+		token.Set("ath", ath)
+	}
 
 	headers := jws.NewHeaders()
 	headers.Set(jws.TypeKey, "dpop+jwt")

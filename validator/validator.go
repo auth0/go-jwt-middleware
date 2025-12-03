@@ -66,18 +66,18 @@ var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
 // DPoP proofs MUST use asymmetric (public key) cryptographic algorithms.
 // Symmetric algorithms (HS*) are explicitly excluded because using shared secrets
 // would defeat the sender-constraining purpose of DPoP.
+// ES256K (secp256k1 curve) is excluded as it's not standardized for DPoP in RFC 9449.
 var allowedDPoPAlgorithms = map[SignatureAlgorithm]bool{
-	EdDSA:  true, // Edwards-curve Digital Signature Algorithm
-	RS256:  true, // RSASSA-PKCS1-v1_5 using SHA-256
-	RS384:  true, // RSASSA-PKCS1-v1_5 using SHA-384
-	RS512:  true, // RSASSA-PKCS1-v1_5 using SHA-512
-	ES256:  true, // ECDSA using P-256 and SHA-256
-	ES384:  true, // ECDSA using P-384 and SHA-384
-	ES512:  true, // ECDSA using P-521 and SHA-512
-	ES256K: true, // ECDSA using secp256k1 curve and SHA-256
-	PS256:  true, // RSASSA-PSS using SHA-256 and MGF1-SHA256
-	PS384:  true, // RSASSA-PSS using SHA-384 and MGF1-SHA384
-	PS512:  true, // RSASSA-PSS using SHA-512 and MGF1-SHA512
+	EdDSA: true, // Edwards-curve Digital Signature Algorithm
+	RS256: true, // RSASSA-PKCS1-v1_5 using SHA-256
+	RS384: true, // RSASSA-PKCS1-v1_5 using SHA-384
+	RS512: true, // RSASSA-PKCS1-v1_5 using SHA-512
+	ES256: true, // ECDSA using P-256 and SHA-256
+	ES384: true, // ECDSA using P-384 and SHA-384
+	ES512: true, // ECDSA using P-521 and SHA-512
+	PS256: true, // RSASSA-PSS using SHA-256 and MGF1-SHA256
+	PS384: true, // RSASSA-PSS using SHA-384 and MGF1-SHA384
+	PS512: true, // RSASSA-PSS using SHA-512 and MGF1-SHA512
 }
 
 // DPoPSupportedAlgorithms is a space-separated list of supported DPoP algorithms

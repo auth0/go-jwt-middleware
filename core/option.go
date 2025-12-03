@@ -156,13 +156,13 @@ func WithDPoPProofOffset(offset time.Duration) Option {
 // WithDPoPIATLeeway sets the clock skew allowance for future iat claims in DPoP proofs.
 // This allows DPoP proofs with iat timestamps slightly in the future due to clock drift.
 //
-// Default: 5 seconds
+// Default: 30 seconds
 //
-// Increase this if you expect more clock skew:
+// Adjust this if you have different clock skew requirements:
 //
 //	core, _ := core.New(
 //	    core.WithValidator(validator),
-//	    core.WithDPoPIATLeeway(30 * time.Second), // More lenient: 30s
+//	    core.WithDPoPIATLeeway(60 * time.Second), // More lenient: 60s
 //	)
 func WithDPoPIATLeeway(leeway time.Duration) Option {
 	return func(c *Core) error {
