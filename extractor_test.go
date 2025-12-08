@@ -38,7 +38,7 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 					"Authorization": []string{"i-am-a-token"},
 				},
 			},
-			wantError: "Authorization header format must be Bearer {token}",
+			wantError: "authorization header format must be Bearer {token}",
 		},
 		{
 			name: "bearer with uppercase",
@@ -74,7 +74,7 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 					"Authorization": []string{"Bearer token extra-part"},
 				},
 			},
-			wantError: "Authorization header format must be Bearer {token}",
+			wantError: "authorization header format must be Bearer {token}",
 		},
 	}
 

@@ -196,10 +196,10 @@ func Test_JWKSProvider(t *testing.T) {
 		customClient := &http.Client{Timeout: 10 * time.Second}
 
 		provider, err := NewCachingProvider(
-			WithIssuerURL(issuerURL),        // ProviderOption - works directly!
-			WithCacheTTL(30*time.Second),    // CachingProviderOption
-			WithCustomJWKSURI(jwksURL),      // ProviderOption - works directly!
-			WithCustomClient(customClient),  // ProviderOption - works directly!
+			WithIssuerURL(issuerURL),       // ProviderOption - works directly!
+			WithCacheTTL(30*time.Second),   // CachingProviderOption
+			WithCustomJWKSURI(jwksURL),     // ProviderOption - works directly!
+			WithCustomClient(customClient), // ProviderOption - works directly!
 		)
 
 		require.NoError(t, err)
@@ -253,7 +253,6 @@ func Test_JWKSProvider(t *testing.T) {
 		// CustomJWKSURI should be set, but Client should use default
 	})
 
-
 	t.Run("CachingProvider returns error for missing issuerURL", func(t *testing.T) {
 		_, err := NewCachingProvider(WithCacheTTL(5 * time.Minute))
 		require.Error(t, err)
@@ -283,10 +282,10 @@ func Test_JWKSProvider(t *testing.T) {
 		}
 
 		provider, err := NewCachingProvider(
-			WithIssuerURL(issuerURL),       // ProviderOption - works directly!
-			WithCacheTTL(5*time.Minute),    // CachingProviderOption
-			WithCustomJWKSURI(jwksURL),     // ProviderOption - works directly!
-			WithCache(mockCache),           // CachingProviderOption
+			WithIssuerURL(issuerURL),    // ProviderOption - works directly!
+			WithCacheTTL(5*time.Minute), // CachingProviderOption
+			WithCustomJWKSURI(jwksURL),  // ProviderOption - works directly!
+			WithCache(mockCache),        // CachingProviderOption
 		)
 
 		require.NoError(t, err)

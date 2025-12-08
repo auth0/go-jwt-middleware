@@ -19,7 +19,7 @@ type JWTMiddleware struct {
 	errorHandler        ErrorHandler
 	tokenExtractor      TokenExtractor
 	validateOnOptions   bool
-	exclusionUrlHandler ExclusionUrlHandler
+	exclusionURLHandler ExclusionURLHandler
 	logger              Logger
 
 	// Temporary fields used during construction
@@ -43,9 +43,9 @@ type Logger interface {
 // In the default implementation we can add safe defaults for those.
 type ValidateToken func(context.Context, string) (any, error)
 
-// ExclusionUrlHandler is a function that takes in a http.Request and returns
+// ExclusionURLHandler is a function that takes in a http.Request and returns
 // true if the request should be excluded from JWT validation.
-type ExclusionUrlHandler func(r *http.Request) bool
+type ExclusionURLHandler func(r *http.Request) bool
 
 // New constructs a new JWTMiddleware instance with the supplied options.
 // All parameters are passed via options (pure options pattern).
@@ -190,7 +190,7 @@ func HasClaims(ctx context.Context) bool {
 func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// If there's an exclusion handler and the URL matches, skip JWT validation
-		if m.exclusionUrlHandler != nil && m.exclusionUrlHandler(r) {
+		if m.exclusionURLHandler != nil && m.exclusionURLHandler(r) {
 			if m.logger != nil {
 				m.logger.Debug("skipping JWT validation for excluded URL",
 					"method", r.Method,

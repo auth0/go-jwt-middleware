@@ -113,7 +113,7 @@ func WithExclusionUrls(exclusions []string) Option {
 		if len(exclusions) == 0 {
 			return ErrExclusionUrlsEmpty
 		}
-		m.exclusionUrlHandler = func(r *http.Request) bool {
+		m.exclusionURLHandler = func(r *http.Request) bool {
 			requestFullURL := r.URL.String()
 			requestPath := r.URL.Path
 
@@ -136,7 +136,7 @@ func WithExclusionUrls(exclusions []string) Option {
 // Example:
 //
 //	middleware, err := jwtmiddleware.New(
-//	    jwtmiddleware.WithValidateToken(validator.ValidateToken),
+//	    jwtmiddleware.WithValidator(validator),
 //	    jwtmiddleware.WithLogger(slog.Default()),
 //	)
 func WithLogger(logger Logger) Option {

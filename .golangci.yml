@@ -1,0 +1,135 @@
+# golangci-lint configuration for go-jwt-middleware v3
+# golangci-lint v2.6.2
+# https://golangci-lint.run/usage/configuration/
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Enabled by default
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # Additional recommended linters
+    - revive
+    - misspell
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+
+    # Security
+    - gosec
+
+    # Error handling
+    - errorlint
+
+    # Performance
+    - prealloc
+
+    # Code quality
+    - gocritic
+    - gocyclo
+    - dupl
+
+  # Linter-specific settings
+  settings:
+    errcheck:
+      check-blank: false
+      check-type-assertions: false
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+
+    gocyclo:
+      min-complexity: 20
+
+    dupl:
+      threshold: 100
+
+    gocritic:
+      enabled-checks:
+        - appendAssign
+        - assignOp
+        - badCond
+        - boolExprSimplify
+        - builtinShadow
+        - dupArg
+        - dupBranchBody
+        - dupCase
+        - elseif
+        - emptyStringTest
+        - nilValReturn
+
+    revive:
+      confidence: 0.8
+
+    gosec:
+      severity: medium
+      confidence: medium
+      excludes:
+        - G104
+        - G307
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+  # Exclusions configuration
+  exclusions:
+    # Preset exclusion patterns
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+
+    # Exclude specific paths
+    paths:
+      - vendor
+      - examples
+      - ".*\\.pb\\.go$"
+      - ".*\\.gen\\.go$"
+
+    # Exclude specific rules for certain files
+    rules:
+      # Disable linters for test files
+      - path: '.*_test\.go'
+        linters:
+          - gocyclo
+          - dupl
+          - gosec
+          - gocritic
+          - revive
+          - errcheck
+
+      # Exclude specific staticcheck messages
+      - text: "SA9003:"
+        linters:
+          - staticcheck
+
+      # Exclude revive messages
+      - text: "don't use an underscore in package name"
+        linters:
+          - revive
+
+# Issues tuning
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
