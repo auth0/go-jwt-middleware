@@ -54,42 +54,71 @@ var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
 	PS512: true,
 }
 
-// New sets up a new Validator with the required keyFunc
-// and signatureAlgorithm as well as custom options.
-func New(
-	keyFunc func(context.Context) (interface{}, error),
-	signatureAlgorithm SignatureAlgorithm,
-	issuerURL string,
-	audience []string,
-	opts ...Option,
-) (*Validator, error) {
-	if keyFunc == nil {
-		return nil, errors.New("keyFunc is required but was nil")
-	}
-	if issuerURL == "" {
-		return nil, errors.New("issuer url is required but was empty")
-	}
-	if len(audience) == 0 {
-		return nil, errors.New("audience is required but was empty")
-	}
-	if _, ok := allowedSigningAlgorithms[signatureAlgorithm]; !ok {
-		return nil, errors.New("unsupported signature algorithm")
-	}
-
+// New creates a new Validator with the provided options.
+//
+// Required options:
+//   - WithKeyFunc: Function to provide verification key(s)
+//   - WithAlgorithm: Signature algorithm to validate
+//   - WithIssuer: Expected issuer claim (iss)
+//   - WithAudience or WithAudiences: Expected audience claim(s) (aud)
+//
+// Optional options:
+//   - WithCustomClaims: Custom claims validation
+//   - WithAllowedClockSkew: Clock skew tolerance for time-based claims
+//
+// Example:
+//
+//	validator, err := validator.New(
+//	    validator.WithKeyFunc(keyFunc),
+//	    validator.WithAlgorithm(validator.RS256),
+//	    validator.WithIssuer("https://issuer.example.com/"),
+//	    validator.WithAudience("my-api"),
+//	    validator.WithAllowedClockSkew(30*time.Second),
+//	)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+func New(opts ...Option) (*Validator, error) {
 	v := &Validator{
-		keyFunc:            keyFunc,
-		signatureAlgorithm: signatureAlgorithm,
-		expectedClaims: jwt.Expected{
-			Issuer:   issuerURL,
-			Audience: audience,
-		},
+		allowedClockSkew: 0, // Secure default: no clock skew
 	}
 
+	// Apply all options
 	for _, opt := range opts {
-		opt(v)
+		if err := opt(v); err != nil {
+			return nil, fmt.Errorf("invalid option: %w", err)
+		}
+	}
+
+	// Validate required configuration
+	if err := v.validate(); err != nil {
+		return nil, fmt.Errorf("invalid validator configuration: %w", err)
 	}
 
 	return v, nil
+}
+
+// validate ensures all required fields are set.
+func (v *Validator) validate() error {
+	var errs []error
+
+	if v.keyFunc == nil {
+		errs = append(errs, errors.New("keyFunc is required (use WithKeyFunc)"))
+	}
+	if v.signatureAlgorithm == "" {
+		errs = append(errs, errors.New("signature algorithm is required (use WithAlgorithm)"))
+	}
+	if v.expectedClaims.Issuer == "" {
+		errs = append(errs, errors.New("issuer is required (use WithIssuer)"))
+	}
+	if len(v.expectedClaims.Audience) == 0 {
+		errs = append(errs, errors.New("audience is required (use WithAudience or WithAudiences)"))
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 // ValidateToken validates the passed in JWT using the jose v2 package.

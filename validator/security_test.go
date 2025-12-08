@@ -82,12 +82,12 @@ func TestValidateTokenFormat(t *testing.T) {
 func TestValidateToken_CVE_2025_27144_Protection(t *testing.T) {
 	// This test ensures the CVE-2025-27144 mitigation is in place
 	v, err := New(
-		func(_ context.Context) (interface{}, error) {
+		WithKeyFunc(func(_ context.Context) (interface{}, error) {
 			return []byte("secret"), nil
-		},
-		HS256,
-		"https://issuer.example.com/",
-		[]string{"audience"},
+		}),
+		WithAlgorithm(HS256),
+		WithIssuer("https://issuer.example.com/"),
+		WithAudience("audience"),
 	)
 	if err != nil {
 		t.Fatalf("failed to create validator: %v", err)
