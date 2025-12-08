@@ -7,7 +7,7 @@ toolchain go1.24.9
 require (
 	github.com/google/go-cmp v0.7.0
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/sync v0.18.0
+	golang.org/x/sync v0.19.0
 	gopkg.in/go-jose/go-jose.v2 v2.6.3
 )
 
