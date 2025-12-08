@@ -25,7 +25,6 @@ var (
 	keyFunc = func(ctx context.Context) (interface{}, error) {
 		return signingKey, nil
 	}
-
 )
 
 // checkJWT is a gin.HandlerFunc middleware
@@ -51,10 +50,14 @@ func checkJWT() gin.HandlerFunc {
 		log.Printf("Encountered error while validating JWT: %v", err)
 	}
 
-	middleware := jwtmiddleware.New(
-		jwtValidator.ValidateToken,
+	// Set up the middleware using pure options pattern
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidator(jwtValidator),
 		jwtmiddleware.WithErrorHandler(errorHandler),
 	)
+	if err != nil {
+		log.Fatalf("failed to set up the middleware: %v", err)
+	}
 
 	return func(ctx *gin.Context) {
 		encounteredError := true

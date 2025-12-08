@@ -40,6 +40,42 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 			},
 			wantError: "Authorization header format must be Bearer {token}",
 		},
+		{
+			name: "bearer with uppercase",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"BEARER i-am-a-token"},
+				},
+			},
+			wantToken: "i-am-a-token",
+		},
+		{
+			name: "bearer with mixed case",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"BeArEr i-am-a-token"},
+				},
+			},
+			wantToken: "i-am-a-token",
+		},
+		{
+			name: "multiple spaces between bearer and token",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"Bearer    i-am-a-token"},
+				},
+			},
+			wantToken: "i-am-a-token",
+		},
+		{
+			name: "extra parts after token",
+			request: &http.Request{
+				Header: http.Header{
+					"Authorization": []string{"Bearer token extra-part"},
+				},
+			},
+			wantError: "Authorization header format must be Bearer {token}",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -60,19 +96,33 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 }
 
 func Test_ParameterTokenExtractor(t *testing.T) {
-	wantToken := "i am a token"
-	param := "i-am-param"
+	t.Run("extracts token from query parameter", func(t *testing.T) {
+		wantToken := "i am a token"
+		param := "i-am-param"
 
-	testURL, err := url.Parse(fmt.Sprintf("http://localhost?%s=%s", param, wantToken))
-	require.NoError(t, err)
+		testURL, err := url.Parse(fmt.Sprintf("http://localhost?%s=%s", param, wantToken))
+		require.NoError(t, err)
 
-	request := &http.Request{URL: testURL}
-	tokenExtractor := ParameterTokenExtractor(param)
+		request := &http.Request{URL: testURL}
+		tokenExtractor := ParameterTokenExtractor(param)
 
-	gotToken, err := tokenExtractor(request)
-	require.NoError(t, err)
+		gotToken, err := tokenExtractor(request)
+		require.NoError(t, err)
 
-	assert.Equal(t, wantToken, gotToken)
+		assert.Equal(t, wantToken, gotToken)
+	})
+
+	t.Run("returns error for empty parameter name", func(t *testing.T) {
+		testURL, err := url.Parse("http://localhost?token=abc")
+		require.NoError(t, err)
+
+		request := &http.Request{URL: testURL}
+		tokenExtractor := ParameterTokenExtractor("")
+
+		gotToken, err := tokenExtractor(request)
+		assert.EqualError(t, err, "parameter name cannot be empty")
+		assert.Empty(t, gotToken)
+	})
 }
 
 func Test_CookieTokenExtractor(t *testing.T) {
@@ -121,6 +171,15 @@ func Test_CookieTokenExtractor(t *testing.T) {
 			assert.Equal(t, testCase.wantToken, gotToken)
 		})
 	}
+
+	t.Run("returns error for empty cookie name", func(t *testing.T) {
+		request, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+		require.NoError(t, err)
+
+		gotToken, err := CookieTokenExtractor("")(request)
+		assert.EqualError(t, err, "cookie name cannot be empty")
+		assert.Empty(t, gotToken)
+	})
 }
 
 func Test_MultiTokenExtractor(t *testing.T) {

@@ -1,11 +1,12 @@
 package main
 
 import (
+	"log"
+	"net/http"
+
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v3"
 	"github.com/auth0/go-jwt-middleware/v3/validator"
 	"github.com/kataras/iris/v12"
-	"log"
-	"net/http"
 )
 
 // Try it out with:
@@ -39,12 +40,17 @@ import (
 //	  "shouldReject": true
 //	}
 
-func main() {
+func setupApp() *iris.Application {
 	app := iris.New()
 
-	app.Get("/", checkJWT(), func(ctx iris.Context) {
-		claims, ok := ctx.Request().Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-		if !ok {
+	app.Get("/api/public", func(ctx iris.Context) {
+		ctx.JSON(map[string]string{"message": "Hello from a public endpoint!"})
+	})
+
+	app.Get("/api/private", checkJWT(), func(ctx iris.Context) {
+		// Modern type-safe claims retrieval using generics
+		claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](ctx.Request().Context())
+		if err != nil {
 			ctx.StopWithJSON(
 				http.StatusInternalServerError,
 				map[string]string{"message": "Failed to get validated JWT claims."},
@@ -71,6 +77,12 @@ func main() {
 
 		ctx.JSON(claims)
 	})
+
+	return app
+}
+
+func main() {
+	app := setupApp()
 
 	log.Print("Server listening on http://localhost:3000")
 	if err := app.Listen(":3000"); err != nil {

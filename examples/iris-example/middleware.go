@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/kataras/iris/v12"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/kataras/iris/v12"
 
 	jwtmiddleware "github.com/auth0/go-jwt-middleware/v3"
 	"github.com/auth0/go-jwt-middleware/v3/validator"
@@ -50,10 +51,14 @@ func checkJWT() iris.Handler {
 		log.Printf("Encountered error while validating JWT: %v", err)
 	}
 
-	middleware := jwtmiddleware.New(
-		jwtValidator.ValidateToken,
+	// Set up the middleware using pure options pattern
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidator(jwtValidator),
 		jwtmiddleware.WithErrorHandler(errorHandler),
 	)
+	if err != nil {
+		log.Fatalf("failed to set up the middleware: %v", err)
+	}
 
 	return func(ctx iris.Context) {
 		encounteredError := true
