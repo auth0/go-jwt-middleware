@@ -2,35 +2,42 @@ package validator
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	"gopkg.in/go-jose/go-jose.v2/jwt"
+	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 )
 
 // Signature algorithms
 const (
-	EdDSA = SignatureAlgorithm("EdDSA")
-	HS256 = SignatureAlgorithm("HS256") // HMAC using SHA-256
-	HS384 = SignatureAlgorithm("HS384") // HMAC using SHA-384
-	HS512 = SignatureAlgorithm("HS512") // HMAC using SHA-512
-	RS256 = SignatureAlgorithm("RS256") // RSASSA-PKCS-v1.5 using SHA-256
-	RS384 = SignatureAlgorithm("RS384") // RSASSA-PKCS-v1.5 using SHA-384
-	RS512 = SignatureAlgorithm("RS512") // RSASSA-PKCS-v1.5 using SHA-512
-	ES256 = SignatureAlgorithm("ES256") // ECDSA using P-256 and SHA-256
-	ES384 = SignatureAlgorithm("ES384") // ECDSA using P-384 and SHA-384
-	ES512 = SignatureAlgorithm("ES512") // ECDSA using P-521 and SHA-512
-	PS256 = SignatureAlgorithm("PS256") // RSASSA-PSS using SHA256 and MGF1-SHA256
-	PS384 = SignatureAlgorithm("PS384") // RSASSA-PSS using SHA384 and MGF1-SHA384
-	PS512 = SignatureAlgorithm("PS512") // RSASSA-PSS using SHA512 and MGF1-SHA512
+	EdDSA   = SignatureAlgorithm("EdDSA")
+	HS256   = SignatureAlgorithm("HS256")   // HMAC using SHA-256
+	HS384   = SignatureAlgorithm("HS384")   // HMAC using SHA-384
+	HS512   = SignatureAlgorithm("HS512")   // HMAC using SHA-512
+	RS256   = SignatureAlgorithm("RS256")   // RSASSA-PKCS-v1.5 using SHA-256
+	RS384   = SignatureAlgorithm("RS384")   // RSASSA-PKCS-v1.5 using SHA-384
+	RS512   = SignatureAlgorithm("RS512")   // RSASSA-PKCS-v1.5 using SHA-512
+	ES256   = SignatureAlgorithm("ES256")   // ECDSA using P-256 and SHA-256
+	ES384   = SignatureAlgorithm("ES384")   // ECDSA using P-384 and SHA-384
+	ES512   = SignatureAlgorithm("ES512")   // ECDSA using P-521 and SHA-512
+	ES256K  = SignatureAlgorithm("ES256K")  // ECDSA using secp256k1 curve and SHA-256
+	PS256   = SignatureAlgorithm("PS256")   // RSASSA-PSS using SHA256 and MGF1-SHA256
+	PS384   = SignatureAlgorithm("PS384")   // RSASSA-PSS using SHA384 and MGF1-SHA384
+	PS512   = SignatureAlgorithm("PS512")   // RSASSA-PSS using SHA512 and MGF1-SHA512
 )
 
-// Validator to use with the jose v2 package.
+// Validator validates JWTs using the jwx v3 library.
 type Validator struct {
 	keyFunc            func(context.Context) (interface{}, error) // Required.
 	signatureAlgorithm SignatureAlgorithm                         // Required.
-	expectedClaims     jwt.Expected                               // Internal.
+	expectedIssuers    []string                                   // Required.
+	expectedAudiences  []string                                   // Required.
 	customClaims       func() CustomClaims                        // Optional.
 	allowedClockSkew   time.Duration                              // Optional.
 }
@@ -39,19 +46,20 @@ type Validator struct {
 type SignatureAlgorithm string
 
 var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
-	EdDSA: true,
-	HS256: true,
-	HS384: true,
-	HS512: true,
-	RS256: true,
-	RS384: true,
-	RS512: true,
-	ES256: true,
-	ES384: true,
-	ES512: true,
-	PS256: true,
-	PS384: true,
-	PS512: true,
+	EdDSA:  true,
+	HS256:  true,
+	HS384:  true,
+	HS512:  true,
+	RS256:  true,
+	RS384:  true,
+	RS512:  true,
+	ES256:  true,
+	ES384:  true,
+	ES512:  true,
+	ES256K: true,
+	PS256:  true,
+	PS384:  true,
+	PS512:  true,
 }
 
 // New creates a new Validator with the provided options.
@@ -108,10 +116,10 @@ func (v *Validator) validate() error {
 	if v.signatureAlgorithm == "" {
 		errs = append(errs, errors.New("signature algorithm is required (use WithAlgorithm)"))
 	}
-	if v.expectedClaims.Issuer == "" {
-		errs = append(errs, errors.New("issuer is required (use WithIssuer)"))
+	if len(v.expectedIssuers) == 0 {
+		errs = append(errs, errors.New("issuer is required (use WithIssuer or WithIssuers)"))
 	}
-	if len(v.expectedClaims.Audience) == 0 {
+	if len(v.expectedAudiences) == 0 {
 		errs = append(errs, errors.New("audience is required (use WithAudience or WithAudiences)"))
 	}
 
@@ -121,128 +129,225 @@ func (v *Validator) validate() error {
 	return nil
 }
 
-// ValidateToken validates the passed in JWT using the jose v2 package.
+// ValidateToken validates the passed in JWT.
+// This method is optimized for performance and abstracts the underlying JWT library.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
 	// CVE-2025-27144 mitigation: Validate token format before parsing
 	// to prevent memory exhaustion from malicious tokens with excessive dots.
-	// This is a defense-in-depth measure for v2.x.
 	if err := validateTokenFormat(tokenString); err != nil {
 		return nil, fmt.Errorf("invalid token format: %w", err)
 	}
 
-	token, err := jwt.ParseSigned(tokenString)
+	// Get the verification key
+	key, err := v.keyFunc(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse the token: %w", err)
+		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
 	}
 
-	if err = validateSigningMethod(string(v.signatureAlgorithm), token.Headers[0].Algorithm); err != nil {
-		return nil, fmt.Errorf("signing method is invalid: %w", err)
-	}
-
-	registeredClaims, customClaims, err := v.deserializeClaims(ctx, token)
+	// Parse and validate token using underlying library
+	token, err := v.parseToken(ctx, tokenString, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize token claims: %w", err)
+		return nil, err
 	}
 
-	if err = validateClaimsWithLeeway(registeredClaims, v.expectedClaims, v.allowedClockSkew); err != nil {
-		return nil, fmt.Errorf("expected claims not validated: %w", err)
-	}
-
-	if customClaims != nil {
-		if err = customClaims.Validate(ctx); err != nil {
-			return nil, fmt.Errorf("custom claims not validated: %w", err)
-		}
-	}
-
-	validatedClaims := &ValidatedClaims{
-		RegisteredClaims: RegisteredClaims{
-			Issuer:    registeredClaims.Issuer,
-			Subject:   registeredClaims.Subject,
-			Audience:  registeredClaims.Audience,
-			ID:        registeredClaims.ID,
-			Expiry:    numericDateToUnixTime(registeredClaims.Expiry),
-			NotBefore: numericDateToUnixTime(registeredClaims.NotBefore),
-			IssuedAt:  numericDateToUnixTime(registeredClaims.IssuedAt),
-		},
-		CustomClaims: customClaims,
+	// Extract and validate claims (optimized: single pass through token)
+	validatedClaims, err := v.extractAndValidateClaims(ctx, token, tokenString)
+	if err != nil {
+		return nil, err
 	}
 
 	return validatedClaims, nil
 }
 
-func validateClaimsWithLeeway(actualClaims jwt.Claims, expected jwt.Expected, leeway time.Duration) error {
-	expectedClaims := expected
-	expectedClaims.Time = time.Now()
-
-	if actualClaims.Issuer != expectedClaims.Issuer {
-		return jwt.ErrInvalidIssuer
+// parseToken parses and performs basic validation on the token.
+// Abstraction point: This method wraps the underlying JWT library's parsing.
+func (v *Validator) parseToken(ctx context.Context, tokenString string, key interface{}) (jwt.Token, error) {
+	// Convert string algorithm to jwa.SignatureAlgorithm
+	jwxAlg, err := stringToJWXAlgorithm(string(v.signatureAlgorithm))
+	if err != nil {
+		return nil, fmt.Errorf("unsupported algorithm: %w", err)
 	}
 
-	foundAudience := false
-	for _, value := range expectedClaims.Audience {
-		if actualClaims.Audience.Contains(value) {
-			foundAudience = true
-			break
-		}
-	}
-	if !foundAudience {
-		return jwt.ErrInvalidAudience
+	// Build parse options
+	// Note: We'll validate issuer and audience manually to support multiple values
+	parseOpts := []jwt.ParseOption{
+		jwt.WithAcceptableSkew(v.allowedClockSkew),
+		jwt.WithValidate(true),
 	}
 
-	if actualClaims.NotBefore != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.NotBefore.Time()) {
-		return jwt.ErrNotValidYet
+	// Handle both single keys and JWK sets
+	// When using JWKS providers, key will be jwk.Set - use WithKeySet to automatically
+	// select the correct key based on the token's kid header.
+	// For single keys (byte slices, etc.), use WithKey.
+	switch k := key.(type) {
+	case jwk.Set:
+		parseOpts = append(parseOpts, jwt.WithKeySet(k))
+	default:
+		parseOpts = append(parseOpts, jwt.WithKey(jwxAlg, key))
 	}
 
-	if actualClaims.Expiry != nil && expectedClaims.Time.Add(-leeway).After(actualClaims.Expiry.Time()) {
-		return jwt.ErrExpired
+	// Parse and validate the token (without issuer/audience validation)
+	token, err := jwt.ParseString(tokenString, parseOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse and validate token: %w", err)
 	}
 
-	if actualClaims.IssuedAt != nil && expectedClaims.Time.Add(leeway).Before(actualClaims.IssuedAt.Time()) {
-		return jwt.ErrIssuedInTheFuture
-	}
-
-	return nil
+	return token, nil
 }
 
-func validateSigningMethod(validAlg, tokenAlg string) error {
-	if validAlg != tokenAlg {
-		return fmt.Errorf("expected %q signing algorithm but token specified %q", validAlg, tokenAlg)
+// extractAndValidateClaims extracts claims from the token and validates them.
+// Optimized to minimize method calls and allocations.
+func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Token, tokenString string) (*ValidatedClaims, error) {
+	// Extract registered claims in a single pass
+	issuer, _ := token.Issuer()
+	subject, _ := token.Subject()
+	audience, _ := token.Audience()
+	jwtID, _ := token.JwtID()
+	expiration, _ := token.Expiration()
+	notBefore, _ := token.NotBefore()
+	issuedAt, _ := token.IssuedAt()
+
+	// Validate issuer and audience
+	if err := v.validateIssuer(issuer); err != nil {
+		return nil, fmt.Errorf("issuer validation failed: %w", err)
 	}
-	return nil
+
+	if err := v.validateAudience(audience); err != nil {
+		return nil, fmt.Errorf("audience validation failed: %w", err)
+	}
+
+	registeredClaims := RegisteredClaims{
+		Issuer:    issuer,
+		Subject:   subject,
+		Audience:  audience,
+		ID:        jwtID,
+		Expiry:    timeToUnix(expiration),
+		NotBefore: timeToUnix(notBefore),
+		IssuedAt:  timeToUnix(issuedAt),
+	}
+
+	// Handle custom claims if configured
+	var customClaims CustomClaims
+	if v.customClaimsExist() {
+		var err error
+		customClaims, err = v.extractCustomClaims(ctx, tokenString)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &ValidatedClaims{
+		RegisteredClaims: registeredClaims,
+		CustomClaims:     customClaims,
+	}, nil
+}
+
+// extractCustomClaims extracts and validates custom claims from the token string.
+// SDK-agnostic approach: Manually decodes JWT payload for maximum portability and performance.
+// This allows swapping the underlying JWT library without changing this logic.
+func (v *Validator) extractCustomClaims(ctx context.Context, tokenString string) (CustomClaims, error) {
+	customClaims := v.customClaims()
+
+	// JWT format: header.payload.signature
+	// Extract and decode the payload (second part) directly
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
+	}
+
+	// Decode the payload using base64url encoding (JWT standard)
+	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode JWT payload: %w", err)
+	}
+
+	// Unmarshal JSON payload into custom claims struct
+	if err := json.Unmarshal(payloadJSON, customClaims); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal custom claims: %w", err)
+	}
+
+	// Validate the custom claims
+	if err := customClaims.Validate(ctx); err != nil {
+		return nil, fmt.Errorf("custom claims not validated: %w", err)
+	}
+
+	return customClaims, nil
 }
 
 func (v *Validator) customClaimsExist() bool {
 	return v.customClaims != nil && v.customClaims() != nil
 }
 
-func (v *Validator) deserializeClaims(ctx context.Context, token *jwt.JSONWebToken) (jwt.Claims, CustomClaims, error) {
-	key, err := v.keyFunc(ctx)
-	if err != nil {
-		return jwt.Claims{}, nil, fmt.Errorf("error getting the keys from the key func: %w", err)
+// validateIssuer checks if the token issuer matches one of the expected issuers.
+func (v *Validator) validateIssuer(issuer string) error {
+	for _, expectedIssuer := range v.expectedIssuers {
+		if issuer == expectedIssuer {
+			return nil
+		}
 	}
-
-	claims := []interface{}{&jwt.Claims{}}
-	if v.customClaimsExist() {
-		claims = append(claims, v.customClaims())
-	}
-
-	if err = token.Claims(key, claims...); err != nil {
-		return jwt.Claims{}, nil, fmt.Errorf("could not get token claims: %w", err)
-	}
-
-	registeredClaims := *claims[0].(*jwt.Claims)
-
-	var customClaims CustomClaims
-	if len(claims) > 1 {
-		customClaims = claims[1].(CustomClaims)
-	}
-
-	return registeredClaims, customClaims, nil
+	return fmt.Errorf("token issuer %q does not match any expected issuer", issuer)
 }
 
-func numericDateToUnixTime(date *jwt.NumericDate) int64 {
-	if date != nil {
-		return date.Time().Unix()
+// validateAudience checks if the token audiences contain at least one expected audience.
+func (v *Validator) validateAudience(tokenAudiences []string) error {
+	// Token must have at least one audience
+	if len(tokenAudiences) == 0 {
+		return fmt.Errorf("token has no audience")
 	}
-	return 0
+
+	// Check if token contains at least one expected audience
+	for _, tokenAud := range tokenAudiences {
+		for _, expectedAud := range v.expectedAudiences {
+			if tokenAud == expectedAud {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("token audience %v does not match any expected audience %v", tokenAudiences, v.expectedAudiences)
+}
+
+// stringToJWXAlgorithm converts our string algorithm to jwx's jwa.SignatureAlgorithm.
+func stringToJWXAlgorithm(alg string) (jwa.SignatureAlgorithm, error) {
+	switch SignatureAlgorithm(alg) {
+	case HS256:
+		return jwa.HS256(), nil
+	case HS384:
+		return jwa.HS384(), nil
+	case HS512:
+		return jwa.HS512(), nil
+	case RS256:
+		return jwa.RS256(), nil
+	case RS384:
+		return jwa.RS384(), nil
+	case RS512:
+		return jwa.RS512(), nil
+	case ES256:
+		return jwa.ES256(), nil
+	case ES384:
+		return jwa.ES384(), nil
+	case ES512:
+		return jwa.ES512(), nil
+	case ES256K:
+		return jwa.ES256K(), nil
+	case PS256:
+		return jwa.PS256(), nil
+	case PS384:
+		return jwa.PS384(), nil
+	case PS512:
+		return jwa.PS512(), nil
+	case EdDSA:
+		return jwa.EdDSA(), nil
+	default:
+		var zero jwa.SignatureAlgorithm
+		return zero, fmt.Errorf("unsupported algorithm: %s", alg)
+	}
+}
+
+// timeToUnix converts a time.Time to Unix timestamp, returning 0 for zero time.
+func timeToUnix(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
 }
