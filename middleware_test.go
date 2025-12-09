@@ -86,7 +86,8 @@ func Test_CheckJWT(t *testing.T) {
 			token:          "",
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusUnauthorized,
-			wantBody:       `{"error":"invalid_token","error_description":"JWT is missing"}`,
+			// Per RFC 6750 Section 3.1, no error_description when auth is missing
+			wantBody:       `{"error":"invalid_token"}`,
 		},
 		{
 			name:           "it fails to validate an invalid token",
@@ -140,7 +141,8 @@ func Test_CheckJWT(t *testing.T) {
 			},
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusUnauthorized,
-			wantBody:       `{"error":"invalid_token","error_description":"JWT is missing"}`,
+			// Per RFC 6750 Section 3.1, no error_description when auth is missing
+			wantBody:       `{"error":"invalid_token"}`,
 		},
 		{
 			name: "JWT not required for /public",
@@ -184,7 +186,8 @@ func Test_CheckJWT(t *testing.T) {
 			path:           "/secure",
 			token:          "",
 			wantStatusCode: http.StatusUnauthorized,
-			wantBody:       `{"error":"invalid_token","error_description":"JWT is missing"}`,
+			// Per RFC 6750 Section 3.1, no error_description when auth is missing
+			wantBody:       `{"error":"invalid_token"}`,
 		},
 	}
 

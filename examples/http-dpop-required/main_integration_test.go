@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +143,19 @@ func TestDPoPRequired_MissingToken(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// Per RFC 6750 Section 3.1 + RFC 9449: When token is missing in DPoP Required mode,
+	// should return ONLY DPoP challenge (no error codes, no Bearer challenge)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	assert.Len(t, wwwAuthHeaders, 1, "DPoP Required mode should only return one WWW-Authenticate header")
+
+	wwwAuth := wwwAuthHeaders[0]
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "algs=")
+	// Must NOT contain Bearer
+	assert.NotContains(t, wwwAuth, "Bearer", "DPoP Required mode should not include Bearer challenge")
+	// Per RFC 6750 Section 3.1, no error codes when auth is missing
+	assert.NotContains(t, wwwAuth, "error=", "No error codes when auth is missing")
 }
 
 func TestDPoPRequired_DPoPTokenWithoutProof(t *testing.T) {
@@ -302,8 +316,13 @@ func TestDPoPRequired_WWWAuthenticateWithAlgs(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	// Per RFC 9449, when DPoP is required, response should use DPoP scheme with algs
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
+	// And should NOT include Bearer challenge (DPoP Required mode = DPoP only)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1, "DPoP Required mode should return exactly one WWW-Authenticate header (DPoP only, no Bearer)")
+
+	wwwAuth := wwwAuthHeaders[0]
+	// Must start with "DPoP " to be a DPoP challenge (not Bearer)
+	assert.True(t, strings.HasPrefix(wwwAuth, "DPoP "), "WWW-Authenticate header must start with 'DPoP ' in DPoP Required mode")
 	assert.Contains(t, wwwAuth, "algs=")
 	// Should list supported asymmetric algorithms
 	assert.Contains(t, wwwAuth, "ES256")

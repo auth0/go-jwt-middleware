@@ -80,14 +80,12 @@ func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 // In DPoP allowed mode, returns both Bearer and DPoP challenges per RFC 9449 Section 6.1.
 func mapErrorToResponse(err error, authScheme AuthScheme, dpopMode core.DPoPMode) (statusCode int, resp ErrorResponse, wwwAuthHeaders []string) {
 	// Check for JWT missing error
+	// Per RFC 6750 Section 3.1, if the request lacks authentication information,
+	// the server SHOULD NOT include error codes in the WWW-Authenticate header.
 	if errors.Is(err, ErrJWTMissing) {
-		headers := buildWWWAuthenticateHeaders(
-			"invalid_token", "JWT is missing",
-			authScheme, dpopMode, true, // ambiguous case - error in both
-		)
+		headers := buildBareWWWAuthenticateHeaders(dpopMode)
 		return http.StatusUnauthorized, ErrorResponse{
-			Error:            "invalid_token",
-			ErrorDescription: "JWT is missing",
+			Error: "invalid_token",
 		}, headers
 	}
 
@@ -347,6 +345,35 @@ func buildDPoPWWWAuthenticateHeaders(errorCode, errorDesc string, dpopMode core.
 		// Fallback
 		return []string{
 			fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc),
+		}
+	}
+}
+
+// buildBareWWWAuthenticateHeaders builds bare WWW-Authenticate headers without error codes.
+// Per RFC 6750 Section 3.1, when a request lacks authentication information, the server
+// SHOULD NOT include error codes or error descriptions in the WWW-Authenticate header.
+func buildBareWWWAuthenticateHeaders(dpopMode core.DPoPMode) []string {
+	switch dpopMode {
+	case core.DPoPRequired:
+		// Only DPoP challenge in required mode
+		return []string{
+			fmt.Sprintf(`DPoP algs="%s"`, validator.DPoPSupportedAlgorithms),
+		}
+	case core.DPoPDisabled:
+		// Only Bearer challenge in disabled mode
+		return []string{
+			`Bearer`,
+		}
+	case core.DPoPAllowed:
+		// Both challenges in allowed mode
+		return []string{
+			`Bearer`,
+			fmt.Sprintf(`DPoP algs="%s"`, validator.DPoPSupportedAlgorithms),
+		}
+	default:
+		// Fallback to Bearer
+		return []string{
+			`Bearer`,
 		}
 	}
 }

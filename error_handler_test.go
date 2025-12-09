@@ -24,12 +24,13 @@ func TestDefaultErrorHandler(t *testing.T) {
 		wantWWWAuthenticate  string
 	}{
 		{
-			name:                 "ErrJWTMissing",
-			err:                  ErrJWTMissing,
-			wantStatus:           http.StatusUnauthorized,
-			wantError:            "invalid_token",
-			wantErrorDescription: "JWT is missing",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="JWT is missing"`,
+			name:       "ErrJWTMissing",
+			err:        ErrJWTMissing,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
+			wantErrorDescription: "",
+			wantWWWAuthenticate:  `Bearer`,
 		},
 		{
 			name:                 "ErrJWTInvalid",
@@ -189,6 +190,16 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 		wantErrorCode        string
 		wantWWWAuthenticate  string
 	}{
+		{
+			name:       "Missing token - DPoP Required mode only",
+			err:        ErrJWTMissing,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
+			// In DPoP Required mode, only DPoP challenge should be returned
+			wantErrorDescription: "",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+		},
 		{
 			name:                 "DPoP proof missing",
 			err:                  core.NewValidationError(core.ErrorCodeDPoPProofMissing, "DPoP proof is required", core.ErrInvalidDPoPProof),
@@ -362,15 +373,16 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			wantDPoPChallenge:   true,
 		},
 		{
-			name:                   "Missing token - both challenges",
-			err:                    ErrJWTMissing,
-			authScheme:             AuthSchemeUnknown,
-			wantStatus:             http.StatusUnauthorized,
-			wantError:              "invalid_token",
-			wantErrorDescription:   "JWT is missing",
+			name:       "Missing token - both challenges",
+			err:        ErrJWTMissing,
+			authScheme: AuthSchemeUnknown,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
+			wantErrorDescription: "",
 			wantWWWAuthenticateAll: []string{
-				`Bearer error="invalid_token", error_description="JWT is missing"`,
-				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="JWT is missing"`,
+				`Bearer`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
 			},
 			wantBearerChallenge: true,
 			wantDPoPChallenge:   true,
