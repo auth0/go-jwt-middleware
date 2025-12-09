@@ -266,6 +266,11 @@ func TestGetLeftmost(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+
+	// Note: The `if len(parts) == 0` check in getLeftmost is defensive code
+	// that cannot be reached in practice, since strings.Split() always returns
+	// at least one element (even for empty strings). This is kept for defensive
+	// programming and clear intent.
 }
 
 func TestParseForwardedHeader(t *testing.T) {
@@ -326,6 +331,11 @@ func TestParseForwardedHeader(t *testing.T) {
 			assert.Equal(t, tt.expectedHost, host)
 		})
 	}
+
+	// Note: The `if len(entries) == 0` check in parseForwardedHeader is defensive code
+	// that cannot be reached in practice, since strings.Split() always returns
+	// at least one element (even for empty strings). This is kept for defensive
+	// programming and clear intent.
 }
 
 func TestTrustedProxyConfigHasAnyTrustedHeaders(t *testing.T) {
@@ -366,6 +376,104 @@ func TestTrustedProxyConfigHasAnyTrustedHeaders(t *testing.T) {
 		}
 		assert.True(t, config.hasAnyTrustedHeaders())
 	})
+}
+
+func TestNormalizePort(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		scheme   string
+		expected string
+	}{
+		// Standard cases (already covered)
+		{
+			name:     "HTTP with default port 80",
+			host:     "example.com:80",
+			scheme:   "http",
+			expected: "example.com",
+		},
+		{
+			name:     "HTTPS with default port 443",
+			host:     "example.com:443",
+			scheme:   "https",
+			expected: "example.com",
+		},
+		{
+			name:     "HTTP with non-default port",
+			host:     "example.com:8080",
+			scheme:   "http",
+			expected: "example.com:8080",
+		},
+		{
+			name:     "HTTPS with non-default port",
+			host:     "example.com:8443",
+			scheme:   "https",
+			expected: "example.com:8443",
+		},
+		{
+			name:     "no port specified",
+			host:     "example.com",
+			scheme:   "https",
+			expected: "example.com",
+		},
+		// IPv6 cases (needed for better coverage)
+		{
+			name:     "IPv6 with default HTTP port",
+			host:     "[::1]:80",
+			scheme:   "http",
+			expected: "[::1]",
+		},
+		{
+			name:     "IPv6 with default HTTPS port",
+			host:     "[::1]:443",
+			scheme:   "https",
+			expected: "[::1]",
+		},
+		{
+			name:     "IPv6 with non-default port",
+			host:     "[::1]:8080",
+			scheme:   "http",
+			expected: "[::1]:8080",
+		},
+		{
+			name:     "IPv6 without port",
+			host:     "[::1]",
+			scheme:   "https",
+			expected: "[::1]",
+		},
+		{
+			name:     "IPv6 full address with default port",
+			host:     "[2001:db8::1]:443",
+			scheme:   "https",
+			expected: "[2001:db8::1]",
+		},
+		{
+			name:     "IPv6 full address with custom port",
+			host:     "[2001:db8::1]:8443",
+			scheme:   "https",
+			expected: "[2001:db8::1]:8443",
+		},
+		// Edge cases for defensive code paths
+		{
+			name:     "IPv6 malformed - no closing bracket",
+			host:     "[::1:8080",
+			scheme:   "http",
+			expected: "[::1:8080", // Returns as-is since malformed
+		},
+		{
+			name:     "IPv6 with colon before bracket",
+			host:     "[::1]",
+			scheme:   "http",
+			expected: "[::1]", // No port, returns as-is
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizePort(tt.host, tt.scheme)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 func TestProxyConfigurationOptions(t *testing.T) {

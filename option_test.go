@@ -744,6 +744,16 @@ func Test_validatorAdapter(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, result)
 	})
+
+	t.Run("ValidateDPoPProof delegates to validator", func(t *testing.T) {
+		// This tests the ValidateDPoPProof method in option.go:26
+		// Even though we don't have a real DPoP proof, we're testing that the method exists and delegates
+		proofString := "eyJhbGciOiJFUzI1NiIsInR5cCI6ImRwb3Arand0In0.invalid"
+		result, err := adapter.ValidateDPoPProof(context.Background(), proofString)
+		// We expect an error since the proof is invalid, but the important thing is the method was called
+		assert.Error(t, err)
+		assert.Nil(t, result)
+	})
 }
 
 func Test_invalidError(t *testing.T) {

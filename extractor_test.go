@@ -115,7 +115,6 @@ func Test_AuthHeaderTokenExtractor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -204,7 +203,6 @@ func Test_CookieTokenExtractor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -235,6 +233,11 @@ func Test_CookieTokenExtractor(t *testing.T) {
 		assert.EqualError(t, err, "cookie name cannot be empty")
 		assert.Empty(t, result.Token)
 	})
+
+	// Note: The error handling for non-ErrNoCookie errors in CookieTokenExtractor (extractor.go:97-102)
+	// is defensive code that cannot be reached in practice. The http.Request.Cookie() method
+	// only returns nil or http.ErrNoCookie according to its implementation. The defensive check
+	// is kept for API stability and clear intent in case the stdlib behavior changes in the future.
 }
 
 func Test_MultiTokenExtractor(t *testing.T) {
@@ -525,7 +528,6 @@ func TestAuthHeaderTokenExtractorWithScheme(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 

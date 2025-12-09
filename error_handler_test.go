@@ -577,6 +577,29 @@ func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="The access token is invalid"`,
 			},
 		},
+		{
+			name:       "DPoP scheme in allowed mode with token error - tests else branch on line 309",
+			err:        core.NewValidationError(core.ErrorCodeTokenExpired, "Token expired", nil),
+			dpopMode:   core.DPoPAllowed,
+			authScheme: AuthSchemeDPoP,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			wantWWWAuthenticate: []string{
+				`Bearer`, // No error in Bearer challenge (line 309 - else branch)
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="The access token expired"`,
+			},
+		},
+		{
+			name:       "Invalid DPoP mode value (defensive default case)",
+			err:        core.NewValidationError(core.ErrorCodeInvalidSignature, "Invalid signature", nil),
+			dpopMode:   core.DPoPMode(99), // Invalid mode to trigger default case
+			authScheme: AuthSchemeBearer,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			wantWWWAuthenticate: []string{
+				`Bearer error="invalid_token", error_description="The access token signature is invalid"`,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -606,6 +629,59 @@ func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
 			err := json.NewDecoder(w.Body).Decode(&resp)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantError, resp.Error)
+		})
+	}
+}
+
+func TestBuildWWWAuthenticateHeaders_DefaultCases(t *testing.T) {
+	// Tests defensive default cases in the build*WWWAuthenticateHeaders functions
+	tests := []struct {
+		name         string
+		buildFunc    string // which function to test
+		dpopMode     core.DPoPMode
+		wantContains []string
+	}{
+		{
+			name:      "buildBareWWWAuthenticateHeaders with invalid mode",
+			buildFunc: "bare",
+			dpopMode:  core.DPoPMode(99), // Invalid mode
+			wantContains: []string{
+				`Bearer`, // Default fallback
+			},
+		},
+		{
+			name:      "buildDPoPWWWAuthenticateHeaders with invalid mode",
+			buildFunc: "dpop",
+			dpopMode:  core.DPoPMode(99), // Invalid mode
+			wantContains: []string{
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var headers []string
+
+			switch tt.buildFunc {
+			case "bare":
+				headers = buildBareWWWAuthenticateHeaders(tt.dpopMode)
+			case "dpop":
+				headers = buildDPoPWWWAuthenticateHeaders("invalid_dpop_proof", "test error", tt.dpopMode)
+			}
+
+			// Check that we got headers and they contain expected strings
+			assert.NotEmpty(t, headers, "Should have at least one header")
+			for _, expected := range tt.wantContains {
+				found := false
+				for _, header := range headers {
+					if len(header) >= len(expected) && header[:len(expected)] == expected {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected to find %q in headers %v", expected, headers)
+			}
 		})
 	}
 }
