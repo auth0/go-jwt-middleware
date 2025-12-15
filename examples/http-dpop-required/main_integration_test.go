@@ -328,6 +328,257 @@ func TestDPoPRequired_WWWAuthenticateWithAlgs(t *testing.T) {
 	assert.Contains(t, wwwAuth, "ES256")
 }
 
+// =============================================================================
+// Additional RFC 9449 Compliance Tests - REQUIRED Mode
+// =============================================================================
+
+// Bearer scheme with DPoP token and proof (rejected) → 400
+func TestDPoPRequired_BearerScheme_DPoPToken_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "read")
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL, dpopToken)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+dpopToken) // Bearer scheme rejected in REQUIRED mode
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_request")
+
+	// Verify only required headers
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"))
+}
+
+// Empty Bearer with proof (rejected) → 400
+func TestDPoPRequired_EmptyBearer_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL, "")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer ") // Empty
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Bearer invalid token (rejected) → 400
+func TestDPoPRequired_BearerInvalidToken(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer invalid.token.here")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Bearer invalid token with proof (rejected) → 400
+func TestDPoPRequired_BearerInvalidToken_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL, "invalid.token.here")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer invalid.token.here")
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Bearer DPoP token (rejected) → 400
+func TestDPoPRequired_BearerDPoPToken(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "read")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+dpopToken) // Bearer rejected
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// DPoP Bearer token (no cnf) with proof → 401
+func TestDPoPRequired_DPoPScheme_BearerToken_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	bearerToken := createBearerToken("user123", "read")
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL, bearerToken)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+bearerToken) // Token missing cnf
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_token")
+}
+
+// Random scheme (rejected) → 400
+func TestDPoPRequired_RandomScheme(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "read")
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL, dpopToken)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "RandomScheme "+dpopToken)
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Missing Authorization header → 400
+func TestDPoPRequired_MissingAuthorization(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL, "")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("DPoP", dpopProof) // Only DPoP, no Authorization
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "DPoP")
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
 // Helper functions
 func createBearerToken(sub, scope string) string {
 	token := jwt.New()

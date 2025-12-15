@@ -622,13 +622,14 @@ func TestHTTPDPoPExample_RFC9449_Section7_2_BearerWithDPoPProof_DPoPBoundToken(t
 	defer resp.Body.Close()
 
 	// MUST be rejected per RFC 9449 Section 7.2
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	// Returns 401 because DPoP-bound token is invalid for Bearer scheme
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	var response map[string]any
 	body, _ := io.ReadAll(resp.Body)
 	json.Unmarshal(body, &response)
-	assert.Equal(t, "invalid_request", response["error"])
-	assert.Contains(t, response["error_description"], "Bearer scheme cannot be used when DPoP proof is present")
+	assert.Equal(t, "invalid_token", response["error"])
+	assert.Contains(t, response["error_description"], "DPoP-bound token requires the DPoP authentication scheme, not Bearer")
 }
 
 func TestHTTPDPoPExample_RFC9449_Section7_2_MultipleAuthorizationHeaders(t *testing.T) {
@@ -834,6 +835,327 @@ func TestHTTPDPoPExample_WWWAuthenticate_DPoPBindingMismatch(t *testing.T) {
 		authScheme = "Bearer"
 	}
 	assert.NotEmpty(t, authScheme, "WWW-Authenticate header should contain a scheme")
+}
+
+// =============================================================================
+// Additional RFC 9449 Compliance Tests - ALLOWED Mode
+// =============================================================================
+
+// Bearer scheme with DPoP-bound token and proof → 401 invalid_token
+func TestHTTPDPoPExample_BearerScheme_DPoPBoundToken_WithProof(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Generate DPoP key and create DPoP-bound token
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	// Create DPoP-bound token (has cnf claim)
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "Test User", "testuser")
+	require.NoError(t, err)
+
+	// Create valid DPoP proof
+	dpopProof, err := createDPoPProofWithAccessToken(key, "GET", server.URL, dpopToken)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+dpopToken) // Using Bearer scheme (wrong!)
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 401 - DPoP-bound token requires DPoP scheme
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// Verify WWW-Authenticate header exists and has realm
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_token")
+
+	// Verify only required headers are present
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"), "Should not echo Authorization header")
+	assert.Empty(t, resp.Header.Get("DPoP"), "Should not echo DPoP header")
+}
+
+// Empty Bearer token with proof → 400 invalid_request
+func TestHTTPDPoPExample_EmptyBearer_WithProof(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Generate DPoP key and proof
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProofWithAccessToken(key, "GET", server.URL, "")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer ") // Empty token
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 400 - Malformed request
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Bearer invalid token with proof → 401 invalid_token
+func TestHTTPDPoPExample_BearerInvalidToken_WithProof(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProofWithAccessToken(key, "GET", server.URL, "invalid.token.here")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer invalid.token.here")
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_token")
+}
+
+// Bearer DPoP token without proof → 401 invalid_token
+func TestHTTPDPoPExample_BearerDPoPToken_NoProof(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Generate DPoP key and create DPoP-bound token
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "Test User", "testuser")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+dpopToken) // No DPoP proof!
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 401 - DPoP-bound token is invalid for Bearer scheme
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_token")
+}
+
+// DPoP scheme with Bearer token and proof → 401 invalid_token
+func TestHTTPDPoPExample_DPoPScheme_BearerToken_WithProof(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Create regular Bearer token (no cnf claim)
+	bearerToken := createBearerToken("user123", "Test User", "testuser", 2053070400, 1737710400)
+
+	// Generate DPoP proof
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProofWithAccessToken(key, "GET", server.URL, bearerToken)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+bearerToken) // DPoP scheme with Bearer token
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 401 - Token missing cnf claim
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	// In ALLOWED mode, we get both Bearer and DPoP challenges
+	// The error should be in the response
+	assert.NotEmpty(t, wwwAuth, "WWW-Authenticate header should be present")
+
+	var errorResp map[string]any
+	body, _ := io.ReadAll(resp.Body)
+	json.Unmarshal(body, &errorResp)
+	assert.Equal(t, "invalid_token", errorResp["error"])
+}
+
+// DPoP invalid token with proof → 401 invalid_token
+func TestHTTPDPoPExample_DPoPInvalidToken_WithProof(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProofWithAccessToken(key, "GET", server.URL, "invalid.token.here")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP invalid.token.here")
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "invalid_token")
+}
+
+// Random scheme with DPoP token and proof → 400 invalid_request
+func TestHTTPDPoPExample_RandomScheme_WithToken(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "Test User", "testuser")
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProofWithAccessToken(key, "GET", server.URL, dpopToken)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "RandomScheme "+dpopToken)
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Missing Authorization with DPoP proof → 400 invalid_request
+func TestHTTPDPoPExample_MissingAuthorization_WithProof(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProofWithAccessToken(key, "GET", server.URL, "")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	// No Authorization header, only DPoP proof
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Unsupported scheme → 400 invalid_request
+func TestHTTPDPoPExample_UnsupportedScheme(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Digest username=test")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+}
+
+// Malformed DPoP scheme → 400 invalid_request
+func TestHTTPDPoPExample_MalformedDPoPScheme(t *testing.T) {
+	handler := setupHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP") // No token part
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
 }
 
 // =============================================================================

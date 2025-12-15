@@ -202,6 +202,225 @@ func TestDPoPDisabled_ExpiredBearerToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
+// =============================================================================
+// Additional RFC 9449 Compliance Tests - DISABLED Mode
+// =============================================================================
+
+// Empty Bearer with proof → 400 invalid_request
+func TestDPoPDisabled_EmptyBearer_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	// Generate DPoP proof
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer ") // Empty token
+	req.Header.Set("DPoP", dpopProof)           // Proof is ignored in DISABLED mode
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 400 - Malformed request (empty token)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+
+	// Verify only required headers
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"))
+	assert.Empty(t, resp.Header.Get("DPoP"))
+}
+
+// Bearer invalid token with proof → 401 invalid_token
+func TestDPoPDisabled_BearerInvalidToken_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	// Generate DPoP proof
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer invalid.token.here")
+	req.Header.Set("DPoP", dpopProof) // Proof is ignored in DISABLED mode
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 401 - Invalid token
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_token")
+
+	// Verify only required headers
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"))
+	assert.Empty(t, resp.Header.Get("DPoP"))
+}
+
+// DPoP invalid token with proof (rejected) → 400 invalid_request
+func TestDPoPDisabled_DPoPInvalidToken_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	// Generate DPoP proof
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP invalid.token.here")
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 400 - DPoP scheme rejected in DISABLED mode
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+
+	// Verify only required headers
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"))
+	assert.Empty(t, resp.Header.Get("DPoP"))
+}
+
+// DPoP token with invalid proof (rejected) → 400 invalid_request
+func TestDPoPDisabled_DPoPToken_InvalidProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	// Generate DPoP-bound token
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "read")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+dpopToken)
+	req.Header.Set("DPoP", "invalid.proof.here")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 400 - DPoP scheme rejected in DISABLED mode
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+
+	// Verify only required headers
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"))
+	assert.Empty(t, resp.Header.Get("DPoP"))
+}
+
+// Random scheme (rejected) → 400 invalid_request
+func TestDPoPDisabled_RandomScheme(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	validToken := createBearerToken("user123", "read")
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "RandomScheme "+validToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 400 - Unsupported scheme
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+
+	// Verify only required headers
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"))
+}
+
+// Missing Authorization with DPoP proof → 400 invalid_request
+func TestDPoPDisabled_MissingAuthorization_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	// Generate DPoP proof
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	// No Authorization header, only DPoP proof
+	req.Header.Set("DPoP", dpopProof) // Proof is ignored in DISABLED mode
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Should return 400 - DPoP proof requires Authorization header
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `Bearer realm="api"`)
+	assert.Contains(t, wwwAuth, "invalid_request")
+
+	// Verify only required headers
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.Empty(t, resp.Header.Get("Authorization"))
+	assert.Empty(t, resp.Header.Get("DPoP"))
+}
+
 // Helper functions
 func createBearerToken(sub, scope string) string {
 	token := jwt.New()

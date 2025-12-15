@@ -111,10 +111,10 @@ func TestCheckTokenWithDPoP_BearerTokenWithCnf_MissingProof(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
-	// Updated: Bearer scheme with DPoP-bound token (has cnf claim) requires DPoP proof
-	// When DPoP is enabled (default), DPoP-bound tokens require DPoP proof
-	assert.ErrorIs(t, err, ErrInvalidDPoPProof)
-	assert.Contains(t, err.Error(), "DPoP proof is required for DPoP-bound tokens")
+	// Updated: Bearer scheme with DPoP-bound token (has cnf claim) is invalid_token (401)
+	// CSV Row 18: DPoP-bound token used with Bearer scheme requires DPoP proof
+	assert.ErrorIs(t, err, ErrJWTInvalid)
+	assert.Contains(t, err.Error(), "DPoP-bound token used with Bearer scheme requires DPoP proof")
 }
 
 func TestCheckTokenWithDPoP_BearerToken_DPoPRequired(t *testing.T) {
@@ -826,8 +826,8 @@ func TestCheckTokenWithDPoP_WithLogger_MissingProof(t *testing.T) {
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
 	require.NotEmpty(t, logger.errorCalls)
-	// Token has cnf but no DPoP proof → missing proof error
-	assert.Equal(t, "Token has cnf claim but no DPoP proof provided", logger.errorCalls[0].msg)
+	// Token has cnf but no DPoP proof with Bearer scheme → invalid_token error (CSV Row 18)
+	assert.Equal(t, "DPoP-bound token used with Bearer scheme requires DPoP proof", logger.errorCalls[0].msg)
 }
 
 func TestCheckTokenWithDPoP_WithLogger_BearerNotAllowed(t *testing.T) {
@@ -854,7 +854,7 @@ func TestCheckTokenWithDPoP_WithLogger_BearerNotAllowed(t *testing.T) {
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
 	require.NotEmpty(t, logger.errorCalls)
-	assert.Equal(t, "Bearer token provided but DPoP is required", logger.errorCalls[0].msg)
+	assert.Equal(t, "Bearer authorization scheme used but DPoP is required", logger.errorCalls[0].msg)
 }
 
 func TestCheckTokenWithDPoP_WithLogger_DPoPDisabled(t *testing.T) {
@@ -1058,16 +1058,17 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 			"https://example.com",
 		)
 
-		// Token has cnf claim but no DPoP proof → DPoP proof required error
+		// Token has cnf claim but no DPoP proof with Bearer scheme → invalid_token (401)
+		// CSV Row 18: DPoP-bound token used with Bearer scheme requires DPoP proof
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrInvalidDPoPProof)
-		assert.Contains(t, err.Error(), "DPoP proof is required for DPoP-bound tokens")
+		assert.ErrorIs(t, err, ErrJWTInvalid)
+		assert.Contains(t, err.Error(), "DPoP-bound token used with Bearer scheme requires DPoP proof")
 		assert.Nil(t, claims)
 		assert.Nil(t, dpopCtx)
 
 		var validationErr *ValidationError
 		if errors.As(err, &validationErr) {
-			assert.Equal(t, ErrorCodeDPoPProofMissing, validationErr.Code)
+			assert.Equal(t, ErrorCodeInvalidToken, validationErr.Code)
 		}
 	})
 
@@ -1095,16 +1096,17 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 			"https://example.com",
 		)
 
-		// Token has cnf claim but no DPoP proof → DPoP proof required error
+		// Token has cnf claim but no DPoP proof with Bearer scheme → invalid_token (401)
+		// CSV Row 18: DPoP-bound token used with Bearer scheme requires DPoP proof
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrInvalidDPoPProof)
-		assert.Contains(t, err.Error(), "DPoP proof is required for DPoP-bound tokens")
+		assert.ErrorIs(t, err, ErrJWTInvalid)
+		assert.Contains(t, err.Error(), "DPoP-bound token used with Bearer scheme requires DPoP proof")
 		assert.Nil(t, claims)
 		assert.Nil(t, dpopCtx)
 
 		var validationErr *ValidationError
 		if errors.As(err, &validationErr) {
-			assert.Equal(t, ErrorCodeDPoPProofMissing, validationErr.Code)
+			assert.Equal(t, ErrorCodeInvalidToken, validationErr.Code)
 		}
 	})
 
@@ -1827,9 +1829,9 @@ func TestCheckTokenWithDPoP_RFC9449_Section7_2_BearerWithDPoPProofRejected(t *te
 			name:            "Bearer + DPoP proof + DPoP-bound token (DPoP Allowed)",
 			tokenHasCnf:     true,
 			dpopMode:        DPoPAllowed,
-			wantErrorCode:   ErrorCodeInvalidRequest,
-			wantErrorMsg:    "Bearer scheme cannot be used when DPoP proof is present",
-			wantSentinelErr: ErrInvalidRequest,
+			wantErrorCode:   ErrorCodeInvalidToken,
+			wantErrorMsg:    "DPoP-bound token requires the DPoP authentication scheme",
+			wantSentinelErr: ErrJWTInvalid,
 		},
 		{
 			name:            "Bearer + DPoP proof + non-DPoP token (DPoP Required)",

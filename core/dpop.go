@@ -187,7 +187,60 @@ func (c *Core) CheckTokenWithDPoP(
 		}
 
 		c.logWarn("No token provided and credentials are required")
+
+		// If DPoP proof is present but Authorization header is missing, it's a malformed request (400)
+		// Per CSV Row 27: Missing auth + DPoP proof = invalid_request
+		if dpopProof != "" {
+			return nil, nil, NewValidationError(
+				ErrorCodeInvalidRequest,
+				"Authorization header is required when DPoP proof is present",
+				ErrInvalidRequest,
+			)
+		}
+
+		// In Required mode, missing auth should return invalid_request (400) per CSV spec
+		if c.dpopMode == DPoPRequired {
+			return nil, nil, NewValidationError(
+				ErrorCodeInvalidRequest,
+				"Authorization header is required",
+				ErrJWTMissing,
+			)
+		}
 		return nil, nil, ErrJWTMissing
+	}
+
+	// Step 1.5: Early scheme validation (CSV compliance - check scheme BEFORE token validation)
+	// This prevents revealing token validity information when the scheme is not allowed.
+	//
+	// DPoP Required mode: Only DPoP scheme is allowed
+	if c.dpopMode == DPoPRequired && authScheme == AuthSchemeBearer {
+		// Special case: Bearer + DPoP proof violates RFC 9449 Section 7.2
+		// This should be invalid_request, not bearer_not_allowed
+		if dpopProof != "" {
+			c.logError("Bearer authorization scheme used with DPoP proof header (RFC 9449 Section 7.2 violation)")
+			return nil, nil, NewValidationError(
+				ErrorCodeInvalidRequest,
+				"Bearer scheme cannot be used when DPoP proof is present (use DPoP scheme instead)",
+				ErrInvalidRequest,
+			)
+		}
+		// Pure Bearer token in Required mode
+		c.logError("Bearer authorization scheme used but DPoP is required")
+		return nil, nil, NewValidationError(
+			ErrorCodeBearerNotAllowed,
+			"Bearer tokens are not allowed (DPoP required)",
+			ErrBearerNotAllowed,
+		)
+	}
+
+	// DPoP Disabled mode: Only Bearer scheme is allowed
+	if c.dpopMode == DPoPDisabled && authScheme == AuthSchemeDPoP {
+		c.logError("DPoP authorization scheme used but DPoP is disabled")
+		return nil, nil, NewValidationError(
+			ErrorCodeDPoPNotAllowed,
+			"DPoP tokens are not allowed (DPoP is disabled)",
+			ErrDPoPNotAllowed,
+		)
 	}
 
 	// Step 2: Validate the access token (always required)
@@ -212,16 +265,8 @@ func (c *Core) CheckTokenWithDPoP(
 	// Step 4: Handle DPoP Disabled mode
 	// When DPoP is disabled, the server behaves as if it's unaware of DPoP.
 	// Per RFC 9449 Section 7.2, servers unaware of DPoP accept DPoP-bound tokens as bearer tokens.
+	// Note: DPoP scheme was already rejected at Step 1.5
 	if c.dpopMode == DPoPDisabled {
-		// Reject DPoP authorization scheme when DPoP is disabled
-		if authScheme == AuthSchemeDPoP {
-			c.logError("DPoP authorization scheme used but DPoP is disabled")
-			return nil, nil, NewValidationError(
-				ErrorCodeDPoPNotAllowed,
-				"DPoP tokens are not allowed (DPoP is disabled)",
-				ErrDPoPNotAllowed,
-			)
-		}
 		// Ignore DPoP header in disabled mode - treat as Bearer-only mode
 		if hasDPoPProof {
 			c.logDebug("DPoP header ignored (DPoP disabled, treating as Bearer-only)")
@@ -240,12 +285,27 @@ func (c *Core) CheckTokenWithDPoP(
 		)
 	}
 
-	// Step 6: RFC 9449 Section 7.2 - Bearer scheme with DPoP proof must be rejected
+	// Step 6: RFC 9449 Section 7.2 - Bearer scheme with DPoP proof handling
 	// "When a resource server receives a request with both a DPoP proof and an access token
 	// in the Authorization header using the Bearer scheme, the resource server MUST reject the request."
-	// This prevents downgrade attacks where DPoP-bound tokens are used with Bearer scheme.
-	// NOTE: This only applies when DPoP is enabled (Allowed or Required mode).
+	//
+	// However, we must distinguish between two cases:
+	// 1. DPoP-bound token (has cnf) + Bearer scheme → 401 invalid_token (wrong scheme for bound token)
+	// 2. Regular token (no cnf) + Bearer scheme + DPoP proof → 400 invalid_request (RFC 9449 Section 7.2)
+	//
+	// The first case is a token validation error (the token requires DPoP scheme).
+	// The second case is a request format error (client sent conflicting auth mechanisms).
 	if authScheme == AuthSchemeBearer && hasDPoPProof {
+		if hasConfirmationClaim {
+			// DPoP-bound token used with wrong scheme
+			c.logError("DPoP-bound token (with cnf claim) used with Bearer scheme instead of DPoP scheme")
+			return nil, nil, NewValidationError(
+				ErrorCodeInvalidToken,
+				"DPoP-bound token requires the DPoP authentication scheme, not Bearer",
+				ErrJWTInvalid,
+			)
+		}
+		// Regular token with both Bearer and DPoP mechanisms
 		c.logError("Bearer authorization scheme used with DPoP proof header (RFC 9449 Section 7.2 violation)")
 		return nil, nil, NewValidationError(
 			ErrorCodeInvalidRequest,
@@ -280,28 +340,30 @@ func (c *Core) CheckTokenWithDPoP(
 // handleBearerToken processes Bearer token validation logic.
 // The authScheme parameter is used for logging purposes to distinguish
 // between true Bearer tokens and Bearer tokens with ignored DPoP headers.
+// Note: Scheme validation (Required/Disabled modes) happens at Step 1.5 before this function.
 func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool, authScheme AuthScheme) (any, *DPoPContext, error) {
 	// When DPoP is enabled (Allowed or Required), check if token has cnf claim but no DPoP proof
 	// RFC 9449 Section 6.1: DPoP-bound tokens (with cnf) require DPoP proof when DPoP is enabled
 	// Note: When DPoP is disabled, we don't enforce this check (server is "unaware" of DPoP)
 	if c.dpopMode != DPoPDisabled && hasConfirmationClaim {
+		// DPoP-bound token used with Bearer scheme (no proof)
+		// This is a token validation error (401) - the token type is wrong for Bearer scheme
+		if authScheme == AuthSchemeBearer {
+			c.logError("DPoP-bound token used with Bearer scheme requires DPoP proof",
+				"authScheme", string(authScheme))
+			return nil, nil, NewValidationError(
+				ErrorCodeInvalidToken,
+				"DPoP-bound token used with Bearer scheme requires DPoP proof",
+				ErrJWTInvalid,
+			)
+		}
+		// DPoP scheme but proof is missing - this is a DPoP proof error (400)
 		c.logError("Token has cnf claim but no DPoP proof provided",
 			"authScheme", string(authScheme))
 		return nil, nil, NewValidationError(
 			ErrorCodeDPoPProofMissing,
 			"DPoP proof is required for DPoP-bound tokens",
 			ErrInvalidDPoPProof,
-		)
-	}
-
-	// Check if Bearer tokens are allowed
-	if c.dpopMode == DPoPRequired {
-		c.logError("Bearer token provided but DPoP is required",
-			"authScheme", string(authScheme))
-		return nil, nil, NewValidationError(
-			ErrorCodeBearerNotAllowed,
-			"Bearer tokens are not allowed (DPoP required)",
-			ErrBearerNotAllowed,
 		)
 	}
 

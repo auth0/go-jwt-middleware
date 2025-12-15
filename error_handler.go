@@ -239,7 +239,7 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 
 	case core.ErrorCodeDPoPNotAllowed:
 		headers := []string{
-			`Bearer error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`,
+			`Bearer realm="api", error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`,
 		}
 		return http.StatusBadRequest, ErrorResponse{
 			Error:            "invalid_request",
@@ -247,7 +247,12 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 			ErrorCode:        err.Code,
 		}, headers
 
-	// RFC 9449 Section 7.2: Bearer + DPoP proof = invalid_request
+	// RFC 6750 Section 3.1: invalid_request is 400 Bad Request
+	// This includes:
+	// - RFC 9449 Section 7.2: Bearer + DPoP proof (multiple authentication mechanisms)
+	// - Malformed Authorization header
+	// - Missing required parameters
+	// - Otherwise malformed requests
 	case core.ErrorCodeInvalidRequest:
 		headers := buildWWWAuthenticateHeaders(
 			"invalid_request", err.Message,
@@ -297,16 +302,16 @@ func buildWWWAuthenticateHeaders(errorCode, errorDesc string, authScheme AuthSch
 	case core.DPoPDisabled:
 		// Only Bearer challenge in disabled mode
 		return []string{
-			fmt.Sprintf(`Bearer error="%s", error_description="%s"`, errorCode, errorDesc),
+			fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc),
 		}
 	case core.DPoPAllowed:
 		// Both Bearer and DPoP challenges in allowed mode
 		// Error details go in the challenge matching the scheme used, or both if ambiguous
 		var headers []string
 		if authScheme == AuthSchemeBearer || authScheme == AuthSchemeUnknown || errorInBoth {
-			headers = append(headers, fmt.Sprintf(`Bearer error="%s", error_description="%s"`, errorCode, errorDesc))
+			headers = append(headers, fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc))
 		} else {
-			headers = append(headers, `Bearer`)
+			headers = append(headers, `Bearer realm="api"`)
 		}
 		if authScheme == AuthSchemeDPoP || authScheme == AuthSchemeUnknown || errorInBoth {
 			headers = append(headers, fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc))
@@ -317,7 +322,7 @@ func buildWWWAuthenticateHeaders(errorCode, errorDesc string, authScheme AuthSch
 	default:
 		// Fallback to Bearer only
 		return []string{
-			fmt.Sprintf(`Bearer error="%s", error_description="%s"`, errorCode, errorDesc),
+			fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc),
 		}
 	}
 }
@@ -333,12 +338,12 @@ func buildDPoPWWWAuthenticateHeaders(errorCode, errorDesc string, dpopMode core.
 	case core.DPoPDisabled:
 		// This shouldn't happen (DPoP error when DPoP is disabled), but return Bearer fallback
 		return []string{
-			fmt.Sprintf(`Bearer error="%s", error_description="%s"`, errorCode, errorDesc),
+			fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc),
 		}
 	case core.DPoPAllowed:
 		// Both challenges, error in DPoP only (since this is a DPoP-specific error)
 		return []string{
-			`Bearer`,
+			`Bearer realm="api"`,
 			fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc),
 		}
 	default:
@@ -362,18 +367,18 @@ func buildBareWWWAuthenticateHeaders(dpopMode core.DPoPMode) []string {
 	case core.DPoPDisabled:
 		// Only Bearer challenge in disabled mode
 		return []string{
-			`Bearer`,
+			`Bearer realm="api"`,
 		}
 	case core.DPoPAllowed:
 		// Both challenges in allowed mode
 		return []string{
-			`Bearer`,
+			`Bearer realm="api"`,
 			fmt.Sprintf(`DPoP algs="%s"`, validator.DPoPSupportedAlgorithms),
 		}
 	default:
 		// Fallback to Bearer
 		return []string{
-			`Bearer`,
+			`Bearer realm="api"`,
 		}
 	}
 }

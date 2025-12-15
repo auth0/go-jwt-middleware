@@ -319,7 +319,7 @@ func (m *JWTMiddleware) CheckJWT(next http.Handler) http.Handler {
 			ctx := core.SetAuthScheme(r.Context(), tokenWithScheme.Scheme)
 			ctx = core.SetDPoPMode(ctx, m.getDPoPMode())
 			r = r.Clone(ctx)
-			// Wrap extraction error as invalid_request per RFC 9449
+			// Malformed Authorization headers are bad requests per RFC 6750 Section 3.1
 			validationErr := core.NewValidationError(
 				core.ErrorCodeInvalidRequest,
 				fmt.Sprintf("Failed to extract token from request: %s", err.Error()),

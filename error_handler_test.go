@@ -30,7 +30,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:  "invalid_token",
 			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
 			wantErrorDescription: "",
-			wantWWWAuthenticate:  `Bearer`,
+			wantWWWAuthenticate:  `Bearer realm="api"`,
 		},
 		{
 			name:                 "ErrJWTInvalid",
@@ -38,7 +38,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantStatus:           http.StatusUnauthorized,
 			wantError:            "invalid_token",
 			wantErrorDescription: "JWT is invalid",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="JWT is invalid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="JWT is invalid"`,
 		},
 		{
 			name:                 "token expired",
@@ -47,7 +47,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token expired",
 			wantErrorCode:        "token_expired",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token expired"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token expired"`,
 		},
 		{
 			name:                 "token not yet valid",
@@ -56,7 +56,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token is not yet valid",
 			wantErrorCode:        "token_not_yet_valid",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token is not yet valid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token is not yet valid"`,
 		},
 		{
 			name:                 "invalid signature",
@@ -65,7 +65,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token signature is invalid",
 			wantErrorCode:        "invalid_signature",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token signature is invalid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token signature is invalid"`,
 		},
 		{
 			name:                 "token malformed",
@@ -74,7 +74,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_request",
 			wantErrorDescription: "The access token is malformed",
 			wantErrorCode:        "token_malformed",
-			wantWWWAuthenticate:  `Bearer error="invalid_request", error_description="The access token is malformed"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_request", error_description="The access token is malformed"`,
 		},
 		{
 			name:                 "invalid issuer",
@@ -83,7 +83,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "insufficient_scope",
 			wantErrorDescription: "The access token was issued by an untrusted issuer",
 			wantErrorCode:        "invalid_issuer",
-			wantWWWAuthenticate:  `Bearer error="insufficient_scope", error_description="The access token was issued by an untrusted issuer"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="insufficient_scope", error_description="The access token was issued by an untrusted issuer"`,
 		},
 		{
 			name:                 "invalid audience",
@@ -92,7 +92,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "insufficient_scope",
 			wantErrorDescription: "The access token audience does not match",
 			wantErrorCode:        "invalid_audience",
-			wantWWWAuthenticate:  `Bearer error="insufficient_scope", error_description="The access token audience does not match"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="insufficient_scope", error_description="The access token audience does not match"`,
 		},
 		{
 			name:                 "invalid algorithm",
@@ -101,7 +101,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token uses an unsupported algorithm",
 			wantErrorCode:        "invalid_algorithm",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token uses an unsupported algorithm"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token uses an unsupported algorithm"`,
 		},
 		{
 			name:                 "JWKS fetch failed",
@@ -110,7 +110,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "Unable to verify the access token",
 			wantErrorCode:        "jwks_fetch_failed",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="Unable to verify the access token"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="Unable to verify the access token"`,
 		},
 		{
 			name:                 "JWKS key not found",
@@ -119,7 +119,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "Unable to verify the access token",
 			wantErrorCode:        "jwks_key_not_found",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="Unable to verify the access token"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="Unable to verify the access token"`,
 		},
 		{
 			name:                 "unknown validation error",
@@ -128,7 +128,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token is invalid",
 			wantErrorCode:        "unknown_code",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token is invalid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token is invalid"`,
 		},
 		{
 			name:                 "generic error",
@@ -288,7 +288,7 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantError:            "invalid_request",
 			wantErrorDescription: "DPoP tokens are not allowed (Bearer only)",
 			wantErrorCode:        "dpop_not_allowed",
-			wantWWWAuthenticate:  `Bearer error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`,
 		},
 		{
 			name:                 "Config invalid",
@@ -366,7 +366,7 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			wantErrorDescription:   "Bearer scheme cannot be used when DPoP proof is present",
 			wantErrorCode:          "invalid_request",
 			wantWWWAuthenticateAll: []string{
-				`Bearer error="invalid_request", error_description="Bearer scheme cannot be used when DPoP proof is present"`,
+				`Bearer realm="api", error="invalid_request", error_description="Bearer scheme cannot be used when DPoP proof is present"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="Bearer scheme cannot be used when DPoP proof is present"`,
 			},
 			wantBearerChallenge: true,
@@ -381,7 +381,7 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
 			wantErrorDescription: "",
 			wantWWWAuthenticateAll: []string{
-				`Bearer`,
+				`Bearer realm="api"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
 			},
 			wantBearerChallenge: true,
@@ -396,7 +396,7 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			wantErrorDescription:   "Operation indicated DPoP use but the request has no DPoP HTTP Header",
 			wantErrorCode:          "dpop_proof_missing",
 			wantWWWAuthenticateAll: []string{
-				`Bearer`,
+				`Bearer realm="api"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="Operation indicated DPoP use but the request has no DPoP HTTP Header"`,
 			},
 			wantBearerChallenge: true,
@@ -411,7 +411,7 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			wantErrorDescription:   "Failed to verify DPoP proof",
 			wantErrorCode:          "dpop_proof_invalid",
 			wantWWWAuthenticateAll: []string{
-				`Bearer`,
+				`Bearer realm="api"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="Failed to verify DPoP proof"`,
 			},
 			wantBearerChallenge: true,
@@ -426,7 +426,7 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			wantErrorDescription:   "DPoP proof HTM claim does not match HTTP method",
 			wantErrorCode:          "dpop_htm_mismatch",
 			wantWWWAuthenticateAll: []string{
-				`Bearer`,
+				`Bearer realm="api"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof HTM claim does not match HTTP method"`,
 			},
 			wantBearerChallenge: true,
@@ -441,7 +441,7 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			wantErrorDescription:   "DPoP proof JKT does not match access token cnf claim",
 			wantErrorCode:          "dpop_binding_mismatch",
 			wantWWWAuthenticateAll: []string{
-				`Bearer`,
+				`Bearer realm="api"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="DPoP proof JKT does not match access token cnf claim"`,
 			},
 			wantBearerChallenge: true,
@@ -456,7 +456,7 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			wantErrorDescription:   "The access token signature is invalid",
 			wantErrorCode:          "invalid_signature",
 			wantWWWAuthenticateAll: []string{
-				`Bearer error="invalid_token", error_description="The access token signature is invalid"`,
+				`Bearer realm="api", error="invalid_token", error_description="The access token signature is invalid"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
 			},
 			wantBearerChallenge: true,
@@ -550,7 +550,7 @@ func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantError:  "invalid_dpop_proof",
 			wantWWWAuthenticate: []string{
-				`Bearer error="invalid_dpop_proof", error_description="DPoP proof invalid"`,
+				`Bearer realm="api", error="invalid_dpop_proof", error_description="DPoP proof invalid"`,
 			},
 		},
 		{
@@ -561,7 +561,7 @@ func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 			wantError:  "invalid_token",
 			wantWWWAuthenticate: []string{
-				`Bearer error="invalid_token", error_description="Token is invalid"`,
+				`Bearer realm="api", error="invalid_token", error_description="Token is invalid"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
 			},
 		},
@@ -573,7 +573,7 @@ func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 			wantError:  "invalid_token",
 			wantWWWAuthenticate: []string{
-				`Bearer error="invalid_token", error_description="The access token is invalid"`,
+				`Bearer realm="api", error="invalid_token", error_description="The access token is invalid"`,
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="The access token is invalid"`,
 			},
 		},
@@ -585,7 +585,7 @@ func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 			wantError:  "invalid_token",
 			wantWWWAuthenticate: []string{
-				`Bearer`, // No error in Bearer challenge (line 309 - else branch)
+				`Bearer realm="api"`, // No error in Bearer challenge (line 309 - else branch)
 				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="The access token expired"`,
 			},
 		},
@@ -597,7 +597,7 @@ func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 			wantError:  "invalid_token",
 			wantWWWAuthenticate: []string{
-				`Bearer error="invalid_token", error_description="The access token signature is invalid"`,
+				`Bearer realm="api", error="invalid_token", error_description="The access token signature is invalid"`,
 			},
 		},
 	}
@@ -646,7 +646,7 @@ func TestBuildWWWAuthenticateHeaders_DefaultCases(t *testing.T) {
 			buildFunc: "bare",
 			dpopMode:  core.DPoPMode(99), // Invalid mode
 			wantContains: []string{
-				`Bearer`, // Default fallback
+				`Bearer realm="api"`, // Default fallback
 			},
 		},
 		{
