@@ -478,7 +478,7 @@ func TestHTTPDPoPExample_MultipleDPoPHeaders(t *testing.T) {
 
 	// Multiple DPoP headers returns invalid_dpop_proof (400)
 	assert.Equal(t, "invalid_dpop_proof", response["error"])
-	assert.Contains(t, response["error_description"], "Multiple DPoP proofs are not allowed")
+	assert.Contains(t, response["error_description"], "multiple DPoP proofs are not allowed")
 
 	// Verify WWW-Authenticate headers
 	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")

@@ -933,7 +933,7 @@ func TestDPoPRequired_MultipleDPoPHeaders(t *testing.T) {
 	// Multiple DPoP proofs not allowed
 	assert.Equal(t, "invalid_dpop_proof", response["error"])
 	assert.Equal(t, "dpop_proof_invalid", response["error_code"])
-	assert.Contains(t, response["error_description"], "Multiple DPoP proofs are not allowed")
+	assert.Contains(t, response["error_description"], "multiple DPoP proofs are not allowed")
 
 	// Validate WWW-Authenticate headers (error in DPoP challenge)
 	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
@@ -941,7 +941,7 @@ func TestDPoPRequired_MultipleDPoPHeaders(t *testing.T) {
 
 	assert.Contains(t, wwwAuthHeaders[0], "DPoP")
 	assert.Contains(t, wwwAuthHeaders[0], `error="invalid_dpop_proof"`)
-	assert.Contains(t, wwwAuthHeaders[0], `error_description="Multiple DPoP proofs are not allowed"`)
+	assert.Contains(t, wwwAuthHeaders[0], `error_description="multiple DPoP proofs are not allowed"`)
 	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
 }
 

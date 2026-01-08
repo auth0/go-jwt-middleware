@@ -236,7 +236,7 @@ func (m *JWTMiddleware) validateToken(r *http.Request, tokenWithScheme Extracted
 				"path", r.URL.Path)
 		}
 		// Wrap in ValidationError for proper error handling
-		// Use the extractor's error message directly (e.g., "Multiple DPoP proofs are not allowed")
+		// Use the extractor's error message directly (e.g., "multiple DPoP proofs are not allowed")
 		validationErr := core.NewValidationError(
 			core.ErrorCodeDPoPProofInvalid,
 			err.Error(),
