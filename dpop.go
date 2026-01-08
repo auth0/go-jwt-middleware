@@ -38,7 +38,7 @@ func DPoPHeaderExtractor(r *http.Request) (string, error) {
 
 	// Multiple DPoP headers are not allowed per RFC 9449
 	if len(headers) > 1 {
-		return "", fmt.Errorf("Multiple DPoP proofs are not allowed")
+		return "", fmt.Errorf("multiple DPoP proofs are not allowed")
 	}
 
 	return headers[0], nil

@@ -214,8 +214,8 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 		// Per RFC 6750 Section 3.1, no error_description when request is malformed
 		headers := buildBareWWWAuthenticateHeaders(dpopMode)
 		return http.StatusBadRequest, ErrorResponse{
-			Error:        "invalid_request",
-			ErrorCode:    err.Code,
+			Error:     "invalid_request",
+			ErrorCode: err.Code,
 			// ErrorDescription is omitted for malformed requests
 		}, headers
 
