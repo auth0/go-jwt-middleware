@@ -112,9 +112,9 @@ func TestCheckTokenWithDPoP_BearerTokenWithCnf_MissingProof(t *testing.T) {
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
 	// Updated: Bearer scheme with DPoP-bound token (has cnf claim) is invalid_token (401)
-	// CSV Row 18: DPoP-bound token used with Bearer scheme requires DPoP proof
+	// DPoP-bound token requires the DPoP authentication scheme, not Bearer
 	assert.ErrorIs(t, err, ErrJWTInvalid)
-	assert.Contains(t, err.Error(), "DPoP-bound token used with Bearer scheme requires DPoP proof")
+	assert.Contains(t, err.Error(), "DPoP-bound token requires the DPoP authentication scheme, not Bearer")
 }
 
 func TestCheckTokenWithDPoP_BearerToken_DPoPRequired(t *testing.T) {
@@ -137,7 +137,13 @@ func TestCheckTokenWithDPoP_BearerToken_DPoPRequired(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
-	assert.ErrorIs(t, err, ErrBearerNotAllowed)
+	// Per RFC 6750 Section 3.1: Bearer scheme in Required mode returns invalid_request
+	assert.ErrorIs(t, err, ErrInvalidRequest)
+	// Verify error has no description (empty per RFC 6750 Section 3.1)
+	var validationErr *ValidationError
+	if errors.As(err, &validationErr) {
+		assert.Empty(t, validationErr.Message, "error_description should be empty for unsupported authentication method")
+	}
 }
 
 func TestCheckTokenWithDPoP_EmptyToken_CredentialsOptional(t *testing.T) {
@@ -826,8 +832,8 @@ func TestCheckTokenWithDPoP_WithLogger_MissingProof(t *testing.T) {
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
 	require.NotEmpty(t, logger.errorCalls)
-	// Token has cnf but no DPoP proof with Bearer scheme → invalid_token error (CSV Row 18)
-	assert.Equal(t, "DPoP-bound token used with Bearer scheme requires DPoP proof", logger.errorCalls[0].msg)
+	// Token has cnf but no DPoP proof with Bearer scheme → invalid_token error
+	assert.Equal(t, "DPoP-bound token requires the DPoP authentication scheme, not Bearer", logger.errorCalls[0].msg)
 }
 
 func TestCheckTokenWithDPoP_WithLogger_BearerNotAllowed(t *testing.T) {
@@ -854,7 +860,7 @@ func TestCheckTokenWithDPoP_WithLogger_BearerNotAllowed(t *testing.T) {
 	assert.Nil(t, claims)
 	assert.Nil(t, dpopCtx)
 	require.NotEmpty(t, logger.errorCalls)
-	assert.Equal(t, "Bearer authorization scheme used but DPoP is required", logger.errorCalls[0].msg)
+	assert.Equal(t, "Bearer authorization scheme used but DPoP Required mode only accepts DPoP scheme", logger.errorCalls[0].msg)
 }
 
 func TestCheckTokenWithDPoP_WithLogger_DPoPDisabled(t *testing.T) {
@@ -1059,10 +1065,10 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		)
 
 		// Token has cnf claim but no DPoP proof with Bearer scheme → invalid_token (401)
-		// CSV Row 18: DPoP-bound token used with Bearer scheme requires DPoP proof
+		// DPoP-bound token requires the DPoP authentication scheme, not Bearer
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrJWTInvalid)
-		assert.Contains(t, err.Error(), "DPoP-bound token used with Bearer scheme requires DPoP proof")
+		assert.Contains(t, err.Error(), "DPoP-bound token requires the DPoP authentication scheme, not Bearer")
 		assert.Nil(t, claims)
 		assert.Nil(t, dpopCtx)
 
@@ -1097,10 +1103,10 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 		)
 
 		// Token has cnf claim but no DPoP proof with Bearer scheme → invalid_token (401)
-		// CSV Row 18: DPoP-bound token used with Bearer scheme requires DPoP proof
+		// DPoP-bound token requires the DPoP authentication scheme, not Bearer
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrJWTInvalid)
-		assert.Contains(t, err.Error(), "DPoP-bound token used with Bearer scheme requires DPoP proof")
+		assert.Contains(t, err.Error(), "DPoP-bound token requires the DPoP authentication scheme, not Bearer")
 		assert.Nil(t, claims)
 		assert.Nil(t, dpopCtx)
 
@@ -1209,10 +1215,14 @@ func TestCheckTokenWithDPoP_EdgeCases(t *testing.T) {
 			"https://example.com",
 		)
 
-		// Must reject: Bearer + DPoP proof violates RFC 9449 Section 7.2
+		// Must reject: Bearer scheme not supported in Required mode
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidRequest)
-		assert.Contains(t, err.Error(), "Bearer scheme cannot be used when DPoP proof is present")
+		// Per RFC 6750 Section 3.1: unsupported authentication method returns NO error_description
+		var validationErr *ValidationError
+		if errors.As(err, &validationErr) {
+			assert.Empty(t, validationErr.Message, "error_description should be empty per RFC 6750 Section 3.1")
+		}
 		assert.Nil(t, claims)
 		assert.Nil(t, dpopCtx)
 	})
@@ -1838,7 +1848,7 @@ func TestCheckTokenWithDPoP_RFC9449_Section7_2_BearerWithDPoPProofRejected(t *te
 			tokenHasCnf:     false,
 			dpopMode:        DPoPRequired,
 			wantErrorCode:   ErrorCodeInvalidRequest,
-			wantErrorMsg:    "Bearer scheme cannot be used when DPoP proof is present",
+			wantErrorMsg:    "", // Empty per RFC 6750 Section 3.1 for unsupported authentication method
 			wantSentinelErr: ErrInvalidRequest,
 		},
 		{
@@ -1846,7 +1856,7 @@ func TestCheckTokenWithDPoP_RFC9449_Section7_2_BearerWithDPoPProofRejected(t *te
 			tokenHasCnf:     true,
 			dpopMode:        DPoPRequired,
 			wantErrorCode:   ErrorCodeInvalidRequest,
-			wantErrorMsg:    "Bearer scheme cannot be used when DPoP proof is present",
+			wantErrorMsg:    "", // Empty per RFC 6750 Section 3.1 for unsupported authentication method
 			wantSentinelErr: ErrInvalidRequest,
 		},
 	}
@@ -1896,12 +1906,18 @@ func TestCheckTokenWithDPoP_RFC9449_Section7_2_BearerWithDPoPProofRejected(t *te
 			assert.Error(t, err)
 			assert.Nil(t, claims)
 			assert.Nil(t, dpopCtx)
-			assert.Contains(t, err.Error(), tt.wantErrorMsg)
+			if tt.wantErrorMsg != "" {
+				assert.Contains(t, err.Error(), tt.wantErrorMsg)
+			}
 			assert.ErrorIs(t, err, tt.wantSentinelErr)
 
 			var validationErr *ValidationError
 			if errors.As(err, &validationErr) {
 				assert.Equal(t, tt.wantErrorCode, validationErr.Code)
+				// For Required mode with empty wantErrorMsg, verify error_description is empty
+				if tt.dpopMode == DPoPRequired && tt.wantErrorMsg == "" {
+					assert.Empty(t, validationErr.Message, "error_description should be empty per RFC 6750 Section 3.1")
+				}
 			}
 		})
 	}

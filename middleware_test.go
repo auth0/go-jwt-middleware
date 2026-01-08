@@ -79,7 +79,7 @@ func Test_CheckJWT(t *testing.T) {
 			token:          "bad",
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"error":"invalid_request","error_description":"Failed to extract token from request: authorization header format must be Bearer {token} or DPoP {token}","error_code":"invalid_request"}`,
+			wantBody:       `{"error":"invalid_request","error_code":"invalid_request"}`,
 		},
 		{
 			name:           "it fails to validate if token is missing and credentials are not optional",
@@ -116,7 +116,7 @@ func Test_CheckJWT(t *testing.T) {
 			},
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"error":"invalid_request","error_description":"Failed to extract token from request: token extractor error","error_code":"invalid_request"}`,
+			wantBody:       `{"error":"invalid_request","error_code":"invalid_request"}`,
 		},
 		{
 			name: "credentialsOptional true",
@@ -978,12 +978,13 @@ func TestValidateToken_DPoPSchemeWithoutProof(t *testing.T) {
 		// Should fail with bad request for missing DPoP proof
 		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 
-		// Verify error response
+		// Verify error response - missing DPoP proof returns invalid_request with no error_description
 		var errResp ErrorResponse
 		err = json.NewDecoder(response.Body).Decode(&errResp)
 		require.NoError(t, err)
-		assert.Equal(t, "invalid_dpop_proof", errResp.Error)
+		assert.Equal(t, "invalid_request", errResp.Error)
 		assert.Equal(t, "dpop_proof_missing", errResp.ErrorCode)
+		assert.Empty(t, errResp.ErrorDescription, "error_description should be empty for malformed requests")
 	})
 
 	t.Run("DPoP scheme without proof header with logger", func(t *testing.T) {

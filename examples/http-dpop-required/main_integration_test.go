@@ -158,6 +158,7 @@ func TestDPoPRequired_MissingToken(t *testing.T) {
 	assert.NotContains(t, wwwAuth, "error=", "No error codes when auth is missing")
 }
 
+// DPoP + valid_dpop_token (no proof) → 400 invalid_request
 func TestDPoPRequired_DPoPTokenWithoutProof(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -183,12 +184,29 @@ func TestDPoPRequired_DPoPTokenWithoutProof(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
 	var response map[string]any
-	body, _ := io.ReadAll(resp.Body)
-	json.Unmarshal(body, &response)
-	assert.Equal(t, "invalid_dpop_proof", response["error"])
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// DPoP scheme without proof → invalid_request (malformed request)
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "dpop_proof_missing", response["error_code"])
+	assert.Empty(t, response["error_description"], "error_description should be empty per RFC 6750 Section 3.1")
+
+	// Validate WWW-Authenticate headers (bare DPoP challenge, no error)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=", "Malformed requests should NOT include error in challenge")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
 }
 
 func TestDPoPRequired_InvalidDPoPProof(t *testing.T) {
@@ -332,7 +350,7 @@ func TestDPoPRequired_WWWAuthenticateWithAlgs(t *testing.T) {
 // Additional RFC 9449 Compliance Tests - REQUIRED Mode
 // =============================================================================
 
-// Bearer scheme with DPoP token and proof (rejected) → 400
+// Bearer + valid_dpop_token + valid_proof → 400 invalid_request
 func TestDPoPRequired_BearerScheme_DPoPToken_WithProof(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -360,18 +378,33 @@ func TestDPoPRequired_BearerScheme_DPoPToken_WithProof(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_request")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-	// Verify only required headers
-	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-	assert.Empty(t, resp.Header.Get("Authorization"))
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Validate error fields
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"], "error_description should be empty per RFC 6750 Section 3.1")
+
+	// Validate WWW-Authenticate headers (REQUIRED mode = DPoP only, no Bearer)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1, "DPoP Required mode should return exactly one WWW-Authenticate header (DPoP only)")
+
+	// Verify DPoP challenge with NO error (bare challenge per RFC 6750 Section 3.1)
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=", "Bearer scheme rejection should NOT include error in challenge")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer", "DPoP Required mode should NOT include Bearer challenge")
 }
 
-// Empty Bearer with proof (rejected) → 400
+// Bearer + empty + valid_proof → 400 invalid_request
 func TestDPoPRequired_EmptyBearer_WithProof(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -394,14 +427,33 @@ func TestDPoPRequired_EmptyBearer_WithProof(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_request")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Validate error fields - malformed request per RFC 6750 Section 3.1
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"], "error_description should be empty for malformed requests")
+
+	// Validate WWW-Authenticate headers (REQUIRED mode = DPoP only, no Bearer)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1, "DPoP Required mode should return exactly one WWW-Authenticate header")
+
+	// Verify bare DPoP challenge (no error per RFC 6750 Section 3.1)
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=", "Malformed requests should NOT include error in challenge")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer", "DPoP Required mode should NOT include Bearer challenge")
 }
 
-// Bearer invalid token (rejected) → 400
+// Bearer + invalid_token → 400 invalid_request
 func TestDPoPRequired_BearerInvalidToken(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -415,14 +467,33 @@ func TestDPoPRequired_BearerInvalidToken(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_request")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Validate error fields - Bearer scheme not supported in Required mode
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"], "error_description should be empty per RFC 6750")
+
+	// Validate WWW-Authenticate headers (REQUIRED mode = DPoP only)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1, "DPoP Required mode should return exactly one WWW-Authenticate header")
+
+	// Verify bare DPoP challenge (no error)
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
 }
 
-// Bearer invalid token with proof (rejected) → 400
+// Bearer + invalid_token + valid_proof → 400 invalid_request
 func TestDPoPRequired_BearerInvalidToken_WithProof(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -445,14 +516,32 @@ func TestDPoPRequired_BearerInvalidToken_WithProof(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_request")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Bearer scheme not supported in Required mode
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"], "error_description should be empty")
+
+	// Validate WWW-Authenticate headers
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
 }
 
-// Bearer DPoP token (rejected) → 400
+// Bearer + valid_dpop_token → 400 invalid_request
 func TestDPoPRequired_BearerDPoPToken(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -476,14 +565,31 @@ func TestDPoPRequired_BearerDPoPToken(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_request")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"])
+
+	// Validate WWW-Authenticate headers
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
 }
 
-// DPoP Bearer token (no cnf) with proof → 401
+// DPoP + valid_bearer_token + valid_proof → 401 invalid_token
 func TestDPoPRequired_DPoPScheme_BearerToken_WithProof(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -508,14 +614,38 @@ func TestDPoPRequired_DPoPScheme_BearerToken_WithProof(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_token")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Token is missing cnf claim - invalid_token error
+	assert.Equal(t, "invalid_token", response["error"])
+	// Error code can be either "invalid_token" or "dpop_missing_cnf_claim"
+	errorCode, ok := response["error_code"].(string)
+	assert.True(t, ok)
+	assert.True(t, errorCode == "invalid_token" || errorCode == "dpop_missing_cnf_claim",
+		"error_code should be either 'invalid_token' or 'dpop_missing_cnf_claim', got: %s", errorCode)
+	assert.Contains(t, response["error_description"], "cnf claim")
+
+	// Validate WWW-Authenticate headers (error in DPoP challenge only)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1, "DPoP Required mode should return exactly one WWW-Authenticate header")
+
+	// DPoP challenge should have error
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP")
+	assert.Contains(t, wwwAuthHeaders[0], `error="invalid_token"`)
+	assert.Contains(t, wwwAuthHeaders[0], `error_description=`)
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer", "DPoP Required mode should NOT include Bearer challenge")
 }
 
-// Random scheme (rejected) → 400
+// random_string + valid_dpop_token + valid_proof → 400 invalid_request
 func TestDPoPRequired_RandomScheme(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -543,14 +673,32 @@ func TestDPoPRequired_RandomScheme(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_request")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Unsupported scheme - invalid_request
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"], "error_description should be empty per RFC 6750")
+
+	// Validate WWW-Authenticate headers
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
 }
 
-// Missing Authorization header → 400
+// (no Authorization) + valid_proof → 400 invalid_request
 func TestDPoPRequired_MissingAuthorization(t *testing.T) {
 	h := setupHandler()
 	server := httptest.NewServer(h)
@@ -572,11 +720,229 @@ func TestDPoPRequired_MissingAuthorization(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	// Validate status code
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	assert.Contains(t, wwwAuth, "DPoP")
-	assert.Contains(t, wwwAuth, "invalid_request")
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Missing Authorization header - invalid_request
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"], "error_description should be empty")
+
+	// Validate WWW-Authenticate headers
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
+}
+
+// DPoP + invalid_token + valid_proof → 401 invalid_token
+func TestDPoPRequired_DPoPInvalidToken_WithProof(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+
+	dpopProof, err := createDPoPProof(key, "GET", server.URL, "invalid.token.here")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP invalid.token.here")
+	req.Header.Set("DPoP", dpopProof)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Validate status code
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	if len(body) > 0 {
+		err = json.Unmarshal(body, &response)
+		require.NoError(t, err)
+	} else {
+		response = make(map[string]any)
+	}
+
+	// Invalid token - signature verification failed
+	assert.Equal(t, "invalid_token", response["error"])
+	if response["error_code"] != nil {
+		assert.Contains(t, response["error_code"].(string), "token") // Could be token_malformed, invalid_token, etc.
+	}
+	if response["error_description"] != nil {
+		assert.NotEmpty(t, response["error_description"])
+	}
+
+	// Validate WWW-Authenticate headers (error in DPoP challenge)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	if len(wwwAuthHeaders) > 0 {
+		assert.Contains(t, wwwAuthHeaders[0], "DPoP")
+		assert.Contains(t, wwwAuthHeaders[0], `error="invalid_token"`)
+		assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
+	}
+}
+
+// unsupported_scheme foo → 400 invalid_request
+func TestDPoPRequired_UnsupportedScheme(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "unsupported_scheme foo")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Validate status code
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"])
+
+	// Validate WWW-Authenticate headers
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
+}
+
+// Malformed "DPoP dpop <valid_dpop_token>" → 400 invalid_request
+func TestDPoPRequired_MalformedDPoPScheme(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "read")
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP dpop "+dpopToken) // Malformed
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Validate status code
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	assert.Equal(t, "invalid_request", response["error"])
+	assert.Equal(t, "invalid_request", response["error_code"])
+	assert.Empty(t, response["error_description"])
+
+	// Validate WWW-Authenticate headers
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP algs=")
+	assert.NotContains(t, wwwAuthHeaders[0], "error=")
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
+}
+
+// DPoP + valid_dpop_token + multiple proofs → 400 invalid_dpop_proof
+func TestDPoPRequired_MultipleDPoPHeaders(t *testing.T) {
+	h := setupHandler()
+	server := httptest.NewServer(h)
+	defer server.Close()
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	key, err := jwk.Import(privateKey)
+	require.NoError(t, err)
+	jkt, err := key.Thumbprint(crypto.SHA256)
+	require.NoError(t, err)
+
+	dpopToken, err := createDPoPBoundToken(jkt, "user123", "read")
+	require.NoError(t, err)
+
+	dpopProof1, err := createDPoPProof(key, "GET", server.URL, dpopToken)
+	require.NoError(t, err)
+
+	dpopProof2, err := createDPoPProof(key, "GET", server.URL, dpopToken)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "DPoP "+dpopToken)
+	req.Header.Add("DPoP", dpopProof1)
+	req.Header.Add("DPoP", dpopProof2) // Multiple proofs
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Validate status code
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	// Validate response body
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var response map[string]any
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	// Multiple DPoP proofs not allowed
+	assert.Equal(t, "invalid_dpop_proof", response["error"])
+	assert.Equal(t, "dpop_proof_invalid", response["error_code"])
+	assert.Contains(t, response["error_description"], "Multiple DPoP proofs are not allowed")
+
+	// Validate WWW-Authenticate headers (error in DPoP challenge)
+	wwwAuthHeaders := resp.Header.Values("WWW-Authenticate")
+	require.Len(t, wwwAuthHeaders, 1)
+
+	assert.Contains(t, wwwAuthHeaders[0], "DPoP")
+	assert.Contains(t, wwwAuthHeaders[0], `error="invalid_dpop_proof"`)
+	assert.Contains(t, wwwAuthHeaders[0], `error_description="Multiple DPoP proofs are not allowed"`)
+	assert.NotContains(t, wwwAuthHeaders[0], "Bearer")
 }
 
 // Helper functions

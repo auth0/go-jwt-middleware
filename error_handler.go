@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
 	"github.com/auth0/go-jwt-middleware/v3/validator"
@@ -207,8 +208,19 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 			ErrorCode:        err.Code,
 		}, headers
 
-	// DPoP-specific error codes
-	case core.ErrorCodeDPoPProofInvalid, core.ErrorCodeDPoPProofMissing,
+	// DPoP proof missing is treated as invalid_request
+	case core.ErrorCodeDPoPProofMissing:
+		// Missing DPoP proof returns invalid_request with bare WWW-Authenticate headers
+		// Per RFC 6750 Section 3.1, no error_description when request is malformed
+		headers := buildBareWWWAuthenticateHeaders(dpopMode)
+		return http.StatusBadRequest, ErrorResponse{
+			Error:        "invalid_request",
+			ErrorCode:    err.Code,
+			// ErrorDescription is omitted for malformed requests
+		}, headers
+
+	// DPoP proof validation errors (invalid proof, HTM/HTU mismatch, expired, etc.)
+	case core.ErrorCodeDPoPProofInvalid,
 		core.ErrorCodeDPoPHTMMismatch, core.ErrorCodeDPoPHTUMismatch, core.ErrorCodeDPoPATHMismatch,
 		core.ErrorCodeDPoPProofExpired, core.ErrorCodeDPoPProofTooNew:
 		headers := buildDPoPWWWAuthenticateHeaders("invalid_dpop_proof", err.Message, dpopMode)
@@ -238,12 +250,26 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 		}, headers
 
 	case core.ErrorCodeDPoPNotAllowed:
-		headers := []string{
-			`Bearer realm="api", error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`,
+		// Per RFC 6750 Section 3.1: Unsupported authentication methods should return
+		// bare WWW-Authenticate challenge with NO error information (err.Message will be empty)
+		var headers []string
+		var errorDescription string
+		if err.Message == "" {
+			// Bare challenge per RFC 6750 Section 3.1
+			headers = []string{
+				`Bearer realm="api"`,
+			}
+			errorDescription = ""
+		} else {
+			// Include error information if provided (backward compatibility)
+			headers = []string{
+				`Bearer realm="api", error="invalid_request", error_description="` + err.Message + `"`,
+			}
+			errorDescription = err.Message
 		}
 		return http.StatusBadRequest, ErrorResponse{
 			Error:            "invalid_request",
-			ErrorDescription: "DPoP tokens are not allowed (Bearer only)",
+			ErrorDescription: errorDescription,
 			ErrorCode:        err.Code,
 		}, headers
 
@@ -254,14 +280,26 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 	// - Missing required parameters
 	// - Otherwise malformed requests
 	case core.ErrorCodeInvalidRequest:
-		headers := buildWWWAuthenticateHeaders(
-			"invalid_request", err.Message,
-			authScheme, dpopMode, true, // error in both Bearer and DPoP challenges
-		)
+		// Special handling for RFC 9449 Section 7.2 violations which SHOULD include error_description
+		if strings.Contains(err.Message, "Bearer scheme cannot be used when DPoP proof is present") ||
+			strings.Contains(err.Message, "multiple Authorization headers") {
+			// RFC 9449 Section 7.2 violation: Include error details
+			headers := buildWWWAuthenticateHeaders(
+				"invalid_request", err.Message,
+				authScheme, dpopMode, true, // error in both challenges
+			)
+			return http.StatusBadRequest, ErrorResponse{
+				Error:            "invalid_request",
+				ErrorDescription: err.Message,
+				ErrorCode:        err.Code,
+			}, headers
+		}
+		// General malformed requests: Per RFC 6750 Section 3.1, omit error details
+		headers := buildBareWWWAuthenticateHeaders(dpopMode)
 		return http.StatusBadRequest, ErrorResponse{
-			Error:            "invalid_request",
-			ErrorDescription: err.Message,
-			ErrorCode:        err.Code,
+			Error:     "invalid_request",
+			ErrorCode: err.Code,
+			// ErrorDescription is omitted for malformed requests
 		}, headers
 
 	// RFC 9449 Section 7.1: DPoP scheme without cnf claim = invalid_token

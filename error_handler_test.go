@@ -204,10 +204,10 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			name:                 "DPoP proof missing",
 			err:                  core.NewValidationError(core.ErrorCodeDPoPProofMissing, "DPoP proof is required", core.ErrInvalidDPoPProof),
 			wantStatus:           http.StatusBadRequest,
-			wantError:            "invalid_dpop_proof",
-			wantErrorDescription: "DPoP proof is required",
+			wantError:            "invalid_request",
+			wantErrorDescription: "", // Empty for malformed requests
 			wantErrorCode:        "dpop_proof_missing",
-			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof is required"`,
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
 		},
 		{
 			name:                 "DPoP proof invalid",
@@ -282,13 +282,22 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`,
 		},
 		{
-			name:                 "DPoP not allowed",
+			name:                 "DPoP not allowed - bare challenge (RFC 6750 Section 3.1)",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPNotAllowed, "", core.ErrDPoPNotAllowed),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_request",
+			wantErrorDescription: "",
+			wantErrorCode:        "dpop_not_allowed",
+			wantWWWAuthenticate:  `Bearer realm="api"`,
+		},
+		{
+			name:                 "DPoP not allowed - with message (backward compatibility)",
 			err:                  core.NewValidationError(core.ErrorCodeDPoPNotAllowed, "DPoP tokens are not allowed", core.ErrDPoPNotAllowed),
 			wantStatus:           http.StatusBadRequest,
 			wantError:            "invalid_request",
-			wantErrorDescription: "DPoP tokens are not allowed (Bearer only)",
+			wantErrorDescription: "DPoP tokens are not allowed",
 			wantErrorCode:        "dpop_not_allowed",
-			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_request", error_description="DPoP tokens are not allowed (Bearer only)"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_request", error_description="DPoP tokens are not allowed"`,
 		},
 		{
 			name:                 "Config invalid",
@@ -344,7 +353,6 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 	// Tests for RFC 9449 Section 6.1: When DPoP is allowed (not required),
 	// WWW-Authenticate should include BOTH Bearer and DPoP challenges.
-	// This matches the CSV test cases for "dpop: {enabled: true, required: false}"
 	tests := []struct {
 		name                    string
 		err                     error
@@ -392,12 +400,12 @@ func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
 			err:                    core.NewValidationError(core.ErrorCodeDPoPProofMissing, "Operation indicated DPoP use but the request has no DPoP HTTP Header", core.ErrInvalidDPoPProof),
 			authScheme:             AuthSchemeDPoP,
 			wantStatus:             http.StatusBadRequest,
-			wantError:              "invalid_dpop_proof",
-			wantErrorDescription:   "Operation indicated DPoP use but the request has no DPoP HTTP Header",
+			wantError:              "invalid_request",
+			wantErrorDescription:   "", // Empty per RFC 6750 Section 3.1 - malformed requests omit error_description
 			wantErrorCode:          "dpop_proof_missing",
 			wantWWWAuthenticateAll: []string{
 				`Bearer realm="api"`,
-				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="Operation indicated DPoP use but the request has no DPoP HTTP Header"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
 			},
 			wantBearerChallenge: true,
 			wantDPoPChallenge:   true,

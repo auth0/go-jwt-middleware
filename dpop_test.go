@@ -41,7 +41,7 @@ func TestDPoPHeaderExtractor(t *testing.T) {
 		proof, err := DPoPHeaderExtractor(req)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "multiple DPoP headers are not allowed")
+		assert.Contains(t, err.Error(), "Multiple DPoP proofs are not allowed")
 		assert.Equal(t, "", proof)
 	})
 

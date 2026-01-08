@@ -189,16 +189,16 @@ func (c *Core) CheckTokenWithDPoP(
 		c.logWarn("No token provided and credentials are required")
 
 		// If DPoP proof is present but Authorization header is missing, it's a malformed request (400)
-		// Per CSV Row 27: Missing auth + DPoP proof = invalid_request
+		// Per RFC 6750 Section 3.1: Malformed requests should return bare WWW-Authenticate challenge
 		if dpopProof != "" {
 			return nil, nil, NewValidationError(
 				ErrorCodeInvalidRequest,
-				"Authorization header is required when DPoP proof is present",
+				"", // Empty per RFC 6750 Section 3.1 for malformed requests
 				ErrInvalidRequest,
 			)
 		}
 
-		// In Required mode, missing auth should return invalid_request (400) per CSV spec
+		// In Required mode, missing auth should return invalid_request (400)
 		if c.dpopMode == DPoPRequired {
 			return nil, nil, NewValidationError(
 				ErrorCodeInvalidRequest,
@@ -209,36 +209,33 @@ func (c *Core) CheckTokenWithDPoP(
 		return nil, nil, ErrJWTMissing
 	}
 
-	// Step 1.5: Early scheme validation (CSV compliance - check scheme BEFORE token validation)
+	// Step 1.5: Early scheme validation (check scheme BEFORE token validation)
 	// This prevents revealing token validity information when the scheme is not allowed.
 	//
 	// DPoP Required mode: Only DPoP scheme is allowed
+	// Per RFC 6750 Section 3.1: unsupported authentication methods should return
+	// invalid_request with NO error_description (bare WWW-Authenticate challenge)
 	if c.dpopMode == DPoPRequired && authScheme == AuthSchemeBearer {
-		// Special case: Bearer + DPoP proof violates RFC 9449 Section 7.2
-		// This should be invalid_request, not bearer_not_allowed
-		if dpopProof != "" {
-			c.logError("Bearer authorization scheme used with DPoP proof header (RFC 9449 Section 7.2 violation)")
-			return nil, nil, NewValidationError(
-				ErrorCodeInvalidRequest,
-				"Bearer scheme cannot be used when DPoP proof is present (use DPoP scheme instead)",
-				ErrInvalidRequest,
-			)
-		}
-		// Pure Bearer token in Required mode
-		c.logError("Bearer authorization scheme used but DPoP is required")
+		c.logError("Bearer authorization scheme used but DPoP Required mode only accepts DPoP scheme")
+		// Per RFC 6750 Section 3.1: unsupported authentication methods should return
+		// invalid_request with NO error_description (bare WWW-Authenticate challenge)
 		return nil, nil, NewValidationError(
-			ErrorCodeBearerNotAllowed,
-			"Bearer tokens are not allowed (DPoP required)",
-			ErrBearerNotAllowed,
+			ErrorCodeInvalidRequest,
+			"", // Empty per RFC 6750 Section 3.1 for unsupported authentication methods
+			ErrInvalidRequest,
 		)
 	}
 
 	// DPoP Disabled mode: Only Bearer scheme is allowed
+	// Per RFC 6750 Section 3.1: unsupported authentication methods should return
+	// invalid_request with NO error_description (bare WWW-Authenticate challenge)
 	if c.dpopMode == DPoPDisabled && authScheme == AuthSchemeDPoP {
 		c.logError("DPoP authorization scheme used but DPoP is disabled")
+		// Per RFC 6750 Section 3.1: unsupported authentication methods should return
+		// invalid_request with NO error_description (bare WWW-Authenticate challenge)
 		return nil, nil, NewValidationError(
 			ErrorCodeDPoPNotAllowed,
-			"DPoP tokens are not allowed (DPoP is disabled)",
+			"", // Empty per RFC 6750 Section 3.1 for unsupported authentication methods
 			ErrDPoPNotAllowed,
 		)
 	}
@@ -349,11 +346,11 @@ func (c *Core) handleBearerToken(claims any, hasConfirmationClaim bool, authSche
 		// DPoP-bound token used with Bearer scheme (no proof)
 		// This is a token validation error (401) - the token type is wrong for Bearer scheme
 		if authScheme == AuthSchemeBearer {
-			c.logError("DPoP-bound token used with Bearer scheme requires DPoP proof",
+			c.logError("DPoP-bound token requires the DPoP authentication scheme, not Bearer",
 				"authScheme", string(authScheme))
 			return nil, nil, NewValidationError(
 				ErrorCodeInvalidToken,
-				"DPoP-bound token used with Bearer scheme requires DPoP proof",
+				"DPoP-bound token requires the DPoP authentication scheme, not Bearer",
 				ErrJWTInvalid,
 			)
 		}
