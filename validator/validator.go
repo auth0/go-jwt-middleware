@@ -34,12 +34,12 @@ const (
 
 // Validator validates JWTs using the jwx v3 library.
 type Validator struct {
-	keyFunc            func(context.Context) (interface{}, error) // Required.
-	signatureAlgorithm SignatureAlgorithm                         // Required.
-	expectedIssuers    []string                                   // Required.
-	expectedAudiences  []string                                   // Required.
-	customClaims       func() CustomClaims                        // Optional.
-	allowedClockSkew   time.Duration                              // Optional.
+	keyFunc            func(context.Context) (any, error) // Required.
+	signatureAlgorithm SignatureAlgorithm                 // Required.
+	expectedIssuers    []string                           // Required.
+	expectedAudiences  []string                           // Required.
+	customClaims       func() CustomClaims                // Optional.
+	allowedClockSkew   time.Duration                      // Optional.
 }
 
 // SignatureAlgorithm is a signature algorithm.
@@ -61,6 +61,28 @@ var allowedSigningAlgorithms = map[SignatureAlgorithm]bool{
 	PS384:  true,
 	PS512:  true,
 }
+
+// allowedDPoPAlgorithms contains only asymmetric algorithms per RFC 9449 Section 4.3.2.
+// DPoP proofs MUST use asymmetric (public key) cryptographic algorithms.
+// Symmetric algorithms (HS*) are explicitly excluded because using shared secrets
+// would defeat the sender-constraining purpose of DPoP.
+// ES256K (secp256k1 curve) is excluded as it's not standardized for DPoP in RFC 9449.
+var allowedDPoPAlgorithms = map[SignatureAlgorithm]bool{
+	EdDSA: true, // Edwards-curve Digital Signature Algorithm
+	RS256: true, // RSASSA-PKCS1-v1_5 using SHA-256
+	RS384: true, // RSASSA-PKCS1-v1_5 using SHA-384
+	RS512: true, // RSASSA-PKCS1-v1_5 using SHA-512
+	ES256: true, // ECDSA using P-256 and SHA-256
+	ES384: true, // ECDSA using P-384 and SHA-384
+	ES512: true, // ECDSA using P-521 and SHA-512
+	PS256: true, // RSASSA-PSS using SHA-256 and MGF1-SHA256
+	PS384: true, // RSASSA-PSS using SHA-384 and MGF1-SHA384
+	PS512: true, // RSASSA-PSS using SHA-512 and MGF1-SHA512
+}
+
+// DPoPSupportedAlgorithms is a space-separated list of supported DPoP algorithms
+// for use in WWW-Authenticate headers per RFC 9449 Section 7.1.
+const DPoPSupportedAlgorithms = "ES256 ES384 ES512 RS256 RS384 RS512 PS256 PS384 PS512 EdDSA"
 
 // New creates a new Validator with the provided options.
 //
@@ -131,7 +153,7 @@ func (v *Validator) validate() error {
 
 // ValidateToken validates the passed in JWT.
 // This method is optimized for performance and abstracts the underlying JWT library.
-func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (interface{}, error) {
+func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any, error) {
 	// Get the verification key
 	key, err := v.keyFunc(ctx)
 	if err != nil {
@@ -155,7 +177,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (inte
 
 // parseToken parses and performs basic validation on the token.
 // Abstraction point: This method wraps the underlying JWT library's parsing.
-func (v *Validator) parseToken(_ context.Context, tokenString string, key interface{}) (jwt.Token, error) {
+func (v *Validator) parseToken(_ context.Context, tokenString string, key any) (jwt.Token, error) {
 	// Convert string algorithm to jwa.SignatureAlgorithm
 	jwxAlg, err := stringToJWXAlgorithm(string(v.signatureAlgorithm))
 	if err != nil {
@@ -230,9 +252,20 @@ func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Toke
 		}
 	}
 
+	// Extract cnf (confirmation) claim for DPoP binding if present
+	var confirmationClaim *ConfirmationClaim
+	cnf, err := v.extractConfirmationClaim(tokenString)
+	if err != nil {
+		// Don't fail if cnf extraction fails - it's optional
+		// The cnf claim may not be present for Bearer tokens
+	} else if cnf != nil {
+		confirmationClaim = cnf
+	}
+
 	return &ValidatedClaims{
-		RegisteredClaims: registeredClaims,
-		CustomClaims:     customClaims,
+		RegisteredClaims:  registeredClaims,
+		CustomClaims:      customClaims,
+		ConfirmationClaim: confirmationClaim,
 	}, nil
 }
 
@@ -270,6 +303,34 @@ func (v *Validator) extractCustomClaims(ctx context.Context, tokenString string)
 
 func (v *Validator) customClaimsExist() bool {
 	return v.customClaims != nil && v.customClaims() != nil
+}
+
+// extractConfirmationClaim extracts the cnf (confirmation) claim from the token string.
+// This claim is used for DPoP (Demonstrating Proof-of-Possession) token binding per RFC 7800 and RFC 9449.
+// Returns nil if the cnf claim is not present (which is normal for Bearer tokens).
+func (v *Validator) extractConfirmationClaim(tokenString string) (*ConfirmationClaim, error) {
+	// JWT format: header.payload.signature
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
+	}
+
+	// Decode the payload using base64url encoding
+	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode JWT payload: %w", err)
+	}
+
+	// Unmarshal only the cnf claim from the payload
+	var payload struct {
+		Cnf *ConfirmationClaim `json:"cnf,omitempty"`
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	// Return nil if cnf claim is not present (normal for Bearer tokens)
+	return payload.Cnf, nil
 }
 
 // validateIssuer checks if the token issuer matches one of the expected issuers.

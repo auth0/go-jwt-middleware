@@ -23,7 +23,7 @@ var (
 	audience = []string{"audience-example"}
 
 	// Our token must be signed using this data.
-	keyFunc = func(ctx context.Context) (interface{}, error) {
+	keyFunc = func(ctx context.Context) (any, error) {
 		return signingKey, nil
 	}
 )

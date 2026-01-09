@@ -9,14 +9,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockValidator is a mock implementation of TokenValidator for testing.
+// mockValidator is a mock implementation of Validator for testing.
 type mockValidator struct {
-	validateFunc func(ctx context.Context, token string) (any, error)
+	validateFunc     func(ctx context.Context, token string) (any, error)
+	dpopValidateFunc func(ctx context.Context, proof string) (DPoPProofClaims, error)
 }
 
 func (m *mockValidator) ValidateToken(ctx context.Context, token string) (any, error) {
 	if m.validateFunc != nil {
 		return m.validateFunc(ctx, token)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockValidator) ValidateDPoPProof(ctx context.Context, proof string) (DPoPProofClaims, error) {
+	if m.dpopValidateFunc != nil {
+		return m.dpopValidateFunc(ctx, proof)
 	}
 	return nil, errors.New("not implemented")
 }

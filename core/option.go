@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"time"
 )
 
 // Option is a function that configures the Core.
@@ -26,6 +27,9 @@ type Option func(*Core) error
 func New(opts ...Option) (*Core, error) {
 	c := &Core{
 		credentialsOptional: false, // Secure default: require credentials
+		dpopMode:            DPoPAllowed,
+		dpopProofOffset:     300 * time.Second, // Default: 300s (5 minutes) max age for DPoP proofs
+		dpopIATLeeway:       30 * time.Second,  // Default: 30s clock skew allowance
 	}
 
 	// Apply all options
@@ -55,9 +59,10 @@ func (c *Core) validate() error {
 	return nil
 }
 
-// WithValidator sets the token validator for the Core.
-// This is a required option.
-func WithValidator(validator TokenValidator) Option {
+// WithValidator sets the validator for the Core.
+// This is a required option. The validator must implement both ValidateToken
+// and ValidateDPoPProof methods.
+func WithValidator(validator Validator) Option {
 	return func(c *Core) error {
 		if validator == nil {
 			return errors.New("validator cannot be nil")
@@ -103,6 +108,68 @@ func WithLogger(logger Logger) Option {
 			return errors.New("logger cannot be nil")
 		}
 		c.logger = logger
+		return nil
+	}
+}
+
+// WithDPoPMode configures the DPoP operational mode.
+//
+// Modes:
+//   - DPoPAllowed (default): Accept both Bearer and DPoP tokens
+//   - DPoPRequired: Only accept DPoP tokens, reject Bearer tokens
+//   - DPoPDisabled: Only accept Bearer tokens, ignore DPoP headers
+//
+// Example:
+//
+//	core, _ := core.New(
+//	    core.WithValidator(validator),
+//	    core.WithDPoPMode(core.DPoPRequired),
+//	)
+func WithDPoPMode(mode DPoPMode) Option {
+	return func(c *Core) error {
+		c.dpopMode = mode
+		return nil
+	}
+}
+
+// WithDPoPProofOffset sets the maximum age offset for DPoP proofs.
+// This determines how far in the past a DPoP proof's iat timestamp can be.
+//
+// Default: 300 seconds (5 minutes)
+//
+// Use a shorter duration for high-security environments:
+//
+//	core, _ := core.New(
+//	    core.WithValidator(validator),
+//	    core.WithDPoPProofOffset(60 * time.Second), // Stricter: 60s
+//	)
+func WithDPoPProofOffset(offset time.Duration) Option {
+	return func(c *Core) error {
+		if offset < 0 {
+			return errors.New("DPoP proof offset cannot be negative")
+		}
+		c.dpopProofOffset = offset
+		return nil
+	}
+}
+
+// WithDPoPIATLeeway sets the clock skew allowance for future iat claims in DPoP proofs.
+// This allows DPoP proofs with iat timestamps slightly in the future due to clock drift.
+//
+// Default: 30 seconds
+//
+// Adjust this if you have different clock skew requirements:
+//
+//	core, _ := core.New(
+//	    core.WithValidator(validator),
+//	    core.WithDPoPIATLeeway(60 * time.Second), // More lenient: 60s
+//	)
+func WithDPoPIATLeeway(leeway time.Duration) Option {
+	return func(c *Core) error {
+		if leeway < 0 {
+			return errors.New("DPoP IAT leeway cannot be negative")
+		}
+		c.dpopIATLeeway = leeway
 		return nil
 	}
 }

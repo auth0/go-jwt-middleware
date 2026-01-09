@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
+	"github.com/auth0/go-jwt-middleware/v3/core"
 	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
@@ -12,48 +14,40 @@ import (
 // Returns error for validation failures.
 type Option func(*JWTMiddleware) error
 
-// TokenValidator defines the interface for token validation.
-// This interface is satisfied by *validator.Validator and allows
-// explicit passing of validation methods.
-type TokenValidator interface {
-	ValidateToken(ctx context.Context, token string) (any, error)
-}
-
-// validatorAdapter adapts the TokenValidator to the core.TokenValidator interface
+// validatorAdapter adapts the validator.Validator to the core.Validator interface
 type validatorAdapter struct {
-	validator TokenValidator
+	validator *validator.Validator
 }
 
 func (v *validatorAdapter) ValidateToken(ctx context.Context, token string) (any, error) {
 	return v.validator.ValidateToken(ctx, token)
 }
 
-// WithValidator sets the validator instance to validate tokens (REQUIRED).
-// The validator must be a *validator.Validator instance.
-// This approach allows explicit passing of validation methods and future
-// extensibility for methods like ValidateDPoP.
+func (v *validatorAdapter) ValidateDPoPProof(ctx context.Context, proofString string) (core.DPoPProofClaims, error) {
+	return v.validator.ValidateDPoPProof(ctx, proofString)
+}
+
+// WithValidator configures the middleware with a JWT validator.
+// This is the REQUIRED way to configure the middleware.
+//
+// The validator must implement ValidateToken, and optionally ValidateDPoPProof
+// for DPoP support. The Auth0 validator package provides both methods automatically.
 //
 // Example:
 //
-//	v, err := validator.New(
-//	    validator.WithKeyFunc(keyFunc),
-//	    validator.WithAlgorithm(validator.RS256),
-//	    validator.WithIssuer("https://issuer.example.com/"),
-//	    validator.WithAudience("my-api"),
-//	)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
+//	validator, _ := validator.New(...)  // Supports both JWT and DPoP
 //	middleware, err := jwtmiddleware.New(
-//	    jwtmiddleware.WithValidator(v),
+//	    jwtmiddleware.WithValidator(validator),
 //	)
 func WithValidator(v *validator.Validator) Option {
 	return func(m *JWTMiddleware) error {
 		if v == nil {
 			return ErrValidatorNil
 		}
+
+		// Store the validator instance
 		m.validator = v
+
 		return nil
 	}
 }
@@ -136,7 +130,7 @@ func WithExclusionUrls(exclusions []string) Option {
 // Example:
 //
 //	middleware, err := jwtmiddleware.New(
-//	    jwtmiddleware.WithValidator(validator),
+//	    jwtmiddleware.WithValidateToken(validator.ValidateToken),
 //	    jwtmiddleware.WithLogger(slog.Default()),
 //	)
 func WithLogger(logger Logger) Option {
@@ -149,11 +143,101 @@ func WithLogger(logger Logger) Option {
 	}
 }
 
+// WithDPoPHeaderExtractor sets a custom DPoP header extractor.
+// Optional - defaults to extracting from the "DPoP" HTTP header per RFC 9449.
+//
+// Use this for non-standard scenarios:
+//   - Custom header names (e.g., "X-DPoP-Proof")
+//   - Header transformations (e.g., base64 decoding)
+//   - Alternative sources (e.g., query parameters)
+//   - Testing/mocking
+//
+// Example (custom header name):
+//
+//	middleware, err := jwtmiddleware.New(
+//	    jwtmiddleware.WithValidator(validator),
+//	    jwtmiddleware.WithDPoPHeaderExtractor(func(r *http.Request) (string, error) {
+//	        return r.Header.Get("X-DPoP-Proof"), nil
+//	    }),
+//	)
+func WithDPoPHeaderExtractor(extractor func(*http.Request) (string, error)) Option {
+	return func(m *JWTMiddleware) error {
+		if extractor == nil {
+			return ErrDPoPHeaderExtractorNil
+		}
+		m.dpopHeaderExtractor = extractor
+		return nil
+	}
+}
+
+// WithDPoPMode sets the DPoP operational mode.
+//
+// Modes:
+//   - core.DPoPAllowed (default): Accept both Bearer and DPoP tokens
+//   - core.DPoPRequired: Only accept DPoP tokens, reject Bearer tokens
+//   - core.DPoPDisabled: Only accept Bearer tokens, ignore DPoP headers
+//
+// Example:
+//
+//	middleware, err := jwtmiddleware.New(
+//	    jwtmiddleware.WithValidator(validator),
+//	    jwtmiddleware.WithDPoPMode(core.DPoPRequired), // Require DPoP
+//	)
+func WithDPoPMode(mode core.DPoPMode) Option {
+	return func(m *JWTMiddleware) error {
+		m.dpopMode = &mode
+		return nil
+	}
+}
+
+// WithDPoPProofOffset sets the maximum age for DPoP proofs.
+// This determines how far in the past a DPoP proof's iat timestamp can be.
+//
+// Default: 300 seconds (5 minutes)
+//
+// Example:
+//
+//	middleware, err := jwtmiddleware.New(
+//	    jwtmiddleware.WithValidator(validator),
+//	    jwtmiddleware.WithDPoPProofOffset(60 * time.Second), // Stricter: 60s
+//	)
+func WithDPoPProofOffset(offset time.Duration) Option {
+	return func(m *JWTMiddleware) error {
+		if offset < 0 {
+			return errors.New("DPoP proof offset cannot be negative")
+		}
+		m.dpopProofOffset = &offset
+		return nil
+	}
+}
+
+// WithDPoPIATLeeway sets the clock skew allowance for DPoP proof iat claims.
+// This allows DPoP proofs with iat timestamps slightly in the future due to clock drift.
+//
+// Default: 5 seconds
+//
+// Example:
+//
+//	middleware, err := jwtmiddleware.New(
+//	    jwtmiddleware.WithValidator(validator),
+//	    jwtmiddleware.WithDPoPIATLeeway(30 * time.Second), // More lenient: 30s
+//	)
+func WithDPoPIATLeeway(leeway time.Duration) Option {
+	return func(m *JWTMiddleware) error {
+		if leeway < 0 {
+			return errors.New("DPoP IAT leeway cannot be negative")
+		}
+		m.dpopIATLeeway = &leeway
+		return nil
+	}
+}
+
 // Sentinel errors for configuration validation
 var (
-	ErrValidatorNil       = errors.New("validator cannot be nil (use WithValidator)")
-	ErrErrorHandlerNil    = errors.New("errorHandler cannot be nil")
-	ErrTokenExtractorNil  = errors.New("tokenExtractor cannot be nil")
-	ErrExclusionUrlsEmpty = errors.New("exclusion URLs list cannot be empty")
-	ErrLoggerNil          = errors.New("logger cannot be nil")
+	ErrValidatorNil           = errors.New("validator cannot be nil (use WithValidator)")
+	ErrErrorHandlerNil        = errors.New("errorHandler cannot be nil")
+	ErrTokenExtractorNil      = errors.New("tokenExtractor cannot be nil")
+	ErrExclusionUrlsEmpty     = errors.New("exclusion URLs list cannot be empty")
+	ErrLoggerNil              = errors.New("logger cannot be nil")
+	ErrDPoPHeaderExtractorNil = errors.New("DPoP header extractor cannot be nil")
 )

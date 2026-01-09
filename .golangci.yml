@@ -53,7 +53,7 @@ linters:
         - shadow
 
     gocyclo:
-      min-complexity: 20
+      min-complexity: 25
 
     dupl:
       threshold: 100

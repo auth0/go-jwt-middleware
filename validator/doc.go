@@ -140,7 +140,7 @@ For symmetric key algorithms (HS256, HS384, HS512):
 
 	secretKey := []byte("your-256-bit-secret")
 
-	keyFunc := func(ctx context.Context) (interface{}, error) {
+	keyFunc := func(ctx context.Context) (any, error) {
 	    return secretKey, nil
 	}
 
@@ -167,7 +167,7 @@ For asymmetric algorithms (RS256, PS256, ES256, etc.):
 	pubKey, _ := x509.ParsePKIXPublicKey(block.Bytes)
 	rsaPublicKey := pubKey.(*rsa.PublicKey)
 
-	keyFunc := func(ctx context.Context) (interface{}, error) {
+	keyFunc := func(ctx context.Context) (any, error) {
 	    return rsaPublicKey, nil
 	}
 

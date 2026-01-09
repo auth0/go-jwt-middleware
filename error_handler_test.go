@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 func TestDefaultErrorHandler(t *testing.T) {
@@ -23,12 +24,13 @@ func TestDefaultErrorHandler(t *testing.T) {
 		wantWWWAuthenticate  string
 	}{
 		{
-			name:                 "ErrJWTMissing",
-			err:                  ErrJWTMissing,
-			wantStatus:           http.StatusUnauthorized,
-			wantError:            "invalid_token",
-			wantErrorDescription: "JWT is missing",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="JWT is missing"`,
+			name:       "ErrJWTMissing",
+			err:        ErrJWTMissing,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
+			wantErrorDescription: "",
+			wantWWWAuthenticate:  `Bearer realm="api"`,
 		},
 		{
 			name:                 "ErrJWTInvalid",
@@ -36,7 +38,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantStatus:           http.StatusUnauthorized,
 			wantError:            "invalid_token",
 			wantErrorDescription: "JWT is invalid",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="JWT is invalid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="JWT is invalid"`,
 		},
 		{
 			name:                 "token expired",
@@ -45,7 +47,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token expired",
 			wantErrorCode:        "token_expired",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token expired"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token expired"`,
 		},
 		{
 			name:                 "token not yet valid",
@@ -54,7 +56,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token is not yet valid",
 			wantErrorCode:        "token_not_yet_valid",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token is not yet valid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token is not yet valid"`,
 		},
 		{
 			name:                 "invalid signature",
@@ -63,7 +65,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token signature is invalid",
 			wantErrorCode:        "invalid_signature",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token signature is invalid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token signature is invalid"`,
 		},
 		{
 			name:                 "token malformed",
@@ -72,7 +74,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_request",
 			wantErrorDescription: "The access token is malformed",
 			wantErrorCode:        "token_malformed",
-			wantWWWAuthenticate:  `Bearer error="invalid_request", error_description="The access token is malformed"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_request", error_description="The access token is malformed"`,
 		},
 		{
 			name:                 "invalid issuer",
@@ -81,7 +83,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "insufficient_scope",
 			wantErrorDescription: "The access token was issued by an untrusted issuer",
 			wantErrorCode:        "invalid_issuer",
-			wantWWWAuthenticate:  `Bearer error="insufficient_scope", error_description="The access token was issued by an untrusted issuer"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="insufficient_scope", error_description="The access token was issued by an untrusted issuer"`,
 		},
 		{
 			name:                 "invalid audience",
@@ -90,7 +92,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "insufficient_scope",
 			wantErrorDescription: "The access token audience does not match",
 			wantErrorCode:        "invalid_audience",
-			wantWWWAuthenticate:  `Bearer error="insufficient_scope", error_description="The access token audience does not match"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="insufficient_scope", error_description="The access token audience does not match"`,
 		},
 		{
 			name:                 "invalid algorithm",
@@ -99,7 +101,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token uses an unsupported algorithm",
 			wantErrorCode:        "invalid_algorithm",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token uses an unsupported algorithm"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token uses an unsupported algorithm"`,
 		},
 		{
 			name:                 "JWKS fetch failed",
@@ -108,7 +110,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "Unable to verify the access token",
 			wantErrorCode:        "jwks_fetch_failed",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="Unable to verify the access token"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="Unable to verify the access token"`,
 		},
 		{
 			name:                 "JWKS key not found",
@@ -117,7 +119,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "Unable to verify the access token",
 			wantErrorCode:        "jwks_key_not_found",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="Unable to verify the access token"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="Unable to verify the access token"`,
 		},
 		{
 			name:                 "unknown validation error",
@@ -126,7 +128,7 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantError:            "invalid_token",
 			wantErrorDescription: "The access token is invalid",
 			wantErrorCode:        "unknown_code",
-			wantWWWAuthenticate:  `Bearer error="invalid_token", error_description="The access token is invalid"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token is invalid"`,
 		},
 		{
 			name:                 "generic error",
@@ -142,6 +144,12 @@ func TestDefaultErrorHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+			// Set context for backward compatibility - use DPoPDisabled mode for Bearer-only tests
+			ctx := r.Context()
+			ctx = core.SetDPoPMode(ctx, core.DPoPDisabled)
+			ctx = core.SetAuthScheme(ctx, AuthSchemeBearer)
+			r = r.WithContext(ctx)
 
 			DefaultErrorHandler(w, r, tt.err)
 
@@ -167,6 +175,520 @@ func TestDefaultErrorHandler(t *testing.T) {
 			assert.Equal(t, tt.wantErrorDescription, resp.ErrorDescription)
 			if tt.wantErrorCode != "" {
 				assert.Equal(t, tt.wantErrorCode, resp.ErrorCode)
+			}
+		})
+	}
+}
+
+func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
+	tests := []struct {
+		name                 string
+		err                  error
+		wantStatus           int
+		wantError            string
+		wantErrorDescription string
+		wantErrorCode        string
+		wantWWWAuthenticate  string
+	}{
+		{
+			name:       "Missing token - DPoP Required mode only",
+			err:        ErrJWTMissing,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
+			// In DPoP Required mode, only DPoP challenge should be returned
+			wantErrorDescription: "",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+		},
+		{
+			name:                 "DPoP proof missing",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPProofMissing, "DPoP proof is required", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_request",
+			wantErrorDescription: "", // Empty for malformed requests
+			wantErrorCode:        "dpop_proof_missing",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+		},
+		{
+			name:                 "DPoP proof invalid",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPProofInvalid, "DPoP proof JWT validation failed", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_dpop_proof",
+			wantErrorDescription: "DPoP proof JWT validation failed",
+			wantErrorCode:        "dpop_proof_invalid",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof JWT validation failed"`,
+		},
+		{
+			name:                 "DPoP HTM mismatch",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPHTMMismatch, "DPoP proof HTM does not match", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_dpop_proof",
+			wantErrorDescription: "DPoP proof HTM does not match",
+			wantErrorCode:        "dpop_htm_mismatch",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof HTM does not match"`,
+		},
+		{
+			name:                 "DPoP HTU mismatch",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPHTUMismatch, "DPoP proof HTU does not match", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_dpop_proof",
+			wantErrorDescription: "DPoP proof HTU does not match",
+			wantErrorCode:        "dpop_htu_mismatch",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof HTU does not match"`,
+		},
+		{
+			name:                 "DPoP proof expired",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPProofExpired, "DPoP proof is too old", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_dpop_proof",
+			wantErrorDescription: "DPoP proof is too old",
+			wantErrorCode:        "dpop_proof_expired",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof is too old"`,
+		},
+		{
+			name:                 "DPoP proof too new",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPProofTooNew, "DPoP proof iat is in the future", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_dpop_proof",
+			wantErrorDescription: "DPoP proof iat is in the future",
+			wantErrorCode:        "dpop_proof_too_new",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof iat is in the future"`,
+		},
+		{
+			name:                 "DPoP ATH mismatch",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPATHMismatch, "DPoP proof ath does not match access token hash", core.ErrInvalidDPoPProof),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_dpop_proof",
+			wantErrorDescription: "DPoP proof ath does not match access token hash",
+			wantErrorCode:        "dpop_ath_mismatch",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof ath does not match access token hash"`,
+		},
+		{
+			name:                 "DPoP binding mismatch",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPBindingMismatch, "JKT does not match cnf claim", core.ErrDPoPBindingMismatch),
+			wantStatus:           http.StatusUnauthorized,
+			wantError:            "invalid_token",
+			wantErrorDescription: "JKT does not match cnf claim",
+			wantErrorCode:        "dpop_binding_mismatch",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="JKT does not match cnf claim"`,
+		},
+		{
+			name:                 "Bearer not allowed",
+			err:                  core.NewValidationError(core.ErrorCodeBearerNotAllowed, "Bearer tokens are not allowed", core.ErrBearerNotAllowed),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_request",
+			wantErrorDescription: "Bearer tokens are not allowed (DPoP required)",
+			wantErrorCode:        "bearer_not_allowed",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`,
+		},
+		{
+			name:                 "DPoP not allowed - bare challenge (RFC 6750 Section 3.1)",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPNotAllowed, "", core.ErrDPoPNotAllowed),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_request",
+			wantErrorDescription: "",
+			wantErrorCode:        "dpop_not_allowed",
+			wantWWWAuthenticate:  `Bearer realm="api"`,
+		},
+		{
+			name:                 "DPoP not allowed - with message (backward compatibility)",
+			err:                  core.NewValidationError(core.ErrorCodeDPoPNotAllowed, "DPoP tokens are not allowed", core.ErrDPoPNotAllowed),
+			wantStatus:           http.StatusBadRequest,
+			wantError:            "invalid_request",
+			wantErrorDescription: "DPoP tokens are not allowed",
+			wantErrorCode:        "dpop_not_allowed",
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_request", error_description="DPoP tokens are not allowed"`,
+		},
+		{
+			name:                 "Config invalid",
+			err:                  core.NewValidationError(core.ErrorCodeConfigInvalid, "Configuration is invalid", nil),
+			wantStatus:           http.StatusUnauthorized,
+			wantError:            "invalid_token",
+			wantErrorDescription: "The access token is invalid",
+			wantErrorCode:        "config_invalid",
+			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="The access token is invalid"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+			// Set context for DPoP required mode tests - use DPoPRequired to get DPoP-only challenges
+			ctx := r.Context()
+			ctx = core.SetDPoPMode(ctx, core.DPoPRequired)
+			ctx = core.SetAuthScheme(ctx, AuthSchemeDPoP)
+			r = r.WithContext(ctx)
+
+			DefaultErrorHandler(w, r, tt.err)
+
+			// Check status code
+			assert.Equal(t, tt.wantStatus, w.Code)
+
+			// Check Content-Type
+			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+			// Check WWW-Authenticate header
+			if tt.wantWWWAuthenticate != "" {
+				assert.Equal(t, tt.wantWWWAuthenticate, w.Header().Get("WWW-Authenticate"))
+			} else {
+				assert.Empty(t, w.Header().Get("WWW-Authenticate"))
+			}
+
+			// Check response body
+			var resp ErrorResponse
+			err := json.NewDecoder(w.Body).Decode(&resp)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantError, resp.Error)
+			assert.Equal(t, tt.wantErrorDescription, resp.ErrorDescription)
+			if tt.wantErrorCode != "" {
+				assert.Equal(t, tt.wantErrorCode, resp.ErrorCode)
+			}
+		})
+	}
+}
+
+func TestDefaultErrorHandler_DPoPAllowed_DualChallenges(t *testing.T) {
+	// Tests for RFC 9449 Section 6.1: When DPoP is allowed (not required),
+	// WWW-Authenticate should include BOTH Bearer and DPoP challenges.
+	tests := []struct {
+		name                    string
+		err                     error
+		authScheme              AuthScheme
+		wantStatus              int
+		wantError               string
+		wantErrorDescription    string
+		wantErrorCode           string
+		wantWWWAuthenticateAll  []string // All WWW-Authenticate headers (order matters)
+		wantBearerChallenge     bool     // Should have Bearer challenge
+		wantDPoPChallenge       bool     // Should have DPoP challenge
+	}{
+		{
+			name:                   "Bearer scheme with DPoP proof - invalid_request",
+			err:                    core.NewValidationError(core.ErrorCodeInvalidRequest, "Bearer scheme cannot be used when DPoP proof is present", nil),
+			authScheme:             AuthSchemeBearer,
+			wantStatus:             http.StatusBadRequest,
+			wantError:              "invalid_request",
+			wantErrorDescription:   "Bearer scheme cannot be used when DPoP proof is present",
+			wantErrorCode:          "invalid_request",
+			wantWWWAuthenticateAll: []string{
+				`Bearer realm="api", error="invalid_request", error_description="Bearer scheme cannot be used when DPoP proof is present"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="Bearer scheme cannot be used when DPoP proof is present"`,
+			},
+			wantBearerChallenge: true,
+			wantDPoPChallenge:   true,
+		},
+		{
+			name:       "Missing token - both challenges",
+			err:        ErrJWTMissing,
+			authScheme: AuthSchemeUnknown,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			// Per RFC 6750 Section 3.1, when auth is missing, no error codes should be included
+			wantErrorDescription: "",
+			wantWWWAuthenticateAll: []string{
+				`Bearer realm="api"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+			},
+			wantBearerChallenge: true,
+			wantDPoPChallenge:   true,
+		},
+		{
+			name:                   "DPoP proof missing - Bearer + DPoP with error",
+			err:                    core.NewValidationError(core.ErrorCodeDPoPProofMissing, "Operation indicated DPoP use but the request has no DPoP HTTP Header", core.ErrInvalidDPoPProof),
+			authScheme:             AuthSchemeDPoP,
+			wantStatus:             http.StatusBadRequest,
+			wantError:              "invalid_request",
+			wantErrorDescription:   "", // Empty per RFC 6750 Section 3.1 - malformed requests omit error_description
+			wantErrorCode:          "dpop_proof_missing",
+			wantWWWAuthenticateAll: []string{
+				`Bearer realm="api"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+			},
+			wantBearerChallenge: true,
+			wantDPoPChallenge:   true,
+		},
+		{
+			name:                   "DPoP proof invalid - Bearer + DPoP with error",
+			err:                    core.NewValidationError(core.ErrorCodeDPoPProofInvalid, "Failed to verify DPoP proof", core.ErrInvalidDPoPProof),
+			authScheme:             AuthSchemeDPoP,
+			wantStatus:             http.StatusBadRequest,
+			wantError:              "invalid_dpop_proof",
+			wantErrorDescription:   "Failed to verify DPoP proof",
+			wantErrorCode:          "dpop_proof_invalid",
+			wantWWWAuthenticateAll: []string{
+				`Bearer realm="api"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="Failed to verify DPoP proof"`,
+			},
+			wantBearerChallenge: true,
+			wantDPoPChallenge:   true,
+		},
+		{
+			name:                   "DPoP HTM mismatch - Bearer + DPoP with error",
+			err:                    core.NewValidationError(core.ErrorCodeDPoPHTMMismatch, "DPoP proof HTM claim does not match HTTP method", core.ErrInvalidDPoPProof),
+			authScheme:             AuthSchemeDPoP,
+			wantStatus:             http.StatusBadRequest,
+			wantError:              "invalid_dpop_proof",
+			wantErrorDescription:   "DPoP proof HTM claim does not match HTTP method",
+			wantErrorCode:          "dpop_htm_mismatch",
+			wantWWWAuthenticateAll: []string{
+				`Bearer realm="api"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_dpop_proof", error_description="DPoP proof HTM claim does not match HTTP method"`,
+			},
+			wantBearerChallenge: true,
+			wantDPoPChallenge:   true,
+		},
+		{
+			name:                   "DPoP binding mismatch - Bearer + DPoP with error",
+			err:                    core.NewValidationError(core.ErrorCodeDPoPBindingMismatch, "DPoP proof JKT does not match access token cnf claim", core.ErrDPoPBindingMismatch),
+			authScheme:             AuthSchemeDPoP,
+			wantStatus:             http.StatusUnauthorized,
+			wantError:              "invalid_token",
+			wantErrorDescription:   "DPoP proof JKT does not match access token cnf claim",
+			wantErrorCode:          "dpop_binding_mismatch",
+			wantWWWAuthenticateAll: []string{
+				`Bearer realm="api"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="DPoP proof JKT does not match access token cnf claim"`,
+			},
+			wantBearerChallenge: true,
+			wantDPoPChallenge:   true,
+		},
+		{
+			name:                   "Bearer token with error - Bearer with error + DPoP",
+			err:                    core.NewValidationError(core.ErrorCodeInvalidSignature, "signature verification failed", nil),
+			authScheme:             AuthSchemeBearer,
+			wantStatus:             http.StatusUnauthorized,
+			wantError:              "invalid_token",
+			wantErrorDescription:   "The access token signature is invalid",
+			wantErrorCode:          "invalid_signature",
+			wantWWWAuthenticateAll: []string{
+				`Bearer realm="api", error="invalid_token", error_description="The access token signature is invalid"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+			},
+			wantBearerChallenge: true,
+			wantDPoPChallenge:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+			// Set context for DPoP ALLOWED mode (not required) - this should return BOTH challenges
+			ctx := r.Context()
+			ctx = core.SetDPoPMode(ctx, core.DPoPAllowed)
+			ctx = core.SetAuthScheme(ctx, tt.authScheme)
+			r = r.WithContext(ctx)
+
+			DefaultErrorHandler(w, r, tt.err)
+
+			// Check status code
+			assert.Equal(t, tt.wantStatus, w.Code)
+
+			// Check Content-Type
+			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+			// Check WWW-Authenticate headers (multiple headers per RFC 9449 Section 6.1)
+			authHeaders := w.Header().Values("WWW-Authenticate")
+			assert.Len(t, authHeaders, len(tt.wantWWWAuthenticateAll), "Should have %d WWW-Authenticate headers", len(tt.wantWWWAuthenticateAll))
+
+			// Verify both challenges are present
+			if tt.wantBearerChallenge {
+				foundBearer := false
+				for _, h := range authHeaders {
+					if len(h) >= 6 && h[:6] == "Bearer" {
+						foundBearer = true
+						break
+					}
+				}
+				assert.True(t, foundBearer, "Should have Bearer challenge")
+			}
+
+			if tt.wantDPoPChallenge {
+				foundDPoP := false
+				for _, h := range authHeaders {
+					if len(h) >= 4 && h[:4] == "DPoP" {
+						foundDPoP = true
+						break
+					}
+				}
+				assert.True(t, foundDPoP, "Should have DPoP challenge")
+			}
+
+			// Check exact header values (order-dependent)
+			for i, wantHeader := range tt.wantWWWAuthenticateAll {
+				if i < len(authHeaders) {
+					assert.Equal(t, wantHeader, authHeaders[i], "WWW-Authenticate header %d should match", i)
+				}
+			}
+
+			// Check response body
+			var resp ErrorResponse
+			err := json.NewDecoder(w.Body).Decode(&resp)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantError, resp.Error)
+			assert.Equal(t, tt.wantErrorDescription, resp.ErrorDescription)
+			if tt.wantErrorCode != "" {
+				assert.Equal(t, tt.wantErrorCode, resp.ErrorCode)
+			}
+		})
+	}
+}
+
+func TestDefaultErrorHandler_EdgeCases(t *testing.T) {
+	// Test edge cases and defensive branches for complete coverage
+	tests := []struct {
+		name                string
+		err                 error
+		dpopMode            core.DPoPMode
+		authScheme          AuthScheme
+		wantStatus          int
+		wantError           string
+		wantWWWAuthenticate []string
+	}{
+		{
+			name:       "DPoP error when DPoP is disabled (defensive case)",
+			err:        core.NewValidationError(core.ErrorCodeDPoPProofInvalid, "DPoP proof invalid", core.ErrInvalidDPoPProof),
+			dpopMode:   core.DPoPDisabled,
+			authScheme: AuthSchemeDPoP,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid_dpop_proof",
+			wantWWWAuthenticate: []string{
+				`Bearer realm="api", error="invalid_dpop_proof", error_description="DPoP proof invalid"`,
+			},
+		},
+		{
+			name:       "Invalid token error in DPoP allowed mode",
+			err:        core.NewValidationError(core.ErrorCodeInvalidToken, "Token is invalid", nil),
+			dpopMode:   core.DPoPAllowed,
+			authScheme: AuthSchemeBearer,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			wantWWWAuthenticate: []string{
+				`Bearer realm="api", error="invalid_token", error_description="Token is invalid"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+			},
+		},
+		{
+			name:       "Custom claims validation error",
+			err:        core.NewValidationError("custom_error", "Custom validation failed", nil),
+			dpopMode:   core.DPoPAllowed,
+			authScheme: AuthSchemeUnknown,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			wantWWWAuthenticate: []string{
+				`Bearer realm="api", error="invalid_token", error_description="The access token is invalid"`,
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="The access token is invalid"`,
+			},
+		},
+		{
+			name:       "DPoP scheme in allowed mode with token error - tests else branch on line 309",
+			err:        core.NewValidationError(core.ErrorCodeTokenExpired, "Token expired", nil),
+			dpopMode:   core.DPoPAllowed,
+			authScheme: AuthSchemeDPoP,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			wantWWWAuthenticate: []string{
+				`Bearer realm="api"`, // No error in Bearer challenge (line 309 - else branch)
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="The access token expired"`,
+			},
+		},
+		{
+			name:       "Invalid DPoP mode value (defensive default case)",
+			err:        core.NewValidationError(core.ErrorCodeInvalidSignature, "Invalid signature", nil),
+			dpopMode:   core.DPoPMode(99), // Invalid mode to trigger default case
+			authScheme: AuthSchemeBearer,
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "invalid_token",
+			wantWWWAuthenticate: []string{
+				`Bearer realm="api", error="invalid_token", error_description="The access token signature is invalid"`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+			ctx := r.Context()
+			ctx = core.SetDPoPMode(ctx, tt.dpopMode)
+			ctx = core.SetAuthScheme(ctx, tt.authScheme)
+			r = r.WithContext(ctx)
+
+			DefaultErrorHandler(w, r, tt.err)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+			authHeaders := w.Header().Values("WWW-Authenticate")
+			assert.Len(t, authHeaders, len(tt.wantWWWAuthenticate))
+			for i, wantHeader := range tt.wantWWWAuthenticate {
+				if i < len(authHeaders) {
+					assert.Equal(t, wantHeader, authHeaders[i])
+				}
+			}
+
+			var resp ErrorResponse
+			err := json.NewDecoder(w.Body).Decode(&resp)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantError, resp.Error)
+		})
+	}
+}
+
+func TestBuildWWWAuthenticateHeaders_DefaultCases(t *testing.T) {
+	// Tests defensive default cases in the build*WWWAuthenticateHeaders functions
+	tests := []struct {
+		name         string
+		buildFunc    string // which function to test
+		dpopMode     core.DPoPMode
+		wantContains []string
+	}{
+		{
+			name:      "buildBareWWWAuthenticateHeaders with invalid mode",
+			buildFunc: "bare",
+			dpopMode:  core.DPoPMode(99), // Invalid mode
+			wantContains: []string{
+				`Bearer realm="api"`, // Default fallback
+			},
+		},
+		{
+			name:      "buildDPoPWWWAuthenticateHeaders with invalid mode",
+			buildFunc: "dpop",
+			dpopMode:  core.DPoPMode(99), // Invalid mode
+			wantContains: []string{
+				`DPoP algs="` + validator.DPoPSupportedAlgorithms + `"`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var headers []string
+
+			switch tt.buildFunc {
+			case "bare":
+				headers = buildBareWWWAuthenticateHeaders(tt.dpopMode)
+			case "dpop":
+				headers = buildDPoPWWWAuthenticateHeaders("invalid_dpop_proof", "test error", tt.dpopMode)
+			}
+
+			// Check that we got headers and they contain expected strings
+			assert.NotEmpty(t, headers, "Should have at least one header")
+			for _, expected := range tt.wantContains {
+				found := false
+				for _, header := range headers {
+					if len(header) >= len(expected) && header[:len(expected)] == expected {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected to find %q in headers %v", expected, headers)
 			}
 		})
 	}

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 var (
@@ -53,15 +55,21 @@ type ErrorResponse struct {
 
 // DefaultErrorHandler is the default error handler implementation.
 // It provides structured error responses with appropriate HTTP status codes
-// and RFC 6750 compliant WWW-Authenticate headers.
-func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
+// and RFC 6750/RFC 9449 compliant WWW-Authenticate headers.
+//
+// In DPoP allowed mode, both Bearer and DPoP challenges are returned per RFC 9449 Section 6.1.
+func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	// Get auth context from request using core functions
+	authScheme := core.GetAuthScheme(r.Context())
+	dpopMode := core.GetDPoPMode(r.Context())
+
 	// Extract error details
-	statusCode, errorResp, wwwAuthenticate := mapErrorToResponse(err)
+	statusCode, errorResp, wwwAuthHeaders := mapErrorToResponse(err, authScheme, dpopMode)
 
 	// Set headers
 	w.Header().Set("Content-Type", "application/json")
-	if wwwAuthenticate != "" {
-		w.Header().Set("WWW-Authenticate", wwwAuthenticate)
+	for _, header := range wwwAuthHeaders {
+		w.Header().Add("WWW-Authenticate", header)
 	}
 
 	// Write response
@@ -69,106 +77,347 @@ func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
 	_ = json.NewEncoder(w).Encode(errorResp)
 }
 
-// mapErrorToResponse maps errors to appropriate HTTP responses
-func mapErrorToResponse(err error) (statusCode int, resp ErrorResponse, wwwAuthenticate string) {
+// mapErrorToResponse maps errors to appropriate HTTP responses with WWW-Authenticate headers.
+// In DPoP allowed mode, returns both Bearer and DPoP challenges per RFC 9449 Section 6.1.
+func mapErrorToResponse(err error, authScheme AuthScheme, dpopMode core.DPoPMode) (statusCode int, resp ErrorResponse, wwwAuthHeaders []string) {
 	// Check for JWT missing error
+	// Per RFC 6750 Section 3.1, if the request lacks authentication information,
+	// the server SHOULD NOT include error codes in the WWW-Authenticate header.
 	if errors.Is(err, ErrJWTMissing) {
+		headers := buildBareWWWAuthenticateHeaders(dpopMode)
 		return http.StatusUnauthorized, ErrorResponse{
-			Error:            "invalid_token",
-			ErrorDescription: "JWT is missing",
-		}, `Bearer error="invalid_token", error_description="JWT is missing"`
+			Error: "invalid_token",
+		}, headers
 	}
 
 	// Check for validation error with specific code
 	var validationErr *core.ValidationError
 	if errors.As(err, &validationErr) {
-		return mapValidationError(validationErr)
+		return mapValidationError(validationErr, authScheme, dpopMode)
 	}
 
 	// Check for general JWT invalid error
 	if errors.Is(err, ErrJWTInvalid) {
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "JWT is invalid",
+			authScheme, dpopMode, true, // ambiguous case - error in both
+		)
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "JWT is invalid",
-		}, `Bearer error="invalid_token", error_description="JWT is invalid"`
+		}, headers
 	}
 
 	// Default to internal server error for unexpected errors
 	return http.StatusInternalServerError, ErrorResponse{
 		Error:            "server_error",
 		ErrorDescription: "An internal error occurred while processing the request",
-	}, ""
+	}, nil
 }
 
-// mapValidationError maps core.ValidationError codes to HTTP responses
-// This function is extensible to support future authentication schemes like DPoP (RFC 9449)
-func mapValidationError(err *core.ValidationError) (statusCode int, resp ErrorResponse, wwwAuthenticate string) {
-	// Map error codes to HTTP status codes and RFC 6750 Bearer token error types
-	// Future: Add DPoP-specific error codes and return appropriate DPoP challenge headers
+// mapValidationError maps core.ValidationError codes to HTTP responses with appropriate WWW-Authenticate headers.
+func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMode core.DPoPMode) (statusCode int, resp ErrorResponse, wwwAuthHeaders []string) {
+	// Map error codes to HTTP status codes and error types
 	switch err.Code {
+	// Token validation errors (Bearer-related, but apply to all tokens)
 	case core.ErrorCodeTokenExpired:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "The access token expired",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token expired",
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_token", error_description="The access token expired"`
+		}, headers
 
 	case core.ErrorCodeTokenNotYetValid:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "The access token is not yet valid",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token is not yet valid",
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_token", error_description="The access token is not yet valid"`
+		}, headers
 
 	case core.ErrorCodeInvalidSignature:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "The access token signature is invalid",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token signature is invalid",
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_token", error_description="The access token signature is invalid"`
+		}, headers
 
 	case core.ErrorCodeTokenMalformed:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_request", "The access token is malformed",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusBadRequest, ErrorResponse{
 			Error:            "invalid_request",
 			ErrorDescription: "The access token is malformed",
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_request", error_description="The access token is malformed"`
+		}, headers
 
 	case core.ErrorCodeInvalidIssuer:
+		headers := buildWWWAuthenticateHeaders(
+			"insufficient_scope", "The access token was issued by an untrusted issuer",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusForbidden, ErrorResponse{
 			Error:            "insufficient_scope",
 			ErrorDescription: "The access token was issued by an untrusted issuer",
 			ErrorCode:        err.Code,
-		}, `Bearer error="insufficient_scope", error_description="The access token was issued by an untrusted issuer"`
+		}, headers
 
 	case core.ErrorCodeInvalidAudience:
+		headers := buildWWWAuthenticateHeaders(
+			"insufficient_scope", "The access token audience does not match",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusForbidden, ErrorResponse{
 			Error:            "insufficient_scope",
 			ErrorDescription: "The access token audience does not match",
 			ErrorCode:        err.Code,
-		}, `Bearer error="insufficient_scope", error_description="The access token audience does not match"`
+		}, headers
 
 	case core.ErrorCodeInvalidAlgorithm:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "The access token uses an unsupported algorithm",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token uses an unsupported algorithm",
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_token", error_description="The access token uses an unsupported algorithm"`
+		}, headers
 
 	case core.ErrorCodeJWKSFetchFailed, core.ErrorCodeJWKSKeyNotFound:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "Unable to verify the access token",
+			authScheme, dpopMode, false, // Bearer error
+		)
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "Unable to verify the access token",
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_token", error_description="Unable to verify the access token"`
+		}, headers
+
+	// DPoP proof missing is treated as invalid_request
+	case core.ErrorCodeDPoPProofMissing:
+		// Missing DPoP proof returns invalid_request with bare WWW-Authenticate headers
+		// Per RFC 6750 Section 3.1, no error_description when request is malformed
+		headers := buildBareWWWAuthenticateHeaders(dpopMode)
+		return http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_request",
+			ErrorCode: err.Code,
+			// ErrorDescription is omitted for malformed requests
+		}, headers
+
+	// DPoP proof validation errors (invalid proof, HTM/HTU mismatch, expired, etc.)
+	case core.ErrorCodeDPoPProofInvalid,
+		core.ErrorCodeDPoPHTMMismatch, core.ErrorCodeDPoPHTUMismatch, core.ErrorCodeDPoPATHMismatch,
+		core.ErrorCodeDPoPProofExpired, core.ErrorCodeDPoPProofTooNew:
+		headers := buildDPoPWWWAuthenticateHeaders("invalid_dpop_proof", err.Message, dpopMode)
+		return http.StatusBadRequest, ErrorResponse{
+			Error:            "invalid_dpop_proof",
+			ErrorDescription: err.Message,
+			ErrorCode:        err.Code,
+		}, headers
+
+	// DPoP binding mismatch is treated as invalid_token
+	case core.ErrorCodeDPoPBindingMismatch:
+		headers := buildDPoPWWWAuthenticateHeaders("invalid_token", err.Message, dpopMode)
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: err.Message,
+			ErrorCode:        err.Code,
+		}, headers
+
+	case core.ErrorCodeBearerNotAllowed:
+		headers := []string{
+			fmt.Sprintf(`DPoP algs="%s", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`, validator.DPoPSupportedAlgorithms),
+		}
+		return http.StatusBadRequest, ErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "Bearer tokens are not allowed (DPoP required)",
+			ErrorCode:        err.Code,
+		}, headers
+
+	case core.ErrorCodeDPoPNotAllowed:
+		// Per RFC 6750 Section 3.1: Unsupported authentication methods should return
+		// bare WWW-Authenticate challenge with NO error information (err.Message will be empty)
+		var headers []string
+		var errorDescription string
+		if err.Message == "" {
+			// Bare challenge per RFC 6750 Section 3.1
+			headers = []string{
+				`Bearer realm="api"`,
+			}
+			errorDescription = ""
+		} else {
+			// Include error information if provided (backward compatibility)
+			headers = []string{
+				`Bearer realm="api", error="invalid_request", error_description="` + err.Message + `"`,
+			}
+			errorDescription = err.Message
+		}
+		return http.StatusBadRequest, ErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: errorDescription,
+			ErrorCode:        err.Code,
+		}, headers
+
+	// RFC 6750 Section 3.1: invalid_request is 400 Bad Request
+	// This includes:
+	// - RFC 9449 Section 7.2: Bearer + DPoP proof (multiple authentication mechanisms)
+	// - Malformed Authorization header
+	// - Missing required parameters
+	// - Otherwise malformed requests
+	case core.ErrorCodeInvalidRequest:
+		// Special handling for RFC 9449 Section 7.2 violations which SHOULD include error_description
+		if strings.Contains(err.Message, "Bearer scheme cannot be used when DPoP proof is present") ||
+			strings.Contains(err.Message, "multiple Authorization headers") {
+			// RFC 9449 Section 7.2 violation: Include error details
+			headers := buildWWWAuthenticateHeaders(
+				"invalid_request", err.Message,
+				authScheme, dpopMode, true, // error in both challenges
+			)
+			return http.StatusBadRequest, ErrorResponse{
+				Error:            "invalid_request",
+				ErrorDescription: err.Message,
+				ErrorCode:        err.Code,
+			}, headers
+		}
+		// General malformed requests: Per RFC 6750 Section 3.1, omit error details
+		headers := buildBareWWWAuthenticateHeaders(dpopMode)
+		return http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_request",
+			ErrorCode: err.Code,
+			// ErrorDescription is omitted for malformed requests
+		}, headers
+
+	// RFC 9449 Section 7.1: DPoP scheme without cnf claim = invalid_token
+	case core.ErrorCodeInvalidToken:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", err.Message,
+			authScheme, dpopMode, false,
+		)
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: err.Message,
+			ErrorCode:        err.Code,
+		}, headers
 
 	default:
-		// Generic invalid token error for other cases
+		// Generic invalid token error
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "The access token is invalid",
+			authScheme, dpopMode, true, // ambiguous
+		)
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: "The access token is invalid",
 			ErrorCode:        err.Code,
-		}, `Bearer error="invalid_token", error_description="The access token is invalid"`
+		}, headers
+	}
+}
+
+// buildWWWAuthenticateHeaders builds appropriate WWW-Authenticate headers based on auth scheme and DPoP mode.
+// Returns both Bearer and DPoP challenges in allowed mode per RFC 9449 Section 6.1.
+func buildWWWAuthenticateHeaders(errorCode, errorDesc string, authScheme AuthScheme, dpopMode core.DPoPMode, errorInBoth bool) []string {
+	switch dpopMode {
+	case core.DPoPRequired:
+		// Only DPoP challenge in required mode
+		return []string{
+			fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc),
+		}
+	case core.DPoPDisabled:
+		// Only Bearer challenge in disabled mode
+		return []string{
+			fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc),
+		}
+	case core.DPoPAllowed:
+		// Both Bearer and DPoP challenges in allowed mode
+		// Error details go in the challenge matching the scheme used, or both if ambiguous
+		var headers []string
+		if authScheme == AuthSchemeBearer || authScheme == AuthSchemeUnknown || errorInBoth {
+			headers = append(headers, fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc))
+		} else {
+			headers = append(headers, `Bearer realm="api"`)
+		}
+		if authScheme == AuthSchemeDPoP || authScheme == AuthSchemeUnknown || errorInBoth {
+			headers = append(headers, fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc))
+		} else {
+			headers = append(headers, fmt.Sprintf(`DPoP algs="%s"`, validator.DPoPSupportedAlgorithms))
+		}
+		return headers
+	default:
+		// Fallback to Bearer only
+		return []string{
+			fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc),
+		}
+	}
+}
+
+// buildDPoPWWWAuthenticateHeaders builds WWW-Authenticate headers for DPoP-specific errors.
+func buildDPoPWWWAuthenticateHeaders(errorCode, errorDesc string, dpopMode core.DPoPMode) []string {
+	switch dpopMode {
+	case core.DPoPRequired:
+		// Only DPoP challenge with error
+		return []string{
+			fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc),
+		}
+	case core.DPoPDisabled:
+		// This shouldn't happen (DPoP error when DPoP is disabled), but return Bearer fallback
+		return []string{
+			fmt.Sprintf(`Bearer realm="api", error="%s", error_description="%s"`, errorCode, errorDesc),
+		}
+	case core.DPoPAllowed:
+		// Both challenges, error in DPoP only (since this is a DPoP-specific error)
+		return []string{
+			`Bearer realm="api"`,
+			fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc),
+		}
+	default:
+		// Fallback
+		return []string{
+			fmt.Sprintf(`DPoP algs="%s", error="%s", error_description="%s"`, validator.DPoPSupportedAlgorithms, errorCode, errorDesc),
+		}
+	}
+}
+
+// buildBareWWWAuthenticateHeaders builds bare WWW-Authenticate headers without error codes.
+// Per RFC 6750 Section 3.1, when a request lacks authentication information, the server
+// SHOULD NOT include error codes or error descriptions in the WWW-Authenticate header.
+func buildBareWWWAuthenticateHeaders(dpopMode core.DPoPMode) []string {
+	switch dpopMode {
+	case core.DPoPRequired:
+		// Only DPoP challenge in required mode
+		return []string{
+			fmt.Sprintf(`DPoP algs="%s"`, validator.DPoPSupportedAlgorithms),
+		}
+	case core.DPoPDisabled:
+		// Only Bearer challenge in disabled mode
+		return []string{
+			`Bearer realm="api"`,
+		}
+	case core.DPoPAllowed:
+		// Both challenges in allowed mode
+		return []string{
+			`Bearer realm="api"`,
+			fmt.Sprintf(`DPoP algs="%s"`, validator.DPoPSupportedAlgorithms),
+		}
+	default:
+		// Fallback to Bearer
+		return []string{
+			`Bearer realm="api"`,
+		}
 	}
 }
 

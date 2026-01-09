@@ -15,7 +15,7 @@ import (
 
 // KeySet represents a set of JSON Web Keys.
 // This interface abstracts the underlying JWKS implementation.
-type KeySet interface{}
+type KeySet any
 
 // Cache defines the interface for JWKS caching implementations.
 // This abstraction allows swapping the underlying cache provider.
@@ -114,7 +114,7 @@ func WithCustomClient(c *http.Client) ProviderOption {
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
 // While it returns an interface to adhere to keyFunc, as long as the
 // error is nil the type will be jwk.Set.
-func (p *Provider) KeyFunc(ctx context.Context) (interface{}, error) {
+func (p *Provider) KeyFunc(ctx context.Context) (any, error) {
 	jwksURI := p.CustomJWKSURI
 	if jwksURI == nil {
 		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.Client, *p.IssuerURL)
@@ -412,7 +412,7 @@ func (c *CachingProvider) getJWKSURI(ctx context.Context) (string, error) {
 // error is nil the type will be jwk.Set.
 //
 // This method is thread-safe and optimized for concurrent access.
-func (c *CachingProvider) KeyFunc(ctx context.Context) (interface{}, error) {
+func (c *CachingProvider) KeyFunc(ctx context.Context) (any, error) {
 	// Get JWKS URI (with lazy discovery and caching)
 	jwksURI, err := c.getJWKSURI(ctx)
 	if err != nil {
