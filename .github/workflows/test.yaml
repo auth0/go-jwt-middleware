@@ -15,10 +15,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: install go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v6.1.0
         with:
           go-version-file: go.mod
           check-latest: true
@@ -27,7 +27,7 @@ jobs:
         run: make test
 
       - name: upload coverage to codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # pin@5.5.1
+        uses: codecov/codecov-action@0561704f0f02c16a585d4c7555e57fa2e44cf909 # pin@5.5.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
