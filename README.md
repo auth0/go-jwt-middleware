@@ -18,7 +18,7 @@
 - [Godoc](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v3) - explore the go-jwt-middleware documentation.
 - [Docs site](https://www.auth0.com/docs) — explore our docs site and learn more about Auth0.
 - [Quickstart](https://auth0.com/docs/quickstart/backend/golang/interactive) - our guide for adding go-jwt-middleware to your app.
-- [Migration Guide](./MIGRATION.md) - upgrading from v2 to v3.
+- [Migration Guide](./MIGRATION_GUIDE.md) - upgrading from v2 to v3.
 
 ## What's New in v3
 
@@ -525,7 +525,7 @@ v3 supports 14 signature algorithms:
 
 ## Migration from v2
 
-See [MIGRATION.md](./MIGRATION.md) for a complete guide on upgrading from v2 to v3.
+See [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) for a complete guide on upgrading from v2 to v3.
 
 Key changes:
 - Pure options pattern for all components
