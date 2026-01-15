@@ -106,6 +106,7 @@ Define custom claims by implementing the CustomClaims interface:
 
 Support tokens from multiple issuers or for multiple audiences:
 
+	// Static issuer list
 	v, err := validator.New(
 	    validator.WithKeyFunc(keyFunc),
 	    validator.WithAlgorithm(validator.RS256),
@@ -117,6 +118,17 @@ Support tokens from multiple issuers or for multiple audiences:
 	        "api1",
 	        "api2",
 	    }),
+	)
+
+	// Dynamic issuer resolution (multi-tenant)
+	v, err := validator.New(
+	    validator.WithKeyFunc(keyFunc),
+	    validator.WithAlgorithm(validator.RS256),
+	    validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+	        tenant := ctx.Value("tenant").(string)
+	        return db.GetIssuersForTenant(ctx, tenant)
+	    }),
+	    validator.WithAudience("my-api"),
 	)
 
 # Clock Skew Tolerance

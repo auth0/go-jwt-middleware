@@ -34,6 +34,17 @@ test: ## Run tests. To run a specific test pass the FILTER var. Usage `make test
 		-coverprofile=coverage.out \
 		./...
 
+.PHONY: test-examples
+test-examples: ## Run integration tests for all examples
+	@echo "==> Running example integration tests..."
+	@for dir in examples/*/; do \
+		if [ -f "$$dir/main_integration_test.go" ] || [ -f "$$dir/main_test.go" ]; then \
+			echo "Testing $$dir..."; \
+			(cd "$$dir" && go mod tidy && go test -v -tags=integration ./...) || exit 1; \
+		fi \
+	done
+	@echo "==> All example tests passed!"
+
 #-----------------------------------------------------------------------------------------------------------------------
 # Checks
 #-----------------------------------------------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-module example.com/http
+module example.com/http-jwks
 
 go 1.24.0
 
@@ -7,7 +7,6 @@ toolchain go1.24.8
 require (
 	github.com/auth0/go-jwt-middleware/v3 v3.0.0
 	github.com/stretchr/testify v1.11.1
-	gopkg.in/go-jose/go-jose.v2 v2.6.3
 )
 
 replace github.com/auth0/go-jwt-middleware/v3 => ./../../

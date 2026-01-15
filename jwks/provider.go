@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v3/jwk"
@@ -34,9 +35,6 @@ type Provider struct {
 	CustomJWKSURI *url.URL // Optional.
 	Client        *http.Client
 }
-
-// ProviderOption is how options for the Provider are set up.
-type ProviderOption func(*Provider) error
 
 // NewProvider builds and returns a new *Provider.
 // Required options:
@@ -70,45 +68,6 @@ func NewProvider(opts ...ProviderOption) (*Provider, error) {
 	}
 
 	return p, nil
-}
-
-// WithIssuerURL sets the OIDC issuer URL for JWKS discovery.
-// This is a required option.
-//
-// The issuer URL is used to discover the JWKS endpoint via the
-// .well-known/openid-configuration endpoint.
-func WithIssuerURL(issuerURL *url.URL) ProviderOption {
-	return func(p *Provider) error {
-		if issuerURL == nil {
-			return fmt.Errorf("issuer URL cannot be nil")
-		}
-		p.IssuerURL = issuerURL
-		return nil
-	}
-}
-
-// WithCustomJWKSURI will set a custom JWKS URI on the *Provider and
-// call this directly inside the keyFunc in order to fetch the JWKS,
-// skipping the oidc.GetWellKnownEndpointsFromIssuerURL call.
-func WithCustomJWKSURI(jwksURI *url.URL) ProviderOption {
-	return func(p *Provider) error {
-		if jwksURI == nil {
-			return fmt.Errorf("custom JWKS URI cannot be nil")
-		}
-		p.CustomJWKSURI = jwksURI
-		return nil
-	}
-}
-
-// WithCustomClient will set a custom *http.Client on the *Provider
-func WithCustomClient(c *http.Client) ProviderOption {
-	return func(p *Provider) error {
-		if c == nil {
-			return fmt.Errorf("HTTP client cannot be nil")
-		}
-		p.Client = c
-		return nil
-	}
 }
 
 // KeyFunc adheres to the keyFunc signature that the Validator requires.
@@ -147,9 +106,11 @@ type jwxCache struct {
 }
 
 type cachedJWKS struct {
-	set       jwk.Set
-	expiresAt time.Time
-	fetchMu   sync.Mutex // Ensures only one fetch per URI at a time
+	set        jwk.Set
+	expiresAt  time.Time
+	refreshAt  time.Time   // Proactive refresh threshold (80% of TTL)
+	refreshing atomic.Bool // Prevents multiple background refreshes
+	fetchMu    sync.Mutex  // Ensures only one fetch per URI at a time
 }
 
 func (c *jwxCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
@@ -161,7 +122,14 @@ func (c *jwxCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
 	if exists && now.Before(cached.expiresAt) {
 		// Cache hit - read while holding lock to avoid race
 		result := cached.set
+		shouldRefresh := now.After(cached.refreshAt)
 		c.cacheMu.RUnlock()
+
+		// Trigger background refresh if in refresh window and not already refreshing
+		if shouldRefresh && cached.refreshing.CompareAndSwap(false, true) {
+			go c.backgroundRefresh(jwksURI, cached)
+		}
+
 		return result, nil
 	}
 	c.cacheMu.RUnlock()
@@ -203,9 +171,35 @@ func (c *jwxCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
 	c.cacheMu.Lock()
 	cached.set = set
 	cached.expiresAt = now.Add(c.refreshTTL)
+	cached.refreshAt = now.Add(c.refreshTTL * 4 / 5) // Refresh at 80% of TTL
 	c.cacheMu.Unlock()
 
 	return set, nil
+}
+
+// backgroundRefresh refreshes JWKS in the background without blocking requests.
+// This prevents cache expiry from blocking requests by proactively refreshing
+// when the cache reaches 80% of its TTL.
+func (c *jwxCache) backgroundRefresh(jwksURI string, cached *cachedJWKS) {
+	defer cached.refreshing.Store(false)
+
+	// Use a fresh context with timeout for background refresh
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Fetch fresh JWKS
+	set, err := jwk.Fetch(ctx, jwksURI, jwk.WithHTTPClient(c.httpClient))
+	if err != nil {
+		return
+	}
+
+	// Update cache with fresh data
+	now := time.Now()
+	c.cacheMu.Lock()
+	cached.set = set
+	cached.expiresAt = now.Add(c.refreshTTL)
+	cached.refreshAt = now.Add(c.refreshTTL * 4 / 5) // Refresh at 80% of TTL
+	c.cacheMu.Unlock()
 }
 
 // CachingProvider handles getting JWKS from the specified IssuerURL
@@ -221,19 +215,6 @@ type CachingProvider struct {
 	jwksURIMu   sync.Mutex
 	jwksURI     string
 	jwksURIOnce sync.Once
-}
-
-// CachingProviderOption is how options for the CachingProvider are set up.
-// These options are specific to CachingProvider (e.g., cache configuration).
-type CachingProviderOption func(*cachingProviderConfig) error
-
-// cachingProviderConfig holds internal configuration for creating a CachingProvider.
-type cachingProviderConfig struct {
-	issuerURL     *url.URL
-	customJWKSURI *url.URL
-	httpClient    *http.Client
-	cacheTTL      time.Duration
-	cache         Cache // Optional: custom cache implementation
 }
 
 // NewCachingProvider builds and returns a new CachingProvider.
@@ -325,43 +306,6 @@ func NewCachingProvider(opts ...any) (*CachingProvider, error) {
 	}
 
 	return cp, nil
-}
-
-// WithCacheTTL sets the cache refresh interval for the CachingProvider.
-// If not specified, defaults to 15 minutes.
-//
-// The TTL determines the minimum interval between JWKS refreshes.
-func WithCacheTTL(ttl time.Duration) CachingProviderOption {
-	return func(c *cachingProviderConfig) error {
-		if ttl < 0 {
-			return fmt.Errorf("cache TTL cannot be negative")
-		}
-		if ttl == 0 {
-			ttl = 15 * time.Minute
-		}
-		c.cacheTTL = ttl
-		return nil
-	}
-}
-
-// WithCache sets a custom Cache implementation for the CachingProvider.
-// This allows users to provide their own caching strategy (e.g., Redis-backed cache).
-//
-// Example:
-//
-//	customCache := &MyRedisCache{...}
-//	provider, err := jwks.NewCachingProvider(
-//	    jwks.WithIssuerURL(issuerURL),
-//	    jwks.WithCache(customCache),
-//	)
-func WithCache(cache Cache) CachingProviderOption {
-	return func(c *cachingProviderConfig) error {
-		if cache == nil {
-			return fmt.Errorf("cache cannot be nil")
-		}
-		c.cache = cache
-		return nil
-	}
 }
 
 // discoverJWKSURI discovers the JWKS URI from the well-known endpoint.

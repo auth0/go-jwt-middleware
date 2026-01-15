@@ -551,6 +551,281 @@ func Test_JWKSProvider(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "could not fetch JWKS")
 	})
+
+	// Proactive refresh tests
+	t.Run("CachingProvider triggers background refresh at 80% TTL", func(t *testing.T) {
+		requestCount = 0
+
+		// Use a short TTL so we can test refresh behavior
+		provider, err := NewCachingProvider(
+			WithIssuerURL(testServerURL),
+			WithCacheTTL(500*time.Millisecond), // 500ms TTL
+		)
+		require.NoError(t, err)
+
+		// First fetch - populates cache
+		jwks1, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, jwks1)
+		initialCount := atomic.LoadInt32(&requestCount)
+
+		// Wait for 400ms (80% of 500ms TTL) - should trigger background refresh
+		time.Sleep(420 * time.Millisecond)
+
+		// Second fetch - should return cached immediately and trigger background refresh
+		jwks2, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, jwks2)
+
+		// Give background refresh time to complete
+		time.Sleep(200 * time.Millisecond)
+
+		// Request count should have increased due to background refresh
+		finalCount := atomic.LoadInt32(&requestCount)
+		assert.Greater(t, int(finalCount), int(initialCount),
+			"Background refresh should have fetched JWKS")
+	})
+
+	t.Run("CachingProvider prevents multiple concurrent background refreshes", func(t *testing.T) {
+		requestCount = 0
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(testServerURL),
+			WithCacheTTL(500*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		// Populate cache
+		_, err = provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		initialCount := atomic.LoadInt32(&requestCount)
+
+		// Wait to enter refresh window
+		time.Sleep(420 * time.Millisecond)
+
+		// Multiple concurrent requests in refresh window
+		var wg sync.WaitGroup
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = provider.KeyFunc(context.Background())
+			}()
+		}
+		wg.Wait()
+
+		// Give background refresh time to complete
+		time.Sleep(200 * time.Millisecond)
+
+		// Even with 20 concurrent requests, only ONE background refresh should have happened
+		finalCount := atomic.LoadInt32(&requestCount)
+		// We should see only 1 additional JWKS fetch (the background refresh)
+		// Initial: well-known + JWKS = 2 requests
+		// Background refresh: 1 JWKS fetch
+		assert.LessOrEqual(t, int(finalCount), int(initialCount)+1,
+			"Should only trigger one background refresh despite concurrent requests")
+	})
+
+	t.Run("CachingProvider serves cached data immediately during background refresh", func(t *testing.T) {
+		// Create a slow server to verify requests aren't blocked
+		var slowServer *httptest.Server
+		var slowRequestCount int32
+		slowServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&slowRequestCount, 1)
+
+			// Slow down JWKS fetch to test non-blocking behavior
+			if r.URL.Path == "/.well-known/jwks.json" && atomic.LoadInt32(&slowRequestCount) > 2 {
+				time.Sleep(200 * time.Millisecond) // Simulate slow refresh
+			}
+
+			switch r.URL.Path {
+			case "/.well-known/openid-configuration":
+				wk := oidc.WellKnownEndpoints{JWKSURI: slowServer.URL + "/.well-known/jwks.json"}
+				_ = json.NewEncoder(w).Encode(wk)
+			case "/.well-known/jwks.json":
+				expectedJWKS, _ := generateJWKS()
+				jsonData, _ := json.Marshal(expectedJWKS)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(jsonData)
+			}
+		}))
+		defer slowServer.Close()
+
+		slowServerURL, _ := url.Parse(slowServer.URL)
+		provider, err := NewCachingProvider(
+			WithIssuerURL(slowServerURL),
+			WithCacheTTL(500*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		// Populate cache
+		_, err = provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+
+		// Wait to enter refresh window
+		time.Sleep(420 * time.Millisecond)
+
+		// Request during refresh window should return immediately (not block on slow refresh)
+		start := time.Now()
+		jwks, err := provider.KeyFunc(context.Background())
+		elapsed := time.Since(start)
+
+		require.NoError(t, err)
+		require.NotNil(t, jwks)
+
+		// Should return in < 50ms (cached), not wait for 200ms slow refresh
+		assert.Less(t, elapsed, 50*time.Millisecond,
+			"Request should return immediately from cache, not wait for background refresh")
+	})
+
+	t.Run("CachingProvider continues serving cached data when background refresh fails", func(t *testing.T) {
+		var failingServer *httptest.Server
+		var shouldFail atomic.Bool
+		shouldFail.Store(false) // Initially succeed
+
+		failingServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/.well-known/openid-configuration":
+				wk := oidc.WellKnownEndpoints{JWKSURI: failingServer.URL + "/.well-known/jwks.json"}
+				_ = json.NewEncoder(w).Encode(wk)
+			case "/.well-known/jwks.json":
+				if shouldFail.Load() {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				expectedJWKS, _ := generateJWKS()
+				jsonData, _ := json.Marshal(expectedJWKS)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(jsonData)
+			}
+		}))
+		defer failingServer.Close()
+
+		failingServerURL, _ := url.Parse(failingServer.URL)
+		provider, err := NewCachingProvider(
+			WithIssuerURL(failingServerURL),
+			WithCacheTTL(2*time.Second), // Longer TTL to avoid race with expiry
+		)
+		require.NoError(t, err)
+
+		// Populate cache successfully
+		jwks1, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, jwks1)
+
+		// Make future requests fail
+		shouldFail.Store(true)
+
+		// Wait to enter refresh window (80% of 2s = 1.6s)
+		time.Sleep(1620 * time.Millisecond)
+
+		// Request should still succeed with cached data, even though background refresh will fail
+		// This request is still within cache TTL (2s), so it won't error out
+		jwks2, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, jwks2)
+
+		// Give background refresh time to fail
+		time.Sleep(100 * time.Millisecond)
+
+		// Should still be able to serve from cache (still within 2s TTL)
+		jwks3, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, jwks3)
+	})
+
+	t.Run("CachingProvider refreshes cache successfully in background", func(t *testing.T) {
+		var versionedServer *httptest.Server
+		var currentKID atomic.Value
+		currentKID.Store("v1-key")
+
+		versionedServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/.well-known/openid-configuration":
+				wk := oidc.WellKnownEndpoints{JWKSURI: versionedServer.URL + "/.well-known/jwks.json"}
+				_ = json.NewEncoder(w).Encode(wk)
+			case "/.well-known/jwks.json":
+				// Generate different JWKS based on kid (simulate key rotation)
+				jwks, _ := generateJWKS()
+				kid := currentKID.Load().(string)
+				key, _ := jwks.Key(0)
+				_ = key.Set(jwk.KeyIDKey, kid)
+
+				jsonData, _ := json.Marshal(jwks)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(jsonData)
+			}
+		}))
+		defer versionedServer.Close()
+
+		versionedServerURL, _ := url.Parse(versionedServer.URL)
+		provider, err := NewCachingProvider(
+			WithIssuerURL(versionedServerURL),
+			WithCacheTTL(500*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		// Get v1
+		jwks1, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		set1 := jwks1.(jwk.Set)
+		key1, _ := set1.Key(0)
+		kid1, _ := key1.KeyID()
+		assert.Equal(t, "v1-key", kid1)
+
+		// Change kid on server (simulate key rotation)
+		currentKID.Store("v2-key")
+
+		// Wait to enter refresh window
+		time.Sleep(420 * time.Millisecond)
+
+		// Trigger background refresh
+		_, err = provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+
+		// Wait for background refresh to complete
+		time.Sleep(200 * time.Millisecond)
+
+		// New requests should get v2 (refreshed in background)
+		jwks2, err := provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+		set2 := jwks2.(jwk.Set)
+		key2, _ := set2.Key(0)
+		kid2, _ := key2.KeyID()
+		assert.Equal(t, "v2-key", kid2, "Cache should have been refreshed to v2 in background")
+	})
+
+	t.Run("CachingProvider race test for proactive refresh", func(t *testing.T) {
+		// This test is designed to be run with -race flag to detect race conditions
+		requestCount = 0
+
+		provider, err := NewCachingProvider(
+			WithIssuerURL(testServerURL),
+			WithCacheTTL(300*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		// Populate cache
+		_, err = provider.KeyFunc(context.Background())
+		require.NoError(t, err)
+
+		// Launch multiple goroutines that will hit the refresh window
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				time.Sleep(250 * time.Millisecond) // Enter refresh window
+				for j := 0; j < 5; j++ {
+					_, _ = provider.KeyFunc(context.Background())
+					time.Sleep(10 * time.Millisecond)
+				}
+			}()
+		}
+
+		wg.Wait()
+		// If there are race conditions, -race flag will detect them
+	})
 }
 
 // mockCache is a test cache implementation

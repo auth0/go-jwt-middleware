@@ -43,14 +43,19 @@ func WithAlgorithm(algorithm SignatureAlgorithm) Option {
 }
 
 // WithIssuer sets a single expected issuer claim (iss) for token validation.
-// This is a required option (use either WithIssuer or WithIssuers, not both).
+// This is a required option (use either WithIssuer, WithIssuers, or WithIssuersResolver, not multiple).
 //
 // The issuer URL should match the iss claim in the JWT. Tokens with a
 // different issuer will be rejected.
+//
+// Cannot be used with WithIssuersResolver.
 func WithIssuer(issuerURL string) Option {
 	return func(v *Validator) error {
 		if issuerURL == "" {
 			return errors.New("issuer cannot be empty")
+		}
+		if v.issuersResolver != nil {
+			return errors.New("cannot use WithIssuer with WithIssuersResolver")
 		}
 		// Optional: Validate URL format
 		if _, err := url.Parse(issuerURL); err != nil {
@@ -62,14 +67,19 @@ func WithIssuer(issuerURL string) Option {
 }
 
 // WithIssuers sets multiple expected issuer claims (iss) for token validation.
-// This is a required option (use either WithIssuer or WithIssuers, not both).
+// This is a required option (use either WithIssuer, WithIssuers, or WithIssuersResolver, not multiple).
 //
 // The token must contain one of the specified issuers. Tokens without
 // any matching issuer will be rejected.
+//
+// Cannot be used with WithIssuersResolver.
 func WithIssuers(issuers []string) Option {
 	return func(v *Validator) error {
 		if len(issuers) == 0 {
 			return errors.New("issuers cannot be empty")
+		}
+		if v.issuersResolver != nil {
+			return errors.New("cannot use WithIssuers with WithIssuersResolver")
 		}
 		for i, iss := range issuers {
 			if iss == "" {
@@ -81,6 +91,58 @@ func WithIssuers(issuers []string) Option {
 			}
 		}
 		v.expectedIssuers = issuers
+		return nil
+	}
+}
+
+// WithIssuersResolver sets a dynamic issuer resolution function for token validation.
+// This option allows issuers to be determined at request time based on the request context.
+//
+// The resolver function receives the request context and should return a list of allowed issuers.
+// This enables use cases like:
+//   - Multi-tenant SaaS applications (resolve issuer based on tenant from context)
+//   - Database-backed issuer lists
+//   - Dynamic issuer allowlists
+//
+// IMPORTANT: The resolver function must be:
+//   - Thread-safe (called concurrently by multiple requests)
+//   - Fast (< 5ms recommended - implement caching if needed)
+//   - Secure (validate and sanitize any data from context)
+//
+// Cannot be used with WithIssuer or WithIssuers - they are mutually exclusive.
+//
+// Example with caching:
+//
+//	validator.New(
+//	    validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+//	        tenant := TenantFromContext(ctx)
+//
+//	        // Check cache first (user-managed caching)
+//	        if cached, err := redis.Get("issuers:"+tenant).Result(); err == nil {
+//	            return parseIssuers(cached), nil
+//	        }
+//
+//	        // Fallback to database query
+//	        issuers, err := db.GetIssuers(ctx, tenant)
+//	        if err != nil {
+//	            return nil, err
+//	        }
+//
+//	        // Cache for next request
+//	        redis.Set("issuers:"+tenant, format(issuers), 5*time.Minute)
+//	        return issuers, nil
+//	    }),
+//	    // ... other options
+//	)
+func WithIssuersResolver(resolver func(ctx context.Context) ([]string, error)) Option {
+	return func(v *Validator) error {
+		if resolver == nil {
+			return errors.New("resolver cannot be nil")
+		}
+		if len(v.expectedIssuers) > 0 {
+			return errors.New("cannot use WithIssuersResolver with WithIssuer/WithIssuers")
+		}
+		v.issuersResolver = resolver
 		return nil
 	}
 }
