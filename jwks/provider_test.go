@@ -743,7 +743,7 @@ func Test_JWKSProvider(t *testing.T) {
 		failingServerURL, _ := url.Parse(failingServer.URL)
 		provider, err := NewCachingProvider(
 			WithIssuerURL(failingServerURL),
-			WithCacheTTL(2*time.Second), // Longer TTL to avoid race with expiry
+			WithCacheTTL(5*time.Second), // Long TTL to avoid race with expiry
 		)
 		require.NoError(t, err)
 
@@ -755,19 +755,19 @@ func Test_JWKSProvider(t *testing.T) {
 		// Make future requests fail
 		shouldFail.Store(true)
 
-		// Wait to enter refresh window (80% of 2s = 1.6s)
-		time.Sleep(1620 * time.Millisecond)
+		// Wait to enter refresh window (80% of 5s = 4s)
+		time.Sleep(4100 * time.Millisecond)
 
 		// Request should still succeed with cached data, even though background refresh will fail
-		// This request is still within cache TTL (2s), so it won't error out
+		// This request is still within cache TTL (5s), so it won't error out
 		jwks2, err := provider.KeyFunc(context.Background())
 		require.NoError(t, err)
 		require.NotNil(t, jwks2)
 
 		// Give background refresh time to fail
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-		// Should still be able to serve from cache (still within 2s TTL)
+		// Should still be able to serve from cache (still within 5s TTL)
 		jwks3, err := provider.KeyFunc(context.Background())
 		require.NoError(t, err)
 		require.NotNil(t, jwks3)

@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1025,9 +1027,8 @@ func TestValidateToken_WithIssuersResolver(t *testing.T) {
 		audience      = "https://api.example.com/"
 	)
 
-	// Token with tenant1 issuer (signed with secret "secret")
-	// Payload: {"aud":["https://api.example.com/"],"exp":1768488703,"iss":"https://tenant1.auth0.com/","sub":"1234567890"}
-	tenant1Token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiaHR0cHM6Ly9hcGkuZXhhbXBsZS5jb20vIl0sImV4cCI6MTc2ODQ4ODcwMywiaXNzIjoiaHR0cHM6Ly90ZW5hbnQxLmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIn0.U5f3pjy-5wWH5vwt6ssIjE_l7f1pyAZeg4H2pqP1ABI"
+	// Generate token dynamically with tenant1 issuer
+	tenant1Token := generateTestToken(t, tenant1Issuer, audience, []byte("secret"))
 
 	t.Run("successfully validates token with dynamic resolver", func(t *testing.T) {
 		// Track that issuer was added to context
@@ -1101,9 +1102,8 @@ func TestValidateToken_WithIssuersResolver(t *testing.T) {
 	})
 
 	t.Run("rejects token without issuer claim", func(t *testing.T) {
-		// Token without issuer (signed with secret "secret")
-		// Payload: {"aud":["https://api.example.com/"],"exp":1768488703,"sub":"1234567890"}
-		tokenNoIssuer := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiaHR0cHM6Ly9hcGkuZXhhbXBsZS5jb20vIl0sImV4cCI6MTc2ODQ4ODcwMywic3ViIjoiMTIzNDU2Nzg5MCJ9.ZYFLhALOxC2xlAMsnS5i2bxXOI2fpvrlkbWq1UD9h8A"
+		// Generate token without issuer claim
+		tokenNoIssuer := generateTestTokenWithoutIssuer(t, audience, []byte("secret"))
 
 		v, err := New(
 			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
@@ -1121,4 +1121,41 @@ func TestValidateToken_WithIssuersResolver(t *testing.T) {
 		assert.Nil(t, claims)
 		assert.Contains(t, err.Error(), "token has no issuer claim")
 	})
+}
+
+// generateTestToken creates a test JWT token with the given issuer, audience, and signing key.
+// The token expires in 1 hour to prevent expiration issues during tests.
+func generateTestToken(t *testing.T, issuer, audience string, secret []byte) string {
+	t.Helper()
+
+	token, err := jwt.NewBuilder().
+		Issuer(issuer).
+		Audience([]string{audience}).
+		Subject("1234567890").
+		Expiration(time.Now().Add(1 * time.Hour)).
+		Build()
+	require.NoError(t, err)
+
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
+	require.NoError(t, err)
+
+	return string(signed)
+}
+
+// generateTestTokenWithoutIssuer creates a test JWT token without an issuer claim.
+// Used for testing issuer validation failures.
+func generateTestTokenWithoutIssuer(t *testing.T, audience string, secret []byte) string {
+	t.Helper()
+
+	token, err := jwt.NewBuilder().
+		Audience([]string{audience}).
+		Subject("1234567890").
+		Expiration(time.Now().Add(1 * time.Hour)).
+		Build()
+	require.NoError(t, err)
+
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
+	require.NoError(t, err)
+
+	return string(signed)
 }
