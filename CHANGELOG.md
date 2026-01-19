@@ -1,7 +1,83 @@
 # Change Log
 
-## [v3.0.0-beta.0](https://github.com/auth0/go-jwt-middleware/tree/v3.0.0-beta.0) (2026-01-09)
+## [v3.0.0](https://github.com/auth0/go-jwt-middleware/tree/v3.0.0) (2026-01-19)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.3.1...v3.0.0)
 
+**BEFORE YOU UPGRADE**
+
+- This is a major release that includes breaking changes. Please see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) before upgrading. This release will require changes to your application.
+
+### Added
+
+* Pure options pattern for validator, middleware, and JWKS provider ([#357](https://github.com/auth0/go-jwt-middleware/pull/357), [#358](https://github.com/auth0/go-jwt-middleware/pull/358), [#360](https://github.com/auth0/go-jwt-middleware/pull/360))
+* DPoP (Demonstrating Proof-of-Possession) support per RFC 9449 ([#363](https://github.com/auth0/go-jwt-middleware/pull/363))
+* Framework-agnostic core package for reusable validation logic ([#356](https://github.com/auth0/go-jwt-middleware/pull/356))
+* Type-safe claims retrieval with generics (`GetClaims[T]()`, `MustGetClaims[T]()`, `HasClaims()`)
+* Structured logging support compatible with `log/slog`
+* Support for 14 signature algorithms (HS256/384/512, RS256/384/512, PS256/384/512, ES256/384/512, ES256K, EdDSA)
+* Enhanced error responses with RFC 6750 compliance
+* Trusted proxy configuration for DPoP behind reverse proxies
+* Multiple issuer and audience support with new APIs
+* Documentation and linting configuration ([#361](https://github.com/auth0/go-jwt-middleware/pull/361))
+
+### Changed
+
+* Migrated from square/go-jose to lestrrat-go/jwx v3 ([#358](https://github.com/auth0/go-jwt-middleware/pull/358))
+* Module path updated to `github.com/auth0/go-jwt-middleware/v3` ([#355](https://github.com/auth0/go-jwt-middleware/pull/355))
+* Minimum Go version updated to 1.24 ([#355](https://github.com/auth0/go-jwt-middleware/pull/355))
+* Update examples for v3 module path and new APIs
+
+### Breaking
+
+* Pure options pattern: All constructors (`New()`) now require functional options instead of positional parameters
+* Context key: `ContextKey{}` is no longer exported - use `GetClaims[T]()` helper function
+* Custom claims now use generics for type safety
+* `TokenExtractor` returns `ExtractedToken` (with scheme) instead of `string`
+* Type naming: `ExclusionUrlHandler` renamed to `ExclusionURLHandler`
+
+### Migration Example
+
+**v2:**
+```go
+// Validator with positional parameters
+jwtValidator, err := validator.New(
+    keyFunc,
+    validator.RS256,
+    "https://issuer.example.com/",
+    []string{"my-api"},
+)
+
+// Middleware
+middleware := jwtmiddleware.New(jwtValidator.ValidateToken)
+
+// Claims access via context key
+claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+```
+
+**v3:**
+```go
+// Validator with pure options
+jwtValidator, err := validator.New(
+    validator.WithKeyFunc(keyFunc),
+    validator.WithAlgorithm(validator.RS256),
+    validator.WithIssuer("https://issuer.example.com/"),
+    validator.WithAudience("my-api"),
+)
+
+// Middleware with options
+middleware, err := jwtmiddleware.New(
+    jwtmiddleware.WithValidator(jwtValidator),
+)
+
+// Type-safe claims with generics
+claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+```
+
+See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete migration instructions.
+
+---
+
+## [v3.0.0-beta.0](https://github.com/auth0/go-jwt-middleware/tree/v3.0.0-beta.0) (2026-01-09)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.3.1...v3.0.0-beta.0)
 
 **BEFORE YOU UPGRADE**
