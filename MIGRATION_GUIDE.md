@@ -1,137 +1,720 @@
-# Migration Guide
+# Migration Guide: v2 to v3
 
-## Upgrading from v1.x → v2.0
+This guide helps you migrate from go-jwt-middleware v2 to v3. While v3 introduces significant improvements, the migration is straightforward and can be done incrementally.
 
-Our version 2 release includes many significant improvements:
+## Table of Contents
 
-- Customizable JWT validation. 
-- Full support for custom claims.
-- Full support for custom error handlers.
-- Added support for retrieving the JWKS from the Issuer.
+- [Overview](#overview)
+- [Breaking Changes](#breaking-changes)
+- [Step-by-Step Migration](#step-by-step-migration)
+  - [1. Update Dependencies](#1-update-dependencies)
+  - [2. Update Validator](#2-update-validator)
+  - [3. Update JWKS Provider](#3-update-jwks-provider)
+  - [4. Update Middleware](#4-update-middleware)
+  - [5. Update Claims Access](#5-update-claims-access)
+- [API Comparison](#api-comparison)
+- [New Features](#new-features)
+- [FAQ](#faq)
 
-As is to be expected with a major release, there are breaking changes in this update. Please ensure you read this guide
-thoroughly and prepare your API before upgrading to SDK v2.
+## Overview
 
-### Breaking Changes
+### What's Changed
 
-- [jwtmiddleware.Options](#jwtmiddlewareoptions)
-  - [ValidationKeyGetter](#validationkeygetter)
-  - [UserProperty](#userproperty)
-  - [ErrorHandler](#errorhandler)
-  - [CredentialsOptional](#credentialsoptional)
-  - [Extractor](#extractor)
-  - [Debug](#debug)
-  - [EnableAuthOnOptions](#enableauthonoptions)
-  - [SigningMethod](#signingmethod)
-- [jwtmiddleware.New](#jwtmiddlewarenew)
-- [jwtmiddleware.Handler](#jwtmiddlewarehandler)
-- [jwtmiddleware.CheckJWT](#jwtmiddlewarecheckjwt)
+| Area | v2 | v3 |
+|------|----|----|
+| **API Style** | Mixed (positional + options) | Pure options pattern |
+| **JWT Library** | square/go-jose v2 | lestrrat-go/jwx v3 |
+| **Claims Access** | Type assertion | Generics (type-safe) |
+| **Architecture** | Monolithic | Core-Adapter pattern |
+| **Context Key** | `ContextKey{}` struct | Unexported `contextKey int` |
+| **Type Names** | `ExclusionUrlHandler` | `ExclusionURLHandler` |
+| **TokenExtractor** | Returns `string` | Returns `ExtractedToken` |
+| **DPoP Support** | Not available | Full RFC 9449 support |
 
-#### `jwtmiddleware.Options`
+### Why Upgrade?
 
-Now handled by individual [jwtmiddleware.Option](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#Option) items. 
-They can be passed to [jwtmiddleware.New](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#New) after the 
-[jwtmiddleware.ValidateToken](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#ValidateToken) input:
+- ✅ **Better Performance**: lestrrat-go/jwx v3 is faster and more efficient
+- ✅ **More Algorithms**: Support for EdDSA, ES256K, and all modern algorithms
+- ✅ **Type Safety**: Generics eliminate type assertion errors at compile time
+- ✅ **Better IDE Support**: Self-documenting options with autocomplete
+- ✅ **Enhanced Security**: CVE mitigations, RFC 6750 compliance, and DPoP support
+- ✅ **Modern Go**: Built for Go 1.23+ with modern patterns
 
-```golang
-jwtmiddleware.New(validator, WithCredentialsOptional(true), ...)
+## Breaking Changes
+
+### 1. Pure Options Pattern
+
+All constructors now use pure options pattern:
+
+**v2:**
+```go
+validator.New(keyFunc, algorithm, issuer, audience, options...)
+jwtmiddleware.New(validator.ValidateToken, options...)
+jwks.NewProvider(issuerURL, options...)
 ```
 
-##### `ValidationKeyGetter`
-
-Token validation is now handled via a token provider which can be learned about in the section on 
-[jwtmiddleware.New](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#New).
-
-##### `UserProperty`
-
-This is now handled in the validation provider.
-
-##### `ErrorHandler`
-
-We now provide a public [jwtmiddleware.ErrorHandler](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#ErrorHandler)
-type:
-
-```golang
-type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
+**v3:**
+```go
+validator.New(
+    validator.WithKeyFunc(keyFunc),
+    validator.WithAlgorithm(algorithm),
+    validator.WithIssuer(issuer),
+    validator.WithAudience(audience),
+    // all other options...
+)
+jwtmiddleware.New(
+    jwtmiddleware.WithValidator(validator),
+    // all other options...
+)
+jwks.NewCachingProvider(
+    jwks.WithIssuerURL(issuerURL),
+    // all other options...
+)
 ```
 
-A [default](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#DefaultErrorHandler) is provided which translates
-errors into appropriate HTTP status codes.
+### 2. Custom Claims Generic
 
-You might want to wrap the default, so you can hook things into, like logging:
+Custom claims are now type-safe with generics:
 
-```golang
-myErrHandler := func(w http.ResponseWriter, r *http.Request, err error) {
-	fmt.Printf("error in token validation: %+v\n", err)
+**v2:**
+```go
+validator.WithCustomClaims(func() validator.CustomClaims {
+    return &MyCustomClaims{} // Returns interface
+})
+```
 
-	jwtmiddleware.DefaultErrorHandler(w, r, err)
+**v3:**
+```go
+validator.WithCustomClaims(func() *MyCustomClaims {
+    return &MyCustomClaims{} // Returns concrete type
+})
+```
+
+### 3. Context Key Change
+
+The context key is now unexported for safety:
+
+**v2:**
+```go
+claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+```
+
+**v3:**
+```go
+// You MUST use GetClaims - the context key is no longer exported
+claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+if err != nil {
+    // Handle error
+}
+```
+
+### 4. Type Naming
+
+URL abbreviation fixed:
+
+**v2:**
+```go
+type ExclusionUrlHandler func(r *http.Request) bool
+```
+
+**v3:**
+```go
+type ExclusionURLHandler func(r *http.Request) bool
+```
+
+### 5. TokenExtractor Signature Change
+
+`TokenExtractor` now returns `ExtractedToken` (with scheme) instead of `string`:
+
+**v2:**
+```go
+type TokenExtractor func(r *http.Request) (string, error)
+```
+
+**v3:**
+```go
+type ExtractedToken struct {
+    Token  string
+    Scheme AuthScheme  // AuthSchemeBearer, AuthSchemeDPoP, or AuthSchemeUnknown
+}
+type TokenExtractor func(r *http.Request) (ExtractedToken, error)
+```
+
+**Note:** Built-in extractors (`CookieTokenExtractor`, `ParameterTokenExtractor`, `MultiTokenExtractor`) work unchanged. Only custom extractors need updating.
+
+## Step-by-Step Migration
+
+### 1. Update Dependencies
+
+Update your `go.mod`:
+
+```bash
+go get github.com/auth0/go-jwt-middleware/v3
+```
+
+Update imports in your code:
+
+**v2:**
+```go
+import (
+    "github.com/auth0/go-jwt-middleware/v2"
+    "github.com/auth0/go-jwt-middleware/v2/validator"
+    "github.com/auth0/go-jwt-middleware/v2/jwks"
+)
+```
+
+**v3:**
+```go
+import (
+    "github.com/auth0/go-jwt-middleware/v3"
+    "github.com/auth0/go-jwt-middleware/v3/validator"
+    "github.com/auth0/go-jwt-middleware/v3/jwks"
+)
+```
+
+### 2. Update Validator
+
+#### Basic Validator
+
+**v2:**
+```go
+jwtValidator, err := validator.New(
+    keyFunc,
+    validator.RS256,
+    "https://issuer.example.com/",
+    []string{"my-api"},
+)
+```
+
+**v3:**
+```go
+jwtValidator, err := validator.New(
+    validator.WithKeyFunc(keyFunc),
+    validator.WithAlgorithm(validator.RS256),
+    validator.WithIssuer("https://issuer.example.com/"),
+    validator.WithAudience("my-api"),
+)
+```
+
+#### Validator with Options
+
+**v2:**
+```go
+jwtValidator, err := validator.New(
+    keyFunc,
+    validator.RS256,
+    "https://issuer.example.com/",
+    []string{"my-api"},
+    validator.WithCustomClaims(func() validator.CustomClaims {
+        return &CustomClaimsExample{}
+    }),
+    validator.WithAllowedClockSkew(30*time.Second),
+)
+```
+
+**v3:**
+```go
+jwtValidator, err := validator.New(
+    validator.WithKeyFunc(keyFunc),
+    validator.WithAlgorithm(validator.RS256),
+    validator.WithIssuer("https://issuer.example.com/"),
+    validator.WithAudience("my-api"),
+    validator.WithCustomClaims(func() *CustomClaimsExample {
+        return &CustomClaimsExample{} // No interface cast needed!
+    }),
+    validator.WithAllowedClockSkew(30*time.Second),
+)
+```
+
+#### Multiple Issuers/Audiences
+
+**v2:**
+```go
+jwtValidator, err := validator.New(
+    keyFunc,
+    validator.RS256,
+    "https://issuer1.example.com/", // First issuer
+    []string{"api1", "api2"},       // Multiple audiences
+    validator.WithIssuer("https://issuer2.example.com/"), // Additional issuer
+)
+```
+
+**v3:**
+```go
+jwtValidator, err := validator.New(
+    validator.WithKeyFunc(keyFunc),
+    validator.WithAlgorithm(validator.RS256),
+    validator.WithIssuers([]string{
+        "https://issuer1.example.com/",
+        "https://issuer2.example.com/",
+    }),
+    validator.WithAudiences([]string{"api1", "api2"}),
+)
+```
+
+### 3. Update JWKS Provider
+
+#### Simple Provider
+
+**v2:**
+```go
+provider, err := jwks.NewProvider(issuerURL)
+```
+
+**v3:**
+```go
+provider, err := jwks.NewProvider(
+    jwks.WithIssuerURL(issuerURL),
+)
+```
+
+#### Caching Provider
+
+**v2:**
+```go
+provider, err := jwks.NewCachingProvider(
+    issuerURL,
+    5*time.Minute, // cache TTL
+)
+```
+
+**v3:**
+```go
+provider, err := jwks.NewCachingProvider(
+    jwks.WithIssuerURL(issuerURL),
+    jwks.WithCacheTTL(5*time.Minute),
+)
+```
+
+#### Custom JWKS URI
+
+**v2:**
+```go
+provider, err := jwks.NewCachingProvider(
+    issuerURL,
+    5*time.Minute,
+    jwks.WithCustomJWKSURI(customURI),
+)
+```
+
+**v3:**
+```go
+provider, err := jwks.NewCachingProvider(
+    jwks.WithIssuerURL(issuerURL),
+    jwks.WithCacheTTL(5*time.Minute),
+    jwks.WithCustomJWKSURI(customURI),
+)
+```
+
+### 4. Update Middleware
+
+#### Basic Middleware
+
+**v2:**
+```go
+middleware := jwtmiddleware.New(jwtValidator.ValidateToken)
+```
+
+**v3:**
+```go
+v3Middleware, err := v3.New(
+    v3.WithValidator(v3Validator),
+)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+#### Middleware with Options
+
+**v2:**
+```go
+middleware := jwtmiddleware.New(
+    jwtValidator.ValidateToken,
+    jwtmiddleware.WithCredentialsOptional(true),
+    jwtmiddleware.WithErrorHandler(customErrorHandler),
+)
+```
+
+**v3:**
+```go
+middleware, err := jwtmiddleware.New(
+    jwtmiddleware.WithValidator(jwtValidator),
+    jwtmiddleware.WithCredentialsOptional(true),
+    jwtmiddleware.WithErrorHandler(customErrorHandler),
+)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+#### Token Extractors
+
+**v3 Breaking Change**: `TokenExtractor` now returns `ExtractedToken` instead of `string`:
+
+**v2:**
+```go
+// TokenExtractor returned string
+type TokenExtractor func(r *http.Request) (string, error)
+```
+
+**v3:**
+```go
+// TokenExtractor returns ExtractedToken with both token and scheme
+type ExtractedToken struct {
+    Token  string
+    Scheme AuthScheme  // bearer, dpop, or unknown
+}
+type TokenExtractor func(r *http.Request) (ExtractedToken, error)
+```
+
+Built-in extractors work the same way:
+```go
+// These all work unchanged - internal implementation updated
+jwtmiddleware.CookieTokenExtractor("jwt")
+jwtmiddleware.ParameterTokenExtractor("token")
+jwtmiddleware.MultiTokenExtractor(extractors...)
+```
+
+**Custom extractors must be updated:**
+```go
+// v2
+customExtractor := func(r *http.Request) (string, error) {
+    return r.Header.Get("X-Custom-Token"), nil
 }
 
-jwtMiddleware := jwtmiddleware.New(validator.ValidateToken, jwtmiddleware.WithErrorHandler(myErrHandler))
+// v3
+customExtractor := func(r *http.Request) (jwtmiddleware.ExtractedToken, error) {
+    return jwtmiddleware.ExtractedToken{
+        Token:  r.Header.Get("X-Custom-Token"),
+        Scheme: jwtmiddleware.AuthSchemeUnknown, // or AuthSchemeBearer if you know
+    }, nil
+}
 ```
 
-##### `CredentialsOptional`
+### 5. Update Claims Access
 
-Use the option function 
-[jwtmiddleware.WithCredentialsOptional(true|false)](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#WithCredentialsOptional).
-Default is false.
+#### Handler Claims Access
 
-##### `Extractor`
+**v2:**
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
 
-Use the option function [jwtmiddleware.WithTokenExtractor](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#WithTokenExtractor).
-Default is to extract tokens from the auth header.
-
-We provide 3 different token extractors:
-- [jwtmiddleware.AuthHeaderTokenExtractor](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#AuthHeaderTokenExtractor) renamed from `jwtmiddleware.FromAuthHeader`.
-- [jwtmiddleware.CookieTokenExtractor](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#CookieTokenExtractor) a new extractor.
-- [jwtmiddleware.ParameterTokenExtractor](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#ParameterTokenExtractor) renamed from `jwtmiddleware.FromParameter`.
-
-And also an extractor which can combine multiple different extractors together: 
-[jwtmiddleware.MultiTokenExtractor](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#MultiTokenExtractor) renamed from `jwtmiddleware.FromFirst`.
-
-##### `Debug`
-
-Removed. Please review individual exception messages for error details.
-
-##### `EnableAuthOnOptions`
-
-Use the option function [jwtmiddleware.WithValidateOnOptions(true|false)](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#WithValidateOnOptions). Default is true.
-
-##### `SigningMethod`
-
-This is now handled in the validation provider.
-
-#### `jwtmiddleware.New`
-
-A token provider is set up in the middleware by passing a 
-[jwtmiddleware.ValidateToken](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#ValidateToken)
-function:
-
-```golang
-func(context.Context, string) (interface{}, error)
+    fmt.Fprintf(w, "Hello, %s", claims.RegisteredClaims.Subject)
+}
 ```
 
-to [jwtmiddleware.New](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#New).
+**v3 (recommended - type-safe):**
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+    if err != nil {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
 
-In the example above you can see 
-[github.com/auth0/go-jwt-middleware/validator](https://pkg.go.dev/github.com/auth0/go-jwt-middleware@v2.0.0/validator)
-being used.
+    fmt.Fprintf(w, "Hello, %s", claims.RegisteredClaims.Subject)
+}
+```
 
-This change was made to allow the JWT validation provider to be easily switched out.
 
-Options are passed into `jwtmiddleware.New` after validation provider and use the `jwtmiddleware.With...` functions to 
-set options.
+#### Custom Claims Access
 
-#### `jwtmiddleware.Handler*`
+**v2:**
+```go
+claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+customClaims := claims.CustomClaims.(*MyCustomClaims)
+```
 
-Both `jwtmiddleware.HandlerWithNext` and `jwtmiddleware.Handler` have been dropped.
-You can use [jwtmiddleware.CheckJWT](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#JWTMiddleware.CheckJWT) 
-instead which takes in an `http.Handler` and returns an `http.Handler`.
+**v3:**
+```go
+claims, _ := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+customClaims := claims.CustomClaims.(*MyCustomClaims)
 
-#### `jwtmiddleware.CheckJWT`
+// Or use MustGetClaims if you're sure claims exist
+claims := jwtmiddleware.MustGetClaims[*validator.ValidatedClaims](r.Context())
+customClaims := claims.CustomClaims.(*MyCustomClaims)
+```
 
-This function has been reworked to be the main middleware handler piece, and so we've dropped the functionality of it 
-returning and error.
+## API Comparison
 
-If you need to handle any errors please use the
-[jwtmiddleware.WithErrorHandler](https://pkg.go.dev/github.com/auth0/go-jwt-middleware#WithErrorHandler) function.
+### Complete Migration Example
+
+**v2:**
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "net/url"
+    "time"
+
+    jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
+    "github.com/auth0/go-jwt-middleware/v2/jwks"
+    "github.com/auth0/go-jwt-middleware/v2/validator"
+)
+
+func main() {
+    issuerURL, _ := url.Parse("https://example.auth0.com/")
+
+    // JWKS Provider
+    provider, err := jwks.NewCachingProvider(issuerURL, 5*time.Minute)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Validator
+    jwtValidator, err := validator.New(
+        provider.KeyFunc,
+        validator.RS256,
+        issuerURL.String(),
+        []string{"my-api"},
+        validator.WithCustomClaims(func() validator.CustomClaims {
+            return &CustomClaimsExample{}
+        }),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Middleware
+    middleware := jwtmiddleware.New(
+        jwtValidator.ValidateToken,
+        jwtmiddleware.WithCredentialsOptional(true),
+    )
+
+    // Handler
+    http.Handle("/api", middleware.CheckJWT(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        claims := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
+        customClaims := claims.CustomClaims.(*CustomClaimsExample)
+
+        w.Write([]byte("Hello, " + claims.RegisteredClaims.Subject))
+    })))
+
+    http.ListenAndServe(":3000", nil)
+}
+```
+
+**v3:**
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "net/url"
+    "time"
+
+    "github.com/auth0/go-jwt-middleware/v3"
+    "github.com/auth0/go-jwt-middleware/v3/jwks"
+    "github.com/auth0/go-jwt-middleware/v3/validator"
+)
+
+func main() {
+    issuerURL, _ := url.Parse("https://example.auth0.com/")
+
+    // JWKS Provider - now with options
+    provider, err := jwks.NewCachingProvider(
+        jwks.WithIssuerURL(issuerURL),
+        jwks.WithCacheTTL(5*time.Minute),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Validator - now with options
+    jwtValidator, err := validator.New(
+        validator.WithKeyFunc(provider.KeyFunc),
+        validator.WithAlgorithm(validator.RS256),
+        validator.WithIssuer(issuerURL.String()),
+        validator.WithAudience("my-api"),
+        validator.WithCustomClaims(func() *CustomClaimsExample {
+            return &CustomClaimsExample{} // Type-safe!
+        }),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Middleware - now returns error
+    middleware, err := jwtmiddleware.New(
+        jwtmiddleware.WithValidator(jwtValidator),
+        jwtmiddleware.WithCredentialsOptional(true),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Handler - now with type-safe claims
+    http.Handle("/api", middleware.CheckJWT(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+        if err != nil {
+            http.Error(w, "Unauthorized", http.StatusUnauthorized)
+            return
+        }
+        customClaims := claims.CustomClaims.(*CustomClaimsExample)
+
+        w.Write([]byte("Hello, " + claims.RegisteredClaims.Subject))
+    })))
+
+    http.ListenAndServe(":3000", nil)
+}
+```
+
+## New Features
+
+### 1. Structured Logging
+
+v3 adds optional logging support:
+
+```go
+import "log/slog"
+
+logger := slog.Default()
+
+middleware, err := jwtmiddleware.New(
+    jwtmiddleware.WithValidator(jwtValidator),
+    jwtmiddleware.WithLogger(logger),
+)
+```
+
+### 2. Enhanced Error Responses
+
+v3 provides RFC 6750 compliant error responses with structured JSON:
+
+```json
+{
+  "error": "invalid_token",
+  "error_description": "Token has expired",
+  "error_code": "token_expired"
+}
+```
+
+With proper `WWW-Authenticate` headers:
+
+```
+WWW-Authenticate: Bearer error="invalid_token", error_description="Token has expired"
+```
+
+### 3. More Algorithms
+
+v3 supports 14 algorithms (v2 had 10):
+
+New in v3:
+- `EdDSA` (Ed25519)
+- `ES256K` (ECDSA with secp256k1)
+- `PS256`, `PS384`, `PS512` (RSA-PSS)
+
+### 4. HasClaims Helper
+
+Check if claims exist without retrieving them:
+
+```go
+if jwtmiddleware.HasClaims(r.Context()) {
+    // Claims are present
+}
+```
+
+### 5. URL Exclusions
+
+Easily exclude specific URLs from JWT validation:
+
+```go
+middleware, err := jwtmiddleware.New(
+    jwtmiddleware.WithValidator(jwtValidator),
+    jwtmiddleware.WithExclusionUrls([]string{
+        "/health",
+        "/metrics",
+    }),
+)
+```
+
+### 6. DPoP (Demonstrating Proof-of-Possession)
+
+v3 adds full support for RFC 9449 DPoP, which provides proof-of-possession for access tokens:
+
+```go
+// DPoP modes:
+// - DPoPAllowed (default): Accept both Bearer and DPoP tokens
+// - DPoPRequired: Only accept DPoP tokens  
+// - DPoPDisabled: Ignore DPoP, reject DPoP scheme
+
+middleware, err := jwtmiddleware.New(
+    jwtmiddleware.WithValidator(jwtValidator),
+    jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
+)
+```
+
+DPoP validates:
+- Proof signature using asymmetric algorithms (RS256, ES256, etc.)
+- HTTP method and URL binding (`htm` and `htu` claims)
+- Token binding via thumbprint (`jkt` claim in access token's `cnf`)
+- Access token hash (`ath` claim) matching
+- Replay protection via `jti` and `iat` claims
+
+See the [DPoP examples](./examples/http-dpop-example) for complete working code.
+
+## FAQ
+
+### Q: Can I use v2 and v3 side by side during migration?
+
+**A:** Yes! The module paths are different (`v2` vs `v3`), so you can import both:
+
+```go
+import (
+    v2 "github.com/auth0/go-jwt-middleware/v2"
+    v3 "github.com/auth0/go-jwt-middleware/v3"
+)
+```
+
+### Q: Do I need to change my tokens?
+
+**A:** No. JWT tokens are standard-compliant and work with both versions.
+
+### Q: Will v3 break my existing middleware?
+
+**A:** Only if you upgrade the import path. Keep using `/v2` until you're ready to migrate.
+
+### Q: What's the performance difference?
+
+**A:** v3 is generally faster due to lestrrat-go/jwx v3's optimizations:
+- Token parsing: ~10-20% faster
+- JWKS operations: ~15-25% faster
+- Memory usage: ~10-15% lower
+
+### Q: Can I still use the old context key?
+
+**A:** No, `ContextKey{}` is no longer exported in v3. You must use the generic `GetClaims[T]()` helper function for type-safe claims retrieval.
+
+### Q: Are all v2 features available in v3?
+
+**A:** Yes, and more! All v2 features are available in v3 with improved APIs.
+
+### Q: How do I test my migration?
+
+**A:** Start with a single route:
+
+```go
+// Keep v2 for most routes
+v2Middleware := v2.New(v2Validator.ValidateToken)
+http.Handle("/api/v2/", v2Middleware.CheckJWT(v2Handler))
+
+// Test v3 on one route
+v3Middleware, _ := v3.New(v3.WithValidator(v3Validator))
+http.Handle("/api/v3/", v3Middleware.CheckJWT(v3Handler))
+```
+
+### Q: Where can I get help?
+
+**A:**
+- [GitHub Issues](https://github.com/auth0/go-jwt-middleware/issues)
+- [Auth0 Community](https://community.auth0.com/)
+- [Documentation](https://pkg.go.dev/github.com/auth0/go-jwt-middleware/v3)
+
+---
+
+**Ready to migrate?** Start with the [Getting Started guide](./README.md) and check out the [examples](./examples) for working code!

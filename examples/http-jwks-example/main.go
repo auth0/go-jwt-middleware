@@ -7,20 +7,22 @@ import (
 	"net/url"
 	"time"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
-	"github.com/auth0/go-jwt-middleware/v2/jwks"
-	"github.com/auth0/go-jwt-middleware/v2/validator"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v3"
+	"github.com/auth0/go-jwt-middleware/v3/jwks"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-	if !ok {
+	// Modern type-safe claims retrieval using generics
+	claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+	if err != nil {
 		http.Error(w, "failed to get validated claims", http.StatusInternalServerError)
 		return
 	}
 
 	if len(claims.RegisteredClaims.Subject) == 0 {
 		http.Error(w, "subject in JWT claims was empty", http.StatusBadRequest)
+		return
 	}
 
 	payload, err := json.Marshal(claims)
@@ -39,20 +41,34 @@ func setupHandler(issuer string, audience []string) http.Handler {
 		log.Fatalf("failed to parse the issuer url: %v", err)
 	}
 
-	provider := jwks.NewCachingProvider(issuerURL, 5*time.Minute)
+	provider, err := jwks.NewCachingProvider(
+		jwks.WithIssuerURL(issuerURL),
+		jwks.WithCacheTTL(5*time.Minute),
+	)
+	if err != nil {
+		log.Fatalf("failed to create jwks provider: %v", err)
+	}
 
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		provider.KeyFunc,
-		validator.RS256,
-		issuerURL.String(),
-		audience,
+		validator.WithKeyFunc(provider.KeyFunc),
+		validator.WithAlgorithm(validator.RS256),
+		validator.WithIssuer(issuerURL.String()),
+		validator.WithAudiences(audience),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the validator: %v", err)
 	}
 
-	return jwtmiddleware.New(jwtValidator.ValidateToken).CheckJWT(handler)
+	// Set up the middleware using pure options pattern
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidator(jwtValidator),
+	)
+	if err != nil {
+		log.Fatalf("failed to set up the middleware: %v", err)
+	}
+
+	return middleware.CheckJWT(handler)
 }
 
 func main() {

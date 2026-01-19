@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
-	"github.com/auth0/go-jwt-middleware/v2/validator"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v3"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 	"github.com/labstack/echo/v4"
 )
 
@@ -40,12 +40,17 @@ import (
 //	  "shouldReject": true
 //	}
 
-func main() {
+func setupRouter() *echo.Echo {
 	app := echo.New()
 
-	app.GET("/", func(ctx echo.Context) error {
-		claims, ok := ctx.Request().Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-		if !ok {
+	app.GET("/api/public", func(ctx echo.Context) error {
+		return ctx.JSON(http.StatusOK, map[string]string{"message": "Hello from a public endpoint!"})
+	})
+
+	app.GET("/api/private", func(ctx echo.Context) error {
+		// Modern type-safe claims retrieval using generics
+		claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](ctx.Request().Context())
+		if err != nil {
 			ctx.JSON(
 				http.StatusInternalServerError,
 				map[string]string{"message": "Failed to get validated JWT claims."},
@@ -73,6 +78,12 @@ func main() {
 		ctx.JSON(http.StatusOK, claims)
 		return nil
 	}, checkJWT)
+
+	return app
+}
+
+func main() {
+	app := setupRouter()
 
 	log.Print("Server listening on http://localhost:3000")
 	err := app.Start(":3000")

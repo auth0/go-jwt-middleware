@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
-	"github.com/auth0/go-jwt-middleware/v2/validator"
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v3"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 var (
@@ -34,8 +34,9 @@ func (c *CustomClaimsExample) Validate(ctx context.Context) error {
 }
 
 var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(jwtmiddleware.ContextKey{}).(*validator.ValidatedClaims)
-	if !ok {
+	// Modern type-safe claims retrieval using generics
+	claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](r.Context())
+	if err != nil {
 		http.Error(w, "failed to get validated claims", http.StatusInternalServerError)
 		return
 	}
@@ -43,10 +44,12 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	customClaims, ok := claims.CustomClaims.(*CustomClaimsExample)
 	if !ok {
 		http.Error(w, "could not cast custom claims to specific type", http.StatusInternalServerError)
+		return
 	}
 
 	if len(customClaims.Username) == 0 {
 		http.Error(w, "username in JWT claims was empty", http.StatusBadRequest)
+		return
 	}
 
 	payload, err := json.Marshal(claims)
@@ -60,31 +63,38 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 })
 
 func setupHandler() http.Handler {
-	keyFunc := func(ctx context.Context) (interface{}, error) {
+	keyFunc := func(ctx context.Context) (any, error) {
 		// Our token must be signed using this data.
 		return signingKey, nil
 	}
 
-	// We want this struct to be filled in with
-	// our custom claims from the token.
-	customClaims := func() validator.CustomClaims {
-		return &CustomClaimsExample{}
-	}
-
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		keyFunc,
-		validator.HS256,
-		issuer,
-		audience,
-		validator.WithCustomClaims(customClaims),
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudiences(audience),
+		// WithCustomClaims now uses generics - no need to return interface type
+		validator.WithCustomClaims(func() *CustomClaimsExample {
+			return &CustomClaimsExample{}
+		}),
 		validator.WithAllowedClockSkew(30*time.Second),
 	)
 	if err != nil {
 		log.Fatalf("failed to set up the validator: %v", err)
 	}
 
-	return jwtmiddleware.New(jwtValidator.ValidateToken).CheckJWT(handler)
+	// Set up the middleware using pure options pattern
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidator(jwtValidator),
+		// Optional: Add a logger for debugging JWT validation flow
+		// jwtmiddleware.WithLogger(slog.Default()),
+	)
+	if err != nil {
+		log.Fatalf("failed to set up the middleware: %v", err)
+	}
+
+	return middleware.CheckJWT(handler)
 }
 
 func main() {

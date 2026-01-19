@@ -14,3 +14,15 @@
 
 # Dependency directories
 vendor/
+
+# Docs
+docs/
+
+# Example binaries - ignore executables (not .go, .mod, .sum, .md files)
+examples/*/echo
+examples/*/gin
+examples/*/iris
+examples/*/http
+examples/*/http-jwks
+examples/*/http-dpop
+examples/*/http-dpop-*

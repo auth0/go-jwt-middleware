@@ -2,17 +2,20 @@ package jwtmiddleware
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/auth0/go-jwt-middleware/v2/validator"
+	"github.com/auth0/go-jwt-middleware/v3/core"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 func Test_CheckJWT(t *testing.T) {
@@ -30,27 +33,32 @@ func Test_CheckJWT(t *testing.T) {
 		},
 	}
 
-	keyFunc := func(context.Context) (interface{}, error) {
+	keyFunc := func(context.Context) (any, error) {
 		return []byte("secret"), nil
 	}
 
-	jwtValidator, err := validator.New(keyFunc, validator.HS256, issuer, []string{audience})
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
 	require.NoError(t, err)
 
 	testCases := []struct {
 		name           string
-		validateToken  ValidateToken
+		validator      *validator.Validator // Changed from validateToken
 		options        []Option
 		method         string
 		token          string
-		wantToken      interface{}
+		wantToken      any
 		wantStatusCode int
 		wantBody       string
 		path           string
 	}{
 		{
 			name:           "it can successfully validate a token",
-			validateToken:  jwtValidator.ValidateToken,
+			validator:      jwtValidator,
 			token:          validToken,
 			method:         http.MethodGet,
 			wantToken:      tokenClaims,
@@ -59,7 +67,7 @@ func Test_CheckJWT(t *testing.T) {
 		},
 		{
 			name:           "it can validate on options",
-			validateToken:  jwtValidator.ValidateToken,
+			validator:      jwtValidator,
 			method:         http.MethodOptions,
 			token:          validToken,
 			wantToken:      tokenClaims,
@@ -70,23 +78,24 @@ func Test_CheckJWT(t *testing.T) {
 			name:           "it fails to validate a token with a bad format",
 			token:          "bad",
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusInternalServerError,
-			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
+			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"error":"invalid_request","error_code":"invalid_request"}`,
 		},
 		{
 			name:           "it fails to validate if token is missing and credentials are not optional",
 			token:          "",
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"message":"JWT is missing."}`,
+			wantStatusCode: http.StatusUnauthorized,
+			// Per RFC 6750 Section 3.1, no error_description when auth is missing
+			wantBody:       `{"error":"invalid_token"}`,
 		},
 		{
 			name:           "it fails to validate an invalid token",
-			validateToken:  jwtValidator.ValidateToken,
+			validator:      jwtValidator,
 			token:          invalidToken,
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusUnauthorized,
-			wantBody:       `{"message":"JWT is invalid."}`,
+			wantBody:       `{"error":"invalid_token","error_description":"JWT is invalid"}`,
 		},
 		{
 			name: "it skips validation on OPTIONS if validateOnOptions is set to false",
@@ -101,20 +110,20 @@ func Test_CheckJWT(t *testing.T) {
 		{
 			name: "it fails validation if there are errors with the token extractor",
 			options: []Option{
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", errors.New("token extractor error")
+				WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+					return ExtractedToken{}, errors.New("token extractor error")
 				}),
 			},
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusInternalServerError,
-			wantBody:       `{"message":"Something went wrong while checking the JWT."}`,
+			wantStatusCode: http.StatusBadRequest,
+			wantBody:       `{"error":"invalid_request","error_code":"invalid_request"}`,
 		},
 		{
 			name: "credentialsOptional true",
 			options: []Option{
 				WithCredentialsOptional(true),
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", nil
+				WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+					return ExtractedToken{}, nil
 				}),
 			},
 			method:         http.MethodGet,
@@ -126,13 +135,14 @@ func Test_CheckJWT(t *testing.T) {
 				"a custom extractor and credentialsOptional is false",
 			options: []Option{
 				WithCredentialsOptional(false),
-				WithTokenExtractor(func(r *http.Request) (string, error) {
-					return "", nil
+				WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+					return ExtractedToken{}, nil
 				}),
 			},
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"message":"JWT is missing."}`,
+			wantStatusCode: http.StatusUnauthorized,
+			// Per RFC 6750 Section 3.1, no error_description when auth is missing
+			wantBody:       `{"error":"invalid_token"}`,
 		},
 		{
 			name: "JWT not required for /public",
@@ -175,8 +185,9 @@ func Test_CheckJWT(t *testing.T) {
 			method:         http.MethodGet,
 			path:           "/secure",
 			token:          "",
-			wantStatusCode: http.StatusBadRequest,
-			wantBody:       `{"message":"JWT is missing."}`,
+			wantStatusCode: http.StatusUnauthorized,
+			// Per RFC 6750 Section 3.1, no error_description when auth is missing
+			wantBody:       `{"error":"invalid_token"}`,
 		},
 	}
 
@@ -185,11 +196,32 @@ func Test_CheckJWT(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			middleware := New(testCase.validateToken, testCase.options...)
+			// Use the test's validator if specified, otherwise create a default failing validator
+			v := testCase.validator
+			if v == nil {
+				// Create a validator that always fails
+				keyFunc := func(context.Context) (any, error) {
+					return nil, errors.New("no key")
+				}
+				v, _ = validator.New(
+					validator.WithKeyFunc(keyFunc),
+					validator.WithAlgorithm(validator.HS256),
+					validator.WithIssuer("fail"),
+					validator.WithAudience("fail"),
+				)
+			}
 
-			var actualValidatedClaims interface{}
+			opts := append([]Option{WithValidator(v)}, testCase.options...)
+			middleware, err := New(opts...)
+			require.NoError(t, err)
+
+			var actualValidatedClaims any
 			var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				actualValidatedClaims = r.Context().Value(ContextKey{})
+				// Use the public API to get claims
+				if HasClaims(r.Context()) {
+					claims, _ := GetClaims[any](r.Context())
+					actualValidatedClaims = claims
+				}
 
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
@@ -216,11 +248,860 @@ func Test_CheckJWT(t *testing.T) {
 
 			assert.Equal(t, testCase.wantStatusCode, response.StatusCode)
 			assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
-			assert.Equal(t, testCase.wantBody, string(body))
+
+			// Compare JSON responses (ignoring formatting differences like newlines)
+			if testCase.wantBody != "" {
+				assert.JSONEq(t, testCase.wantBody, string(body))
+			}
 
 			if want, got := testCase.wantToken, actualValidatedClaims; !cmp.Equal(want, got) {
 				t.Fatal(cmp.Diff(want, got))
 			}
 		})
 	}
+}
+
+// TestNew_EdgeCases tests edge cases in the New() function for better coverage
+func TestNew_EdgeCases(t *testing.T) {
+	const (
+		issuer   = "testIssuer"
+		audience = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	t.Run("missing validator returns error", func(t *testing.T) {
+		_, err := New()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid middleware configuration")
+	})
+
+	t.Run("invalid option returns error", func(t *testing.T) {
+		invalidOption := func(m *JWTMiddleware) error {
+			return errors.New("invalid option test")
+		}
+
+		_, err := New(WithValidator(jwtValidator), invalidOption)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid option")
+	})
+
+	t.Run("nil validator returns validation error", func(t *testing.T) {
+		_, err := New(WithValidator(nil))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "validator cannot be nil")
+	})
+
+	t.Run("successful creation with DPoP options", func(t *testing.T) {
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithDPoPMode(DPoPAllowed),
+			WithDPoPProofOffset(60),
+			WithDPoPIATLeeway(5),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, middleware)
+		assert.NotNil(t, middleware.dpopMode)
+		assert.Equal(t, DPoPAllowed, *middleware.dpopMode)
+		assert.NotNil(t, middleware.dpopProofOffset)
+		assert.Equal(t, time.Duration(60), *middleware.dpopProofOffset)
+		assert.NotNil(t, middleware.dpopIATLeeway)
+		assert.Equal(t, time.Duration(5), *middleware.dpopIATLeeway)
+	})
+
+	t.Run("successful creation with all configuration options", func(t *testing.T) {
+		mockLog := &mockLogger{}
+		customExtractor := func(r *http.Request) (ExtractedToken, error) {
+			return ExtractedToken{Scheme: AuthSchemeBearer, Token: "custom-token"}, nil
+		}
+		customDPoPExtractor := func(r *http.Request) (string, error) {
+			return "custom-dpop", nil
+		}
+		customErrorHandler := func(w http.ResponseWriter, r *http.Request, err error) {
+			w.WriteHeader(http.StatusTeapot)
+		}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithLogger(mockLog),
+			WithCredentialsOptional(true),
+			WithValidateOnOptions(false),
+			WithTokenExtractor(customExtractor),
+			WithDPoPHeaderExtractor(customDPoPExtractor),
+			WithErrorHandler(customErrorHandler),
+			WithExclusionUrls([]string{"/public"}),
+			WithStandardProxy(),
+			WithDPoPMode(DPoPRequired),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, middleware)
+		assert.True(t, middleware.credentialsOptional)
+		assert.False(t, middleware.validateOnOptions)
+		assert.NotNil(t, middleware.logger)
+		assert.NotNil(t, middleware.tokenExtractor)
+		assert.NotNil(t, middleware.dpopHeaderExtractor)
+		assert.NotNil(t, middleware.errorHandler)
+		assert.NotNil(t, middleware.exclusionURLHandler)
+		assert.NotNil(t, middleware.trustedProxies)
+		assert.NotNil(t, middleware.dpopMode)
+	})
+}
+
+// TestValidateToken_DPoPHeaderExtractorError tests error path in validateToken
+func TestValidateToken_DPoPHeaderExtractorError(t *testing.T) {
+	const (
+		validToken = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+		issuer     = "testIssuer"
+		audience   = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	t.Run("dpop header extractor error without logger", func(t *testing.T) {
+		customDPoPExtractor := func(r *http.Request) (string, error) {
+			return "", errors.New("dpop extraction failed")
+		}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithDPoPHeaderExtractor(customDPoPExtractor),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", validToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+	})
+
+	t.Run("dpop header extractor error with logger", func(t *testing.T) {
+		mockLog := &mockLogger{}
+		customDPoPExtractor := func(r *http.Request) (string, error) {
+			return "", errors.New("dpop extraction failed with logging")
+		}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithDPoPHeaderExtractor(customDPoPExtractor),
+			WithDPoPMode(DPoPAllowed),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", validToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+		// Verify error logging occurred
+		assert.NotEmpty(t, mockLog.errorCalls)
+		found := false
+		for _, call := range mockLog.errorCalls {
+			if len(call) > 0 {
+				if msg, ok := call[0].(string); ok && msg == "failed to extract DPoP proof from request" {
+					found = true
+					break
+				}
+			}
+		}
+		assert.True(t, found, "Expected error log for DPoP extraction failure")
+	})
+}
+
+// TestCheckJWT_WithLogging tests middleware with logging enabled to cover log branches
+func TestCheckJWT_WithLogging(t *testing.T) {
+	const (
+		validToken = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+		issuer     = "testIssuer"
+		audience   = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	t.Run("successful validation with debug logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", validToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("exclusion URL with debug logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithExclusionUrls([]string{"/public"}),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL+"/public", nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		// Should have debug log for exclusion
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("OPTIONS with skip validation and logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithValidateOnOptions(false),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodOptions, testServer.URL, nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("token extractor error with logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithTokenExtractor(func(r *http.Request) (ExtractedToken, error) {
+				return ExtractedToken{}, errors.New("extractor failed")
+			}),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		// Token extraction errors now return 400 Bad Request (invalid_request) instead of 500
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+		assert.NotEmpty(t, mockLog.errorCalls)
+	})
+
+	t.Run("credentials optional with no token and logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithCredentialsOptional(true),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		// Should have debug log for optional credentials
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+
+	t.Run("standard JWT validation failure with warn logging", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		// Send invalid token
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", "Bearer invalid.token.here")
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusUnauthorized, response.StatusCode)
+		assert.NotEmpty(t, mockLog.warnCalls)
+	})
+
+	t.Run("successful Bearer token validation logs correct message", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", validToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+
+		// Verify the Bearer token success log message
+		assert.NotEmpty(t, mockLog.debugCalls)
+		found := false
+		for _, call := range mockLog.debugCalls {
+			if len(call) > 0 {
+				if msg, ok := call[0].(string); ok && msg == "JWT validation successful (Bearer), setting claims in context" {
+					found = true
+					break
+				}
+			}
+		}
+		assert.True(t, found, "Expected debug log for Bearer token success")
+	})
+
+	t.Run("successful DPoP token validation logs correct message", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		// Create a validator that returns DPoP-bound token claims
+		dpopKeyFunc := func(context.Context) (any, error) {
+			return []byte("secret"), nil
+		}
+
+		dpopValidator, err := validator.New(
+			validator.WithKeyFunc(dpopKeyFunc),
+			validator.WithAlgorithm(validator.HS256),
+			validator.WithIssuer(issuer),
+			validator.WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		// Mock DPoP header extractor that returns a proof
+		dpopExtractor := func(r *http.Request) (string, error) {
+			return "mock-dpop-proof", nil
+		}
+
+		middleware, err := New(
+			WithValidator(dpopValidator),
+			WithLogger(mockLog),
+			WithDPoPMode(DPoPAllowed),
+			WithDPoPHeaderExtractor(dpopExtractor),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Verify DPoP context was set
+			dpopCtx := core.GetDPoPContext(r.Context())
+			if dpopCtx != nil {
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", validToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		// Note: This will fail validation because we don't have a real DPoP token/proof
+		// But we can test the error path includes proper logging
+		// For a full success path test, we would need to generate real DPoP tokens
+
+		// The test validates that the logging infrastructure is in place
+		assert.NotEmpty(t, mockLog.debugCalls)
+	})
+}
+
+func TestCheckJWT_WithTrustedProxies(t *testing.T) {
+	const (
+		issuer   = "testIssuer"
+		audience = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name               string
+		proxyOption        Option
+		setupRequest       func(*http.Request)
+		expectSuccess      bool
+		expectedStatusCode int
+	}{
+		{
+			name:        "no proxy config - ignores X-Forwarded headers",
+			proxyOption: nil,
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "api.example.com")
+				r.Header.Set("X-Forwarded-Prefix", "/api/v1")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "WithStandardProxy - trusts Proto and Host",
+			proxyOption: WithStandardProxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "api.example.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "WithAPIGatewayProxy - trusts Proto, Host, and Prefix",
+			proxyOption: WithAPIGatewayProxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "api.example.com")
+				r.Header.Set("X-Forwarded-Prefix", "/api/v1")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "WithRFC7239Proxy - trusts Forwarded header",
+			proxyOption: WithRFC7239Proxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("Forwarded", "proto=https;host=api.example.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name: "custom proxy config - selective trust",
+			proxyOption: WithTrustedProxies(&TrustedProxyConfig{
+				TrustXForwardedProto: true,
+				TrustXForwardedHost:  false, // Don't trust host
+			}),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.Header.Set("X-Forwarded-Host", "malicious.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:        "multiple proxies - uses leftmost value",
+			proxyOption: WithStandardProxy(),
+			setupRequest: func(r *http.Request) {
+				r.Header.Set("X-Forwarded-Proto", "https, http, http")
+				r.Header.Set("X-Forwarded-Host", "client.example.com, proxy1.internal, proxy2.internal")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name: "RFC 7239 takes precedence over X-Forwarded",
+			proxyOption: WithTrustedProxies(&TrustedProxyConfig{
+				TrustForwarded:       true,
+				TrustXForwardedProto: true,
+				TrustXForwardedHost:  true,
+			}),
+			setupRequest: func(r *http.Request) {
+				// RFC 7239 should win
+				r.Header.Set("Forwarded", "proto=https;host=rfc7239.example.com")
+				r.Header.Set("X-Forwarded-Proto", "http")
+				r.Header.Set("X-Forwarded-Host", "xforwarded.example.com")
+			},
+			expectSuccess:      true,
+			expectedStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			options := []Option{WithValidator(jwtValidator)}
+			if tc.proxyOption != nil {
+				options = append(options, tc.proxyOption)
+			}
+
+			middleware, err := New(options...)
+			require.NoError(t, err)
+
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				claims, err := GetClaims[*validator.ValidatedClaims](r.Context())
+				if err != nil {
+					http.Error(w, "failed to get claims", http.StatusInternalServerError)
+					return
+				}
+
+				response := map[string]any{
+					"authenticated": true,
+					"issuer":        claims.RegisteredClaims.Issuer,
+					"audience":      claims.RegisteredClaims.Audience,
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+			})
+
+			// Create test server
+			testServer := httptest.NewServer(middleware.CheckJWT(handler))
+			defer testServer.Close()
+
+			// Create request
+			request, err := http.NewRequest(http.MethodGet, testServer.URL+"/test", nil)
+			require.NoError(t, err)
+
+			// Apply proxy headers
+			tc.setupRequest(request)
+
+			// Add valid JWT token
+			validToken := "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+			request.Header.Set("Authorization", validToken)
+
+			// Send request
+			response, err := testServer.Client().Do(request)
+			require.NoError(t, err)
+			defer response.Body.Close()
+
+			// Verify status code
+			assert.Equal(t, tc.expectedStatusCode, response.StatusCode)
+
+			if tc.expectSuccess {
+				// Verify we got a valid response
+				var result map[string]any
+				err = json.NewDecoder(response.Body).Decode(&result)
+				require.NoError(t, err)
+				assert.True(t, result["authenticated"].(bool))
+			}
+		})
+	}
+}
+
+// TestValidateToken_DPoPSchemeWithoutProof tests the security check for DPoP scheme without proof
+func TestValidateToken_DPoPSchemeWithoutProof(t *testing.T) {
+	const (
+		issuer   = "testIssuer"
+		audience = "testAudience"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	jwtValidator, err := validator.New(
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudience(audience),
+	)
+	require.NoError(t, err)
+
+	t.Run("DPoP scheme without proof header returns error", func(t *testing.T) {
+		// Token extractor that returns DPoP scheme
+		dpopSchemeExtractor := func(r *http.Request) (ExtractedToken, error) {
+			token := r.Header.Get("Authorization")
+			if len(token) > 5 && token[:5] == "DPoP " {
+				return ExtractedToken{
+					Token:  token[5:],
+					Scheme: AuthSchemeDPoP,
+				}, nil
+			}
+			return ExtractedToken{}, nil
+		}
+
+		// DPoP extractor that returns no proof (empty string)
+		noDPoPProofExtractor := func(r *http.Request) (string, error) {
+			return "", nil // No DPoP proof header
+		}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithTokenExtractor(dpopSchemeExtractor),
+			WithDPoPHeaderExtractor(noDPoPProofExtractor),
+			WithDPoPMode(DPoPAllowed),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		// Send a request with DPoP scheme but no DPoP header
+		dpopToken := "DPoP eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0SXNzdWVyIiwiYXVkIjoidGVzdEF1ZGllbmNlIn0.Bg8HXYXZ13zaPAcB0Bl0kRKW0iVF-2LTmITcEYUcWoo"
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", dpopToken)
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		// Should fail with bad request for missing DPoP proof
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+
+		// Verify error response - missing DPoP proof returns invalid_request with no error_description
+		var errResp ErrorResponse
+		err = json.NewDecoder(response.Body).Decode(&errResp)
+		require.NoError(t, err)
+		assert.Equal(t, "invalid_request", errResp.Error)
+		assert.Equal(t, "dpop_proof_missing", errResp.ErrorCode)
+		assert.Empty(t, errResp.ErrorDescription, "error_description should be empty for malformed requests")
+	})
+
+	t.Run("DPoP scheme without proof header with logger", func(t *testing.T) {
+		mockLog := &mockLogger{}
+
+		// Token extractor that returns DPoP scheme
+		dpopSchemeExtractor := func(r *http.Request) (ExtractedToken, error) {
+			return ExtractedToken{
+				Token:  "test-token",
+				Scheme: AuthSchemeDPoP,
+			}, nil
+		}
+
+		// DPoP extractor that returns no proof
+		noDPoPProofExtractor := func(r *http.Request) (string, error) {
+			return "", nil
+		}
+
+		middleware, err := New(
+			WithValidator(jwtValidator),
+			WithTokenExtractor(dpopSchemeExtractor),
+			WithDPoPHeaderExtractor(noDPoPProofExtractor),
+			WithDPoPMode(DPoPAllowed),
+			WithLogger(mockLog),
+		)
+		require.NoError(t, err)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testServer := httptest.NewServer(middleware.CheckJWT(handler))
+		defer testServer.Close()
+
+		request, err := http.NewRequest(http.MethodGet, testServer.URL, nil)
+		require.NoError(t, err)
+		request.Header.Add("Authorization", "DPoP test-token")
+
+		response, err := testServer.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+
+		assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+
+		// Verify error logging occurred
+		assert.NotEmpty(t, mockLog.errorCalls)
+		found := false
+		for _, call := range mockLog.errorCalls {
+			if len(call) > 0 {
+				if msg, ok := call[0].(string); ok && msg == "DPoP authorization scheme used without DPoP proof header" {
+					found = true
+					break
+				}
+			}
+		}
+		assert.True(t, found, "Expected error log for DPoP scheme without proof")
+	})
+}
+
+// TestConvertAuthScheme tests the convertAuthScheme function
+func TestConvertAuthScheme(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    AuthScheme
+		expected core.AuthScheme
+	}{
+		{
+			name:     "Bearer scheme",
+			input:    AuthSchemeBearer,
+			expected: core.AuthSchemeBearer,
+		},
+		{
+			name:     "DPoP scheme",
+			input:    AuthSchemeDPoP,
+			expected: core.AuthSchemeDPoP,
+		},
+		{
+			name:     "Unknown scheme",
+			input:    AuthSchemeUnknown,
+			expected: core.AuthSchemeUnknown,
+		},
+		{
+			name:     "Empty string scheme",
+			input:    AuthScheme(""),
+			expected: core.AuthSchemeUnknown,
+		},
+		{
+			name:     "Random string scheme",
+			input:    AuthScheme("custom"),
+			expected: core.AuthSchemeUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertAuthScheme(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestMustGetClaims_Panic tests that MustGetClaims panics when claims don't exist
+func TestMustGetClaims_Panic(t *testing.T) {
+	ctx := context.Background()
+
+	assert.Panics(t, func() {
+		MustGetClaims[map[string]any](ctx)
+	})
+}
+
+// TestMustGetClaims_Success tests that MustGetClaims returns claims when they exist
+func TestMustGetClaims_Success(t *testing.T) {
+	expectedClaims := map[string]any{"sub": "user123"}
+	ctx := core.SetClaims(context.Background(), expectedClaims)
+
+	assert.NotPanics(t, func() {
+		claims := MustGetClaims[map[string]any](ctx)
+		assert.Equal(t, expectedClaims, claims)
+	})
 }

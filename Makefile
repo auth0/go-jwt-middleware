@@ -14,8 +14,8 @@ deps: ## Download dependencies
 	@go mod vendor -v
 
 $(GO_BIN)/golangci-lint:
-	${call print, "Installing golangci-lint"}
-	@go install -v github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	${call print, "Installing golangci-lint v2.6.2"}
+	@go install -v github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.2
 
 $(GO_BIN)/govulncheck:
 	@go install -v golang.org/x/vuln/cmd/govulncheck@latest

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"gopkg.in/go-jose/go-jose.v2"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
@@ -88,9 +89,15 @@ func setupTestServer(t *testing.T, jwk *jose.JSONWebKey) (server *httptest.Serve
 				t.Fatal(err)
 			}
 		case "/.well-known/jwks.json":
-			if err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{
+			jwks := jose.JSONWebKeySet{
 				Keys: []jose.JSONWebKey{jwk.Public()},
-			}); err != nil {
+			}
+			jsonData, err := json.Marshal(jwks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if _, err := w.Write(jsonData); err != nil {
 				t.Fatal(err)
 			}
 		default:
@@ -118,6 +125,8 @@ func buildJWTForTesting(t *testing.T, jwk *jose.JSONWebKey, issuer, subject stri
 		Issuer:   issuer,
 		Audience: audience,
 		Subject:  subject,
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+		Expiry:   jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 	}
 
 	token, err := jwt.Signed(signer).Claims(claims).CompactSerialize()

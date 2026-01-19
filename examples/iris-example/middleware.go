@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"github.com/kataras/iris/v12"
 	"log"
 	"net/http"
 	"time"
 
-	jwtmiddleware "github.com/auth0/go-jwt-middleware/v2"
-	"github.com/auth0/go-jwt-middleware/v2/validator"
+	"github.com/kataras/iris/v12"
+
+	jwtmiddleware "github.com/auth0/go-jwt-middleware/v3"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 var (
@@ -22,14 +23,8 @@ var (
 	audience = []string{"audience-example"}
 
 	// Our token must be signed using this data.
-	keyFunc = func(ctx context.Context) (interface{}, error) {
+	keyFunc = func(ctx context.Context) (any, error) {
 		return signingKey, nil
-	}
-
-	// We want this struct to be filled in with
-	// our custom claims from the token.
-	customClaims = func() validator.CustomClaims {
-		return &CustomClaims{}
 	}
 )
 
@@ -38,11 +33,14 @@ var (
 func checkJWT() iris.Handler {
 	// Set up the validator.
 	jwtValidator, err := validator.New(
-		keyFunc,
-		validator.HS256,
-		issuer,
-		audience,
-		validator.WithCustomClaims(customClaims),
+		validator.WithKeyFunc(keyFunc),
+		validator.WithAlgorithm(validator.HS256),
+		validator.WithIssuer(issuer),
+		validator.WithAudiences(audience),
+		// WithCustomClaims now uses generics - no need to return interface type
+		validator.WithCustomClaims(func() *CustomClaims {
+			return &CustomClaims{}
+		}),
 		validator.WithAllowedClockSkew(30*time.Second),
 	)
 	if err != nil {
@@ -53,10 +51,14 @@ func checkJWT() iris.Handler {
 		log.Printf("Encountered error while validating JWT: %v", err)
 	}
 
-	middleware := jwtmiddleware.New(
-		jwtValidator.ValidateToken,
+	// Set up the middleware using pure options pattern
+	middleware, err := jwtmiddleware.New(
+		jwtmiddleware.WithValidator(jwtValidator),
 		jwtmiddleware.WithErrorHandler(errorHandler),
 	)
+	if err != nil {
+		log.Fatalf("failed to set up the middleware: %v", err)
+	}
 
 	return func(ctx iris.Context) {
 		encounteredError := true
