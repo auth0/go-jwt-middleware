@@ -134,7 +134,7 @@ func TestMultiIssuerProvider_KeyFunc(t *testing.T) {
 		require.NoError(t, err)
 
 		// Add issuer with invalid URL to context
-		ctx := validator.SetIssuerInContext(context.Background(),"://invalid-url")
+		ctx := validator.SetIssuerInContext(context.Background(), "://invalid-url")
 
 		key, err := provider.KeyFunc(ctx)
 
@@ -195,7 +195,7 @@ func TestMultiIssuerProvider_KeyFunc(t *testing.T) {
 		require.NoError(t, err)
 
 		issuerURL := mockServer.URL + "/"
-		ctx := validator.SetIssuerInContext(context.Background(),issuerURL)
+		ctx := validator.SetIssuerInContext(context.Background(), issuerURL)
 
 		// First request - creates provider
 		key1, err := provider.KeyFunc(ctx)
@@ -301,7 +301,7 @@ func TestMultiIssuerProvider_ProviderCount(t *testing.T) {
 		}
 
 		for _, issuer := range issuers {
-			ctx := validator.SetIssuerInContext(context.Background(),issuer)
+			ctx := validator.SetIssuerInContext(context.Background(), issuer)
 			_, err := provider.KeyFunc(ctx)
 			require.NoError(t, err)
 		}
@@ -319,7 +319,7 @@ func TestMultiIssuerProvider_ConcurrentAccess(t *testing.T) {
 		require.NoError(t, err)
 
 		issuerURL := mockServer.URL + "/"
-		ctx := validator.SetIssuerInContext(context.Background(),issuerURL)
+		ctx := validator.SetIssuerInContext(context.Background(), issuerURL)
 
 		// Concurrent requests for the same issuer
 		const concurrentRequests = 10
@@ -394,7 +394,7 @@ func TestMultiIssuerProvider_ConcurrentAccess(t *testing.T) {
 
 		for _, server := range servers {
 			go func(s *httptest.Server) {
-				ctx := validator.SetIssuerInContext(context.Background(),s.URL+"/")
+				ctx := validator.SetIssuerInContext(context.Background(), s.URL+"/")
 				_, err := provider.KeyFunc(ctx)
 				errChan <- err
 			}(server)
@@ -588,4 +588,3 @@ func TestMultiIssuerProvider_LRUEviction(t *testing.T) {
 		assert.True(t, exists3)
 	})
 }
-

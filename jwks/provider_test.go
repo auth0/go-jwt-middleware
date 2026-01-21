@@ -942,17 +942,17 @@ func setupTestServer(
 
 		switch r.URL.String() {
 		case "/malformed/.well-known/openid-configuration":
-		wk := oidc.WellKnownEndpoints{
-			Issuer:  server.URL + "/malformed",
-			JWKSURI: ":",
-		}
-		err := json.NewEncoder(w).Encode(wk)
-		require.NoError(t, err)
-	case "/.well-known/openid-configuration":
-		wk := oidc.WellKnownEndpoints{
-			Issuer:  server.URL,
-			JWKSURI: server.URL + "/.well-known/jwks.json",
-		}
+			wk := oidc.WellKnownEndpoints{
+				Issuer:  server.URL + "/malformed",
+				JWKSURI: ":",
+			}
+			err := json.NewEncoder(w).Encode(wk)
+			require.NoError(t, err)
+		case "/.well-known/openid-configuration":
+			wk := oidc.WellKnownEndpoints{
+				Issuer:  server.URL,
+				JWKSURI: server.URL + "/.well-known/jwks.json",
+			}
 			err := json.NewEncoder(w).Encode(wk)
 			require.NoError(t, err)
 		case "/.well-known/jwks.json":

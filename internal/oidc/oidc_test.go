@@ -315,4 +315,3 @@ func TestGetWellKnownEndpointsFromIssuerURL_SecurityScenarios(t *testing.T) {
 		}
 	})
 }
-
