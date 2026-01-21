@@ -76,7 +76,13 @@ func NewProvider(opts ...ProviderOption) (*Provider, error) {
 func (p *Provider) KeyFunc(ctx context.Context) (any, error) {
 	jwksURI := p.CustomJWKSURI
 	if jwksURI == nil {
-		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, p.Client, *p.IssuerURL)
+		// Fetch OIDC discovery metadata with MCD double-validation
+		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(
+			ctx,
+			p.Client,
+			*p.IssuerURL,
+			p.IssuerURL.String(),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -310,11 +316,18 @@ func NewCachingProvider(opts ...any) (*CachingProvider, error) {
 
 // discoverJWKSURI discovers the JWKS URI from the well-known endpoint.
 // Uses sync.Once to ensure discovery only happens once, improving performance.
+// Performs MCD double-validation: ensures metadata's issuer matches expected issuer.
 func (c *CachingProvider) discoverJWKSURI(ctx context.Context) error {
 	var discoveryErr error
 
 	c.jwksURIOnce.Do(func() {
-		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(ctx, c.httpClient, *c.issuerURL)
+		// Fetch OIDC discovery metadata with MCD double-validation
+		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(
+			ctx,
+			c.httpClient,
+			*c.issuerURL,
+			c.issuerURL.String(),
+		)
 		if err != nil {
 			discoveryErr = fmt.Errorf("failed to discover JWKS URI: %w", err)
 			return

@@ -407,7 +407,10 @@ func Test_JWKSProvider(t *testing.T) {
 		var badServer *httptest.Server
 		badServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/openid-configuration" {
-				wk := oidc.WellKnownEndpoints{JWKSURI: badServer.URL + "/jwks.json"}
+				wk := oidc.WellKnownEndpoints{
+					Issuer:  badServer.URL,
+					JWKSURI: badServer.URL + "/jwks.json",
+				}
 				_ = json.NewEncoder(w).Encode(wk)
 			} else {
 				w.WriteHeader(http.StatusNotFound)
@@ -531,7 +534,10 @@ func Test_JWKSProvider(t *testing.T) {
 		var errorServer *httptest.Server
 		errorServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/openid-configuration" {
-				wk := oidc.WellKnownEndpoints{JWKSURI: errorServer.URL + "/jwks.json"}
+				wk := oidc.WellKnownEndpoints{
+					Issuer:  errorServer.URL,
+					JWKSURI: errorServer.URL + "/jwks.json",
+				}
 				_ = json.NewEncoder(w).Encode(wk)
 			} else {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -642,7 +648,10 @@ func Test_JWKSProvider(t *testing.T) {
 
 			switch r.URL.Path {
 			case "/.well-known/openid-configuration":
-				wk := oidc.WellKnownEndpoints{JWKSURI: slowServer.URL + "/.well-known/jwks.json"}
+				wk := oidc.WellKnownEndpoints{
+					Issuer:  slowServer.URL,
+					JWKSURI: slowServer.URL + "/.well-known/jwks.json",
+				}
 				_ = json.NewEncoder(w).Encode(wk)
 			case "/.well-known/jwks.json":
 				// Third request is the background refresh - make it slow
@@ -725,7 +734,10 @@ func Test_JWKSProvider(t *testing.T) {
 		failingServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/.well-known/openid-configuration":
-				wk := oidc.WellKnownEndpoints{JWKSURI: failingServer.URL + "/.well-known/jwks.json"}
+				wk := oidc.WellKnownEndpoints{
+					Issuer:  failingServer.URL,
+					JWKSURI: failingServer.URL + "/.well-known/jwks.json",
+				}
 				_ = json.NewEncoder(w).Encode(wk)
 			case "/.well-known/jwks.json":
 				if shouldFail.Load() {
@@ -781,7 +793,10 @@ func Test_JWKSProvider(t *testing.T) {
 		versionedServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/.well-known/openid-configuration":
-				wk := oidc.WellKnownEndpoints{JWKSURI: versionedServer.URL + "/.well-known/jwks.json"}
+				wk := oidc.WellKnownEndpoints{
+					Issuer:  versionedServer.URL,
+					JWKSURI: versionedServer.URL + "/.well-known/jwks.json",
+				}
 				_ = json.NewEncoder(w).Encode(wk)
 			case "/.well-known/jwks.json":
 				// Generate different JWKS based on kid (simulate key rotation)
@@ -927,11 +942,17 @@ func setupTestServer(
 
 		switch r.URL.String() {
 		case "/malformed/.well-known/openid-configuration":
-			wk := oidc.WellKnownEndpoints{JWKSURI: ":"}
-			err := json.NewEncoder(w).Encode(wk)
-			require.NoError(t, err)
-		case "/.well-known/openid-configuration":
-			wk := oidc.WellKnownEndpoints{JWKSURI: server.URL + "/.well-known/jwks.json"}
+		wk := oidc.WellKnownEndpoints{
+			Issuer:  server.URL + "/malformed",
+			JWKSURI: ":",
+		}
+		err := json.NewEncoder(w).Encode(wk)
+		require.NoError(t, err)
+	case "/.well-known/openid-configuration":
+		wk := oidc.WellKnownEndpoints{
+			Issuer:  server.URL,
+			JWKSURI: server.URL + "/.well-known/jwks.json",
+		}
 			err := json.NewEncoder(w).Encode(wk)
 			require.NoError(t, err)
 		case "/.well-known/jwks.json":

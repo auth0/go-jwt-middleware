@@ -148,7 +148,8 @@ func TestMultiIssuerProvider_KeyFunc(t *testing.T) {
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/openid-configuration" {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprintf(w, `{"jwks_uri":"http://%s/.well-known/jwks.json"}`, r.Host)
+				issuerURL := "http://" + r.Host + "/"
+				fmt.Fprintf(w, `{"issuer":"%s","jwks_uri":"%s.well-known/jwks.json"}`, issuerURL, issuerURL)
 			} else if r.URL.Path == "/.well-known/jwks.json" {
 				w.Header().Set("Content-Type", "application/json")
 				w.Write([]byte(`{"keys":[]}`))
@@ -181,7 +182,8 @@ func TestMultiIssuerProvider_KeyFunc(t *testing.T) {
 			requestCount++
 			if r.URL.Path == "/.well-known/openid-configuration" {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprintf(w, `{"jwks_uri":"http://%s/.well-known/jwks.json"}`, r.Host)
+				issuerURL := "http://" + r.Host + "/"
+				fmt.Fprintf(w, `{"issuer":"%s","jwks_uri":"%s.well-known/jwks.json"}`, issuerURL, issuerURL)
 			} else if r.URL.Path == "/.well-known/jwks.json" {
 				w.Header().Set("Content-Type", "application/json")
 				w.Write([]byte(`{"keys":[]}`))
@@ -445,7 +447,8 @@ func createMockOIDCServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-configuration" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"jwks_uri":"%s/.well-known/jwks.json"}`, "http://"+r.Host)
+			issuerURL := "http://" + r.Host + "/"
+			fmt.Fprintf(w, `{"issuer":"%s","jwks_uri":"%s.well-known/jwks.json"}`, issuerURL, issuerURL)
 		} else if r.URL.Path == "/.well-known/jwks.json" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"keys":[]}`))
