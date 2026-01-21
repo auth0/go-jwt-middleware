@@ -6,6 +6,7 @@ toolchain go1.24.8
 
 require (
 	github.com/auth0/go-jwt-middleware/v3 v3.0.0
+	github.com/lestrrat-go/jwx/v3 v3.0.12
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -20,7 +21,6 @@ require (
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc/v3 v3.0.3 // indirect
-	github.com/lestrrat-go/jwx/v3 v3.0.12 // indirect
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect

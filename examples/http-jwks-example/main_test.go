@@ -81,8 +81,10 @@ func setupTestServer(t *testing.T, jwk *jose.JSONWebKey) (server *httptest.Serve
 		switch r.URL.String() {
 		case "/.well-known/openid-configuration":
 			wk := struct {
+				Issuer  string `json:"issuer"`
 				JWKSURI string `json:"jwks_uri"`
 			}{
+				Issuer:  server.URL,
 				JWKSURI: server.URL + "/.well-known/jwks.json",
 			}
 			if err := json.NewEncoder(w).Encode(wk); err != nil {

@@ -12,6 +12,12 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# Coverage HTML reports
+coverage.html
+**/coverage.html
+jwks_coverage.html
+**/jwks_coverage.html
+
 # Dependency directories
 vendor/
 
@@ -26,3 +32,4 @@ examples/*/http
 examples/*/http-jwks
 examples/*/http-dpop
 examples/*/http-dpop-*
+examples/http-multi-issuer-redis-example/http-multi-issuer-redis-example
