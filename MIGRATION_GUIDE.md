@@ -38,7 +38,7 @@ This guide helps you migrate from go-jwt-middleware v2 to v3. While v3 introduce
 - ✅ **Type Safety**: Generics eliminate type assertion errors at compile time
 - ✅ **Better IDE Support**: Self-documenting options with autocomplete
 - ✅ **Enhanced Security**: CVE mitigations, RFC 6750 compliance, and DPoP support
-- ✅ **Modern Go**: Built for Go 1.23+ with modern patterns
+- ✅ **Modern Go**: Built for Go 1.24+ with modern patterns
 
 ## Breaking Changes
 
