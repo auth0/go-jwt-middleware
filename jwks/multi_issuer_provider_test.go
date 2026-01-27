@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 func TestNewMultiIssuerProvider(t *testing.T) {
@@ -24,6 +23,7 @@ func TestNewMultiIssuerProvider(t *testing.T) {
 		assert.NotNil(t, provider.httpClient)
 		assert.NotNil(t, provider.providers)
 		assert.Equal(t, 0, len(provider.providers))
+		assert.Equal(t, 100, provider.maxProviders) // Default: 100 providers for MCD
 	})
 
 	t.Run("creates provider with custom TTL", func(t *testing.T) {
@@ -586,5 +586,23 @@ func TestMultiIssuerProvider_LRUEviction(t *testing.T) {
 		assert.True(t, exists1)
 		assert.False(t, exists2)
 		assert.True(t, exists3)
+	})
+}
+
+// TestEvictLRUEdgeCases tests edge cases in LRU eviction
+func TestEvictLRUEdgeCases(t *testing.T) {
+	t.Run("handles eviction when LRU list is empty", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithMaxProviders(1),
+		)
+		require.NoError(t, err)
+
+		// Call evictLRU when list is empty (should not panic)
+		provider.mu.Lock()
+		provider.evictLRU()
+		provider.mu.Unlock()
+
+		// Should still work normally
+		assert.Equal(t, 0, provider.ProviderCount())
 	})
 }

@@ -21,6 +21,8 @@ issuers := []string{
 
 provider, _ := jwks.NewMultiIssuerProvider(
     jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+    // Default: caches up to 100 issuers (LRU eviction)
+    // For 100+ tenants, consider Redis cache
 )
 
 jwtValidator, _ := validator.New(
@@ -37,6 +39,14 @@ jwtValidator, _ := validator.New(
 - **Security**: Issuer is validated BEFORE fetching JWKS (prevents SSRF attacks)
 - **Performance**: Per-issuer JWKS caching with configurable TTL
 - **Thread-Safe**: Safe for concurrent requests
+- **Memory Management**: Default limit of 100 cached issuers with LRU eviction
+- **Cache-Control Support**: Automatically respects HTTP Cache-Control headers from JWKS responses
+
+## Scaling Recommendations
+
+- **1-100 tenants**: Default settings work well (maxProviders=100)
+- **100-1000 tenants**: Use Redis cache with `WithMultiIssuerCache()` and `WithMaxProviders(500)`
+- **1000+ tenants**: Redis cache + `WithMaxProviders(1000)`, monitor metrics
 
 ## Running the Example
 

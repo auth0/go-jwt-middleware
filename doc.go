@@ -46,6 +46,10 @@ package serving as the HTTP transport adapter.
 	    http.ListenAndServe(":8080", nil)
 	}
 
+Security: The validator automatically validates exp (expiration time) and nbf (not
+before) claims. You don't need to check these yourself - the middleware is secure
+by default.
+
 # Accessing Claims
 
 Use the type-safe generic helpers to access claims in your handlers:

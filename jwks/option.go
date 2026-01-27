@@ -189,7 +189,7 @@ func WithMultiIssuerCache(cache Cache) MultiIssuerProviderOption {
 
 // WithMaxProviders sets the maximum number of issuer providers to cache in memory.
 // When the limit is reached, the least-recently-used provider will be evicted.
-// Set to 0 for unlimited (default).
+// Default is 100 providers (recommended for MCD scenarios). Set to 0 for unlimited.
 //
 // RECOMMENDED: For applications with 1000+ dynamic issuers, set this to a reasonable
 // limit (e.g., 500-1000) to prevent unbounded memory growth.

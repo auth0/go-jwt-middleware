@@ -35,13 +35,20 @@ test: ## Run tests. To run a specific test pass the FILTER var. Usage `make test
 		./...
 
 .PHONY: test-examples
-test-examples: ## Run integration tests for all examples
+test-examples: ## Run integration tests for all examples. Use SKIP_EXAMPLES="pattern" to skip or ONLY_EXAMPLES="pattern" to run only matching
 	@echo "==> Running example integration tests..."
 	@for dir in examples/*/; do \
+		if [ -n "$(ONLY_EXAMPLES)" ] && ! echo "$$dir" | grep -qE "$(ONLY_EXAMPLES)"; then \
+			continue; \
+		fi; \
+		if [ -n "$(SKIP_EXAMPLES)" ] && echo "$$dir" | grep -qE "$(SKIP_EXAMPLES)"; then \
+			echo "Skipping $$dir (matches SKIP_EXAMPLES pattern)..."; \
+			continue; \
+		fi; \
 		if [ -f "$$dir/main_integration_test.go" ] || [ -f "$$dir/main_test.go" ]; then \
 			echo "Testing $$dir..."; \
 			(cd "$$dir" && go mod tidy && go test -v -tags=integration ./...) || exit 1; \
-		fi \
+		fi; \
 	done
 	@echo "==> All example tests passed!"
 

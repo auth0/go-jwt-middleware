@@ -70,7 +70,7 @@ type providerEntry struct {
 //   - WithMultiIssuerCacheTTL: Cache refresh interval (default: 15 minutes)
 //   - WithMultiIssuerHTTPClient: Custom HTTP client (default: 30s timeout)
 //   - WithMultiIssuerCache: Custom cache implementation (e.g., Redis)
-//   - WithMaxProviders: Maximum number of cached providers (default: unlimited)
+//   - WithMaxProviders: Maximum number of cached providers (default: 100)
 //
 // Example:
 //
@@ -84,7 +84,7 @@ func NewMultiIssuerProvider(opts ...MultiIssuerProviderOption) (*MultiIssuerProv
 	config := &multiIssuerConfig{
 		cacheTTL:     15 * time.Minute, // Default to 15 minutes
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
-		maxProviders: 0, // Default: unlimited
+		maxProviders: 100, // Default: 100 providers (recommended for MCD scenarios)
 	}
 
 	// Apply all options

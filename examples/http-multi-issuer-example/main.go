@@ -43,8 +43,12 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 func setupHandler(issuers []string, audience []string) http.Handler {
 	// Use MultiIssuerProvider to handle multiple issuers
+	// Default maxProviders is 100, which is optimal for most MCD scenarios
+	// For 1000+ issuers, consider using Redis cache (see http-multi-issuer-redis-example)
 	provider, err := jwks.NewMultiIssuerProvider(
-		jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+		jwks.WithMultiIssuerCacheTTL(5 * time.Minute),
+		// Optional: Customize max providers limit
+		// jwks.WithMaxProviders(500), // For large-scale apps with 500+ issuers
 	)
 	if err != nil {
 		log.Fatalf("failed to create multi-issuer jwks provider: %v", err)

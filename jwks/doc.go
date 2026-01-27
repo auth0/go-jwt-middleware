@@ -26,6 +26,7 @@ CachingProvider: Production-ready with intelligent caching
   - Caches JWKS with configurable TTL (default: 15 minutes)
   - Thread-safe with proper locking
   - Proactive background refresh at 80% TTL
+  - OIDC discovery cached once (until application restart)
   - Use for: Single issuer production applications
 
 MultiIssuerProvider: Multi-tenant with dynamic JWKS routing
@@ -33,6 +34,7 @@ MultiIssuerProvider: Multi-tenant with dynamic JWKS routing
   - Lazy loading - creates providers on-demand
   - LRU eviction for memory management (optional)
   - Custom cache support (e.g., Redis)
+  - OIDC discovery cached per issuer (until application restart)
   - Use for: Multi-tenant SaaS, multiple Auth0 tenants, dynamic issuers
 
 # Basic Usage with Provider
@@ -94,6 +96,62 @@ Skip OIDC discovery and use a custom JWKS URI:
 	    jwks.WithCustomJWKSURI(jwksURI),
 	    jwks.WithCacheTTL(10*time.Minute),
 	)
+
+Note: OIDC discovery (fetching .well-known/openid-configuration) is performed
+once per provider and cached for the lifetime of the application. The discovered
+JWKS URI is stored and will not be updated until the application restarts.
+If you need dynamic JWKS URI updates, use WithCustomJWKSURI or restart the application.
+
+# Custom HTTP Client
+
+Configure timeouts, proxies, or custom transport:
+
+	customClient := &http.Client{
+	    Timeout: 10 * time.Second,
+	    Transport: myCustomTransport,
+	}
+
+	provider, _ := jwks.NewCachingProvider(
+	    jwks.WithIssuerURL(issuerURL),
+	    jwks.WithCustomClient(customClient),
+	)
+
+# Cache-Control Header Support
+
+The SDK respects HTTP Cache-Control headers from JWKS responses only when the
+configured TTL is shorter than the max-age value. This allows extending cache
+time when the provider permits longer caching.
+
+Behavior:
+  - Uses Cache-Control max-age only when configured TTL < max-age
+  - Allows providers to extend cache time for stable keys
+  - Configured TTL acts as a minimum refresh interval
+  - Validates max-age is reasonable (1 second to 7 days)
+
+Example:
+
+	// Configure 15-minute default TTL
+	provider, _ := jwks.NewCachingProvider(
+	    jwks.WithIssuerURL(issuerURL),
+	    jwks.WithCacheTTL(15*time.Minute),
+	)
+
+	// Case 1: JWKS response "Cache-Control: max-age=3600" (1 hour)
+	// → Uses 1 hour (configured TTL 15 min < max-age 1 hour, so uses max-age)
+
+	// Case 2: JWKS response "Cache-Control: max-age=300" (5 minutes)
+	// → Uses 15 minutes (configured TTL 15 min > max-age 5 min, so uses configured TTL)
+
+	// Case 3: JWKS response "Cache-Control: max-age=86400000"
+	// → Rejects (exceeds 7-day max), uses 15 min configured TTL
+
+	// Case 4: No Cache-Control header
+	// → Uses 15-minute configured TTL
+
+Security limits:
+  - Minimum: 1 second (prevents rapid refresh attacks)
+  - Maximum: 7 days (prevents indefinite caching)
+  - Final TTL: max-age if (configured TTL < max-age), otherwise configured TTL
 
 # Custom HTTP Client
 
@@ -207,8 +265,9 @@ Available configuration options:
 
 	WithMaxProviders(max int)
 	    - Maximum number of issuer providers to cache
-	    - Default: 0 (unlimited)
-	    - Recommended: 500-1000 for 1000+ tenants
+	    - Default: 100 (recommended for MCD scenarios)
+	    - Set to 0 for unlimited
+	    - Recommended: 500-1000 for large-scale apps
 	    - LRU eviction removes least-recently-used providers
 
 # When to Use MultiIssuerProvider vs CachingProvider
@@ -291,7 +350,7 @@ Recommended TTL values:
 
 Scaling guidelines:
   - < 10 issuers: Use MultiIssuerProvider with default in-memory cache
-  - 10-100 issuers: Use MultiIssuerProvider with in-memory, monitor memory
+  - 10-100 issuers: Default settings (maxProviders=100) are optimal
   - 100-1000 issuers: Use Redis cache, consider WithMaxProviders(500)
   - 1000+ issuers: Use Redis cache + WithMaxProviders(1000), monitor metrics
 

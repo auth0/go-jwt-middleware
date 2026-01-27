@@ -135,9 +135,15 @@ func setupHandler(issuers []string, audience []string, redisCache *RedisCache) h
 	// Use MultiIssuerProvider with Redis cache for large-scale multi-tenant applications
 	// IMPORTANT: For 100+ tenants, using a custom cache like Redis is strongly recommended
 	// to avoid memory issues with the default in-memory cache.
+	//
+	// Best practices:
+	// - 10-100 issuers: Default settings (maxProviders=100) work well
+	// - 100-1000 issuers: Use Redis + WithMaxProviders(500)
+	// - 1000+ issuers: Use Redis + WithMaxProviders(1000)
 	provider, err := jwks.NewMultiIssuerProvider(
 		jwks.WithMultiIssuerCacheTTL(15*time.Minute),
 		jwks.WithMultiIssuerCache(redisCache), // Use Redis cache for all issuers
+		jwks.WithMaxProviders(1000),           // Limit in-memory providers for large scale
 	)
 	if err != nil {
 		log.Fatalf("failed to create multi-issuer jwks provider: %v", err)

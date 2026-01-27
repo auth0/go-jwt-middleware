@@ -3,8 +3,11 @@ package jwks
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -168,19 +171,106 @@ func (c *jwxCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
 	}
 
 	// Fetch fresh JWKS from network
-	set, err := jwk.Fetch(ctx, jwksURI, jwk.WithHTTPClient(c.httpClient))
+	set, cacheTTL, err := c.fetchWithCacheControl(ctx, jwksURI)
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch JWKS: %w", err)
 	}
 
+	// Use Cache-Control max-age only when configured TTL is shorter
+	// This allows extending cache time when the provider permits longer caching
+	effectiveTTL := c.refreshTTL
+	if cacheTTL > 0 && c.refreshTTL < cacheTTL {
+		effectiveTTL = cacheTTL // Configured TTL is shorter - use the longer max-age
+	}
+	// Otherwise use configured TTL (either no Cache-Control, it's shorter, or invalid)
+
 	// Update cache - must hold cacheMu to synchronize with readers in fast path
 	c.cacheMu.Lock()
 	cached.set = set
-	cached.expiresAt = now.Add(c.refreshTTL)
-	cached.refreshAt = now.Add(c.refreshTTL * 4 / 5) // Refresh at 80% of TTL
+	cached.expiresAt = now.Add(effectiveTTL)
+	cached.refreshAt = now.Add(effectiveTTL * 4 / 5) // Refresh at 80% of TTL
 	c.cacheMu.Unlock()
 
 	return set, nil
+}
+
+// fetchWithCacheControl fetches JWKS and extracts TTL from Cache-Control headers.
+// Returns the JWKS set, the TTL (or 0 if not present), and any error.
+func (c *jwxCache) fetchWithCacheControl(ctx context.Context, jwksURI string) (jwk.Set, time.Duration, error) {
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Execute HTTP request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("request returned status %d, expected 200", resp.StatusCode)
+	}
+
+	// Parse Cache-Control header for max-age directive
+	var cacheTTL time.Duration
+	if cacheControl := resp.Header.Get("Cache-Control"); cacheControl != "" {
+		cacheTTL = parseCacheControl(cacheControl)
+	}
+
+	// Limit response body size to prevent memory exhaustion attacks
+	// 1MB is generous for JWKS (typically <10KB)
+	limitedBody := io.LimitReader(resp.Body, 1*1024*1024)
+
+	// Parse JWKS from response body
+	set, err := jwk.ParseReader(limitedBody)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to parse JWKS: %w", err)
+	}
+
+	return set, cacheTTL, nil
+}
+
+// parseCacheControl extracts max-age from Cache-Control header with security validation.
+// Returns 0 if max-age is not present, invalid, or unreasonable.
+//
+// Security limits:
+//   - Minimum: 1 second (prevents rapid refresh attacks)
+//   - Maximum: 7 days (prevents indefinite caching)
+//   - Only accepts positive integers
+func parseCacheControl(cacheControl string) time.Duration {
+	const (
+		maxAgePrefix = "max-age="
+		minTTL       = 1 * time.Second    // Prevent rapid refresh attacks
+		maxTTL       = 7 * 24 * time.Hour // Prevent indefinite caching (7 days)
+	)
+
+	// Split by comma to handle multiple directives
+	// Handles: "max-age=3600", "public, max-age=3600", "max-age=3600, must-revalidate"
+	directives := strings.Split(cacheControl, ",")
+	for _, directive := range directives {
+		directive = strings.TrimSpace(directive)
+		if strings.HasPrefix(directive, maxAgePrefix) {
+			ageStr := strings.TrimPrefix(directive, maxAgePrefix)
+			seconds, err := strconv.ParseInt(ageStr, 10, 64)
+			if err != nil || seconds <= 0 {
+				continue // Invalid format or negative value
+			}
+
+			ttl := time.Duration(seconds) * time.Second
+
+			// Validate TTL is within reasonable bounds
+			if ttl < minTTL || ttl > maxTTL {
+				return 0 // Reject unreasonable values
+			}
+
+			return ttl
+		}
+	}
+
+	return 0 // No valid max-age directive found
 }
 
 // backgroundRefresh refreshes JWKS in the background without blocking requests.
@@ -194,17 +284,23 @@ func (c *jwxCache) backgroundRefresh(jwksURI string, cached *cachedJWKS) {
 	defer cancel()
 
 	// Fetch fresh JWKS
-	set, err := jwk.Fetch(ctx, jwksURI, jwk.WithHTTPClient(c.httpClient))
+	set, cacheTTL, err := c.fetchWithCacheControl(ctx, jwksURI)
 	if err != nil {
 		return
+	}
+
+	// Use Cache-Control max-age only when configured TTL is shorter
+	effectiveTTL := c.refreshTTL
+	if cacheTTL > 0 && c.refreshTTL < cacheTTL {
+		effectiveTTL = cacheTTL // Configured TTL is shorter - use the longer max-age
 	}
 
 	// Update cache with fresh data
 	now := time.Now()
 	c.cacheMu.Lock()
 	cached.set = set
-	cached.expiresAt = now.Add(c.refreshTTL)
-	cached.refreshAt = now.Add(c.refreshTTL * 4 / 5) // Refresh at 80% of TTL
+	cached.expiresAt = now.Add(effectiveTTL)
+	cached.refreshAt = now.Add(effectiveTTL * 4 / 5) // Refresh at 80% of TTL
 	c.cacheMu.Unlock()
 }
 

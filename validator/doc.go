@@ -8,7 +8,8 @@ registered claims validation, and custom claims support.
 # Features
 
   - Signature verification using multiple algorithms (RS256, HS256, ES256, EdDSA, etc.)
-  - Validation of registered claims (iss, aud, exp, nbf, iat)
+  - Automatic validation of registered claims (iss, aud, exp, nbf, iat)
+  - exp (expiration time) and nbf (not before) validated automatically - secure by default
   - Support for custom claims with validation logic
   - Clock skew tolerance for time-based claims
   - JWKS (JSON Web Key Set) support via key functions
@@ -69,13 +70,9 @@ EdDSA:
 	// Type assert to ValidatedClaims
 	validatedClaims := claims.(*validator.ValidatedClaims)
 
-# Custom Claims
+Note: The validator automatically checks exp (expiration time) and nbf (not before)
+claims - you don't need to validate these yourself. This is secure by default.
 
-Define custom claims by implementing the CustomClaims interface:
-
-	type MyCustomClaims struct {
-	    Scope       string   `json:"scope"`
-	    Permissions []string `json:"permissions"`
 	}
 
 	func (c *MyCustomClaims) Validate(ctx context.Context) error {
