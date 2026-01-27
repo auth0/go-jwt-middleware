@@ -21,7 +21,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup Go
-        uses: actions/setup-go@v6.1.0
+        uses: actions/setup-go@v6.2.0
         with:
           go-version-file: go.mod
           cache: true
