@@ -208,3 +208,37 @@ func TestDefaultErrorHandler_ExtractorError_UnsupportedScheme(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
 }
+
+func TestDefaultErrorHandler_MessageBasedMapping_JWKS(t *testing.T) {
+	// Test fallback message-based mapping for JWKS errors
+	validationErr := core.NewValidationError("custom_code", "failed to fetch JWKS from server", nil)
+	err := DefaultErrorHandler(validationErr)
+
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, "unable to verify token", st.Message())
+}
+
+func TestDefaultErrorHandler_MessageBasedMapping_JWKSLowercase(t *testing.T) {
+	// Test fallback message-based mapping for jwks (lowercase)
+	validationErr := core.NewValidationError("custom_code", "error fetching jwks", nil)
+	err := DefaultErrorHandler(validationErr)
+
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, "unable to verify token", st.Message())
+}
+
+func TestDefaultErrorHandler_MessageBasedMapping_KeySet(t *testing.T) {
+	// Test fallback message-based mapping for key set errors
+	validationErr := core.NewValidationError("custom_code", "error with key set", nil)
+	err := DefaultErrorHandler(validationErr)
+
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, "unable to verify token", st.Message())
+}
+
