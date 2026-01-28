@@ -3,7 +3,7 @@ module github.com/auth0/go-jwt-middleware/v3/examples/grpc-example
 go 1.24.0
 
 require (
-	github.com/auth0/go-jwt-middleware/v3 v3.7.0
+	github.com/auth0/go-jwt-middleware/v3 v3.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.78.0
