@@ -46,6 +46,10 @@ package serving as the HTTP transport adapter.
 	    http.ListenAndServe(":8080", nil)
 	}
 
+Security: The validator automatically validates exp (expiration time) and nbf (not
+before) claims. You don't need to check these yourself - the middleware is secure
+by default.
+
 # Accessing Claims
 
 Use the type-safe generic helpers to access claims in your handlers:
@@ -277,6 +281,80 @@ Access in handlers:
 	        // User has permission
 	    }
 	}
+
+# Multiple Issuers
+
+Accept JWTs from multiple issuers simultaneously - ideal for multi-tenant SaaS
+applications, domain migrations, or enterprise deployments.
+
+When to use each approach:
+  - WithIssuer (single): Simple API with one Auth0 tenant
+  - WithIssuers (static list): Fixed set of issuers (< 10 tenants), domain migration
+  - WithIssuersResolver (dynamic): Multi-tenant SaaS with 100s+ tenants, DB-backed config
+
+Choosing the right JWKS provider:
+  - CachingProvider: Use with WithIssuer (single issuer only)
+  - MultiIssuerProvider: Use with WithIssuers or WithIssuersResolver (multiple issuers)
+
+IMPORTANT: Always pair your issuer validation method with the appropriate provider.
+Using CachingProvider with multiple issuers won't work - it only caches one issuer's JWKS.
+
+Performance:
+  - Single/Static: ~1ms validation (fastest)
+  - Dynamic: ~1-5ms with caching, ~10-20ms on cache miss
+
+Static issuer list (configured at startup):
+
+	provider, _ := jwks.NewMultiIssuerProvider(
+	    jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+	)
+
+	jwtValidator, _ := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    validator.WithAlgorithm(validator.RS256),
+	    validator.WithIssuers([]string{
+	        "https://tenant1.auth0.com/",
+	        "https://tenant2.auth0.com/",
+	        "https://tenant3.auth0.com/",
+	    }),
+	    validator.WithAudience("your-api-identifier"),
+	)
+
+Dynamic issuer resolution (determined at request time):
+
+	jwtValidator, _ := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    validator.WithAlgorithm(validator.RS256),
+	    validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+	        // Extract tenant from context
+	        tenantID := ctx.Value("tenant").(string)
+
+	        // Check cache (user-managed)
+	        if cached, found := cache.Get(tenantID); found {
+	            return cached, nil
+	        }
+
+	        // Query database
+	        issuers, _ := db.GetIssuersForTenant(ctx, tenantID)
+
+	        // Cache for 5 minutes
+	        cache.Set(tenantID, issuers, 5*time.Minute)
+	        return issuers, nil
+	    }),
+	    validator.WithAudience("your-api-identifier"),
+	)
+
+The MultiIssuerProvider automatically:
+  - Routes JWKS requests to the correct issuer based on the token
+  - Validates issuer BEFORE fetching JWKS (prevents SSRF attacks)
+  - Caches per-issuer JWKS with configurable TTL
+  - Handles concurrent requests safely with double-checked locking
+
+Performance: Dynamic resolution should target < 5ms latency.
+Implement caching in your resolver for optimal performance (< 1ms cache hit).
+
+See examples/http-multi-issuer-example and examples/http-dynamic-issuer-example
+for complete working implementations.
 
 # Thread Safety
 

@@ -14,6 +14,32 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwt"
 )
 
+// contextKey is an unexported type for context keys to prevent collisions.
+// Using an unexported type ensures that only this package can create context keys,
+// eliminating the risk of collisions with other packages.
+type contextKey int
+
+const (
+	// issuerContextKey is the context key for storing the validated issuer.
+	issuerContextKey contextKey = iota
+)
+
+// IssuerFromContext extracts the validated issuer from the context.
+// This is useful for JWKS providers that need to route requests based on the issuer.
+//
+// Returns the issuer string and true if found, or empty string and false if not present.
+func IssuerFromContext(ctx context.Context) (string, bool) {
+	issuer, ok := ctx.Value(issuerContextKey).(string)
+	return issuer, ok
+}
+
+// SetIssuerInContext stores the issuer in the context.
+// This is primarily used for testing purposes. In production, the issuer is automatically
+// set by ValidateToken after validation.
+func SetIssuerInContext(ctx context.Context, issuer string) context.Context {
+	return context.WithValue(ctx, issuerContextKey, issuer)
+}
+
 // Signature algorithms
 const (
 	EdDSA  = SignatureAlgorithm("EdDSA")
@@ -34,12 +60,13 @@ const (
 
 // Validator validates JWTs using the jwx v3 library.
 type Validator struct {
-	keyFunc            func(context.Context) (any, error) // Required.
-	signatureAlgorithm SignatureAlgorithm                 // Required.
-	expectedIssuers    []string                           // Required.
-	expectedAudiences  []string                           // Required.
-	customClaims       func() CustomClaims                // Optional.
-	allowedClockSkew   time.Duration                      // Optional.
+	keyFunc            func(context.Context) (any, error)          // Required.
+	signatureAlgorithm SignatureAlgorithm                          // Required.
+	expectedIssuers    []string                                    // Required (unless issuersResolver is set).
+	expectedAudiences  []string                                    // Required.
+	customClaims       func() CustomClaims                         // Optional.
+	allowedClockSkew   time.Duration                               // Optional.
+	issuersResolver    func(ctx context.Context) ([]string, error) // Optional: dynamic issuer resolution.
 }
 
 // SignatureAlgorithm is a signature algorithm.
@@ -89,12 +116,12 @@ const DPoPSupportedAlgorithms = "ES256 ES384 ES512 RS256 RS384 RS512 PS256 PS384
 // Required options:
 //   - WithKeyFunc: Function to provide verification key(s)
 //   - WithAlgorithm: Signature algorithm to validate
-//   - WithIssuer: Expected issuer claim (iss)
+//   - WithIssuer, WithIssuers, or WithIssuersResolver: Expected issuer claim(s) (iss)
 //   - WithAudience or WithAudiences: Expected audience claim(s) (aud)
 //
 // Optional options:
 //   - WithCustomClaims: Custom claims validation
-//   - WithAllowedClockSkew: Clock skew tolerance for time-based claims
+//   - WithAllowedClockSkew: Clock skew tolerance for time-based claims (default: 0)
 //
 // Example:
 //
@@ -138,8 +165,9 @@ func (v *Validator) validate() error {
 	if v.signatureAlgorithm == "" {
 		errs = append(errs, errors.New("signature algorithm is required (use WithAlgorithm)"))
 	}
-	if len(v.expectedIssuers) == 0 {
-		errs = append(errs, errors.New("issuer is required (use WithIssuer or WithIssuers)"))
+	// Either expectedIssuers or issuersResolver must be set (but not both)
+	if len(v.expectedIssuers) == 0 && v.issuersResolver == nil {
+		errs = append(errs, errors.New("issuer is required (use WithIssuer, WithIssuers, or WithIssuersResolver)"))
 	}
 	if len(v.expectedAudiences) == 0 {
 		errs = append(errs, errors.New("audience is required (use WithAudience or WithAudiences)"))
@@ -153,20 +181,44 @@ func (v *Validator) validate() error {
 
 // ValidateToken validates the passed in JWT.
 // This method is optimized for performance and abstracts the underlying JWT library.
+//
+// Security: The issuer is validated BEFORE fetching JWKS to prevent SSRF attacks.
+// This ensures that the issuer claim is trusted before making external requests.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any, error) {
-	// Get the verification key
+	// Step 1: Parse token WITHOUT verification to extract the issuer claim
+	// This is safe because we only use it for validation, not trust decisions
+	unverifiedToken, err := jwt.ParseInsecure([]byte(tokenString))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+
+	issuer, ok := unverifiedToken.Issuer()
+	if !ok {
+		return nil, fmt.Errorf("token has no issuer claim")
+	}
+
+	// Step 2: Validate issuer BEFORE fetching JWKS (security: prevents SSRF)
+	if err := v.validateIssuerWithResolver(ctx, issuer); err != nil {
+		return nil, fmt.Errorf("issuer validation failed: %w", err)
+	}
+
+	// Step 3: Pass validated issuer to keyFunc via context
+	// This allows MultiIssuerProvider to route to the correct JWKS endpoint
+	ctx = SetIssuerInContext(ctx, issuer)
+
+	// Step 4: Get the verification key (now safe to fetch from issuer)
 	key, err := v.keyFunc(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
 	}
 
-	// Parse and validate token using underlying library
+	// Step 5: Parse and validate token signature using the key
 	token, err := v.parseToken(ctx, tokenString, key)
 	if err != nil {
 		return nil, err
 	}
 
-	// Extract and validate claims (optimized: single pass through token)
+	// Step 6: Extract and validate remaining claims (optimized: single pass through token)
 	validatedClaims, err := v.extractAndValidateClaims(ctx, token, tokenString)
 	if err != nil {
 		return nil, err
@@ -213,6 +265,7 @@ func (v *Validator) parseToken(_ context.Context, tokenString string, key any) (
 
 // extractAndValidateClaims extracts claims from the token and validates them.
 // Optimized to minimize method calls and allocations.
+// Note: Issuer is validated earlier in ValidateToken (before JWKS fetch) for security.
 func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Token, tokenString string) (*ValidatedClaims, error) {
 	// Extract registered claims in a single pass
 	issuer, _ := token.Issuer()
@@ -223,11 +276,7 @@ func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Toke
 	notBefore, _ := token.NotBefore()
 	issuedAt, _ := token.IssuedAt()
 
-	// Validate issuer and audience
-	if err := v.validateIssuer(issuer); err != nil {
-		return nil, fmt.Errorf("issuer validation failed: %w", err)
-	}
-
+	// Validate audience (issuer already validated in ValidateToken before JWKS fetch)
 	if err := v.validateAudience(audience); err != nil {
 		return nil, fmt.Errorf("audience validation failed: %w", err)
 	}
@@ -341,6 +390,34 @@ func (v *Validator) validateIssuer(issuer string) error {
 		}
 	}
 	return fmt.Errorf("token issuer %q does not match any expected issuer", issuer)
+}
+
+// validateIssuerWithResolver checks if the token issuer is valid using either
+// the static expectedIssuers list or the dynamic issuersResolver function.
+// This method should be called BEFORE fetching JWKS to prevent SSRF attacks.
+func (v *Validator) validateIssuerWithResolver(ctx context.Context, issuer string) error {
+	if issuer == "" {
+		return fmt.Errorf("token has no issuer")
+	}
+
+	// Use dynamic resolver if configured
+	if v.issuersResolver != nil {
+		validIssuers, err := v.issuersResolver(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to resolve issuers: %w", err)
+		}
+
+		// Check if issuer is in the resolved list
+		for _, expected := range validIssuers {
+			if issuer == expected {
+				return nil
+			}
+		}
+		return fmt.Errorf("issuer %q not allowed by resolver", issuer)
+	}
+
+	// Fall back to static issuer validation
+	return v.validateIssuer(issuer)
 }
 
 // validateAudience checks if the token audiences contain at least one expected audience.

@@ -41,9 +41,12 @@ func setupHandler(issuer string, audience []string) http.Handler {
 		log.Fatalf("failed to parse the issuer url: %v", err)
 	}
 
+	// Create JWKS provider with Cache-Control header support
+	// If the JWKS endpoint returns Cache-Control: max-age=<seconds>, that TTL will be used
+	// Otherwise, falls back to the configured 5-minute TTL
 	provider, err := jwks.NewCachingProvider(
 		jwks.WithIssuerURL(issuerURL),
-		jwks.WithCacheTTL(5*time.Minute),
+		jwks.WithCacheTTL(5*time.Minute), // Fallback TTL if no Cache-Control header
 	)
 	if err != nil {
 		log.Fatalf("failed to create jwks provider: %v", err)

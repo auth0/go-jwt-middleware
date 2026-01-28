@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,7 +90,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("failed to parse and validate token: jwt.ParseString: failed to parse string: unknown payload type (payload is not JWT?)"),
+			expectedError: errors.New("failed to parse token: jwt.ParseInsecure: failed to parse token: jwt.Parse: failed to parse token: unknown payload type (payload is not JWT?)"),
 		},
 		{
 			name:  "it throws an error when it fails to fetch the keys from the key func",
@@ -202,7 +204,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "iat" not satisfied`),
+			expectedError: errors.New(`issuer validation failed: token issuer "https://hacked-jwt-middleware.eu.auth0.com/" does not match any expected issuer`),
 		},
 	}
 
@@ -801,4 +803,359 @@ func TestParseToken_WithJWKSet(t *testing.T) {
 		// Should NOT contain "unsupported algorithm" since we're using HS256
 		assert.NotContains(t, err.Error(), "unsupported algorithm")
 	})
+}
+
+// MCD (Multiple Custom Domains) Tests
+
+func TestIssuerFromContext(t *testing.T) {
+	t.Run("returns issuer when present in context", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), issuerContextKey, "https://tenant1.auth0.com/")
+
+		issuer, ok := IssuerFromContext(ctx)
+
+		assert.True(t, ok)
+		assert.Equal(t, "https://tenant1.auth0.com/", issuer)
+	})
+
+	t.Run("returns false when issuer not in context", func(t *testing.T) {
+		ctx := context.Background()
+
+		issuer, ok := IssuerFromContext(ctx)
+
+		assert.False(t, ok)
+		assert.Empty(t, issuer)
+	})
+
+	t.Run("returns false when wrong type in context", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), issuerContextKey, 123)
+
+		issuer, ok := IssuerFromContext(ctx)
+
+		assert.False(t, ok)
+		assert.Empty(t, issuer)
+	})
+}
+
+func TestSetIssuerInContext(t *testing.T) {
+	t.Run("successfully sets issuer in context", func(t *testing.T) {
+		ctx := context.Background()
+		issuer := "https://example.auth0.com/"
+
+		ctx = SetIssuerInContext(ctx, issuer)
+
+		retrievedIssuer, ok := IssuerFromContext(ctx)
+		assert.True(t, ok)
+		assert.Equal(t, issuer, retrievedIssuer)
+	})
+}
+
+func TestWithIssuersResolver(t *testing.T) {
+	t.Run("successfully sets issuer resolver", func(t *testing.T) {
+		resolver := func(ctx context.Context) ([]string, error) {
+			return []string{"https://tenant1.auth0.com/"}, nil
+		}
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(resolver),
+			WithAudience("audience"),
+		)
+
+		require.NoError(t, err)
+		assert.NotNil(t, v)
+		assert.NotNil(t, v.issuersResolver)
+		assert.Empty(t, v.expectedIssuers)
+	})
+
+	t.Run("returns error when resolver is nil", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(nil),
+			WithAudience("audience"),
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, v)
+		assert.Contains(t, err.Error(), "resolver cannot be nil")
+	})
+
+	t.Run("returns error when used with WithIssuer", func(t *testing.T) {
+		resolver := func(ctx context.Context) ([]string, error) {
+			return []string{"https://tenant1.auth0.com/"}, nil
+		}
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuer("https://tenant1.auth0.com/"),
+			WithIssuersResolver(resolver),
+			WithAudience("audience"),
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, v)
+		assert.Contains(t, err.Error(), "cannot use WithIssuersResolver with WithIssuer/WithIssuers")
+	})
+
+	t.Run("returns error when used with WithIssuers", func(t *testing.T) {
+		resolver := func(ctx context.Context) ([]string, error) {
+			return []string{"https://tenant1.auth0.com/"}, nil
+		}
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuers([]string{"https://tenant1.auth0.com/"}),
+			WithIssuersResolver(resolver),
+			WithAudience("audience"),
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, v)
+		assert.Contains(t, err.Error(), "cannot use WithIssuersResolver with WithIssuer/WithIssuers")
+	})
+}
+
+func TestWithIssuer_MutualExclusivity(t *testing.T) {
+	t.Run("returns error when used after WithIssuersResolver", func(t *testing.T) {
+		resolver := func(ctx context.Context) ([]string, error) {
+			return []string{"https://tenant1.auth0.com/"}, nil
+		}
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(resolver),
+			WithIssuer("https://tenant1.auth0.com/"),
+			WithAudience("audience"),
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, v)
+		assert.Contains(t, err.Error(), "cannot use WithIssuer with WithIssuersResolver")
+	})
+}
+
+func TestWithIssuers_MutualExclusivity(t *testing.T) {
+	t.Run("returns error when used after WithIssuersResolver", func(t *testing.T) {
+		resolver := func(ctx context.Context) ([]string, error) {
+			return []string{"https://tenant1.auth0.com/"}, nil
+		}
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(resolver),
+			WithIssuers([]string{"https://tenant1.auth0.com/"}),
+			WithAudience("audience"),
+		)
+
+		assert.Error(t, err)
+		assert.Nil(t, v)
+		assert.Contains(t, err.Error(), "cannot use WithIssuers with WithIssuersResolver")
+	})
+}
+
+func TestValidateIssuerWithResolver(t *testing.T) {
+	t.Run("validates issuer using static list", func(t *testing.T) {
+		v := &Validator{
+			expectedIssuers: []string{
+				"https://tenant1.auth0.com/",
+				"https://tenant2.auth0.com/",
+			},
+		}
+
+		err := v.validateIssuerWithResolver(context.Background(), "https://tenant1.auth0.com/")
+		assert.NoError(t, err)
+
+		err = v.validateIssuerWithResolver(context.Background(), "https://tenant2.auth0.com/")
+		assert.NoError(t, err)
+
+		err = v.validateIssuerWithResolver(context.Background(), "https://unknown.auth0.com/")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token issuer")
+	})
+
+	t.Run("validates issuer using resolver", func(t *testing.T) {
+		v := &Validator{
+			issuersResolver: func(ctx context.Context) ([]string, error) {
+				return []string{
+					"https://tenant1.auth0.com/",
+					"https://tenant2.auth0.com/",
+				}, nil
+			},
+		}
+
+		err := v.validateIssuerWithResolver(context.Background(), "https://tenant1.auth0.com/")
+		assert.NoError(t, err)
+
+		err = v.validateIssuerWithResolver(context.Background(), "https://unknown.auth0.com/")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not allowed by resolver")
+	})
+
+	t.Run("returns error when resolver fails", func(t *testing.T) {
+		v := &Validator{
+			issuersResolver: func(ctx context.Context) ([]string, error) {
+				return nil, errors.New("database connection failed")
+			},
+		}
+
+		err := v.validateIssuerWithResolver(context.Background(), "https://tenant1.auth0.com/")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to resolve issuers")
+		assert.Contains(t, err.Error(), "database connection failed")
+	})
+
+	t.Run("returns error when issuer is empty", func(t *testing.T) {
+		v := &Validator{
+			expectedIssuers: []string{"https://tenant1.auth0.com/"},
+		}
+
+		err := v.validateIssuerWithResolver(context.Background(), "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token has no issuer")
+	})
+}
+
+func TestValidateToken_WithIssuersResolver(t *testing.T) {
+	const (
+		tenant1Issuer = "https://tenant1.auth0.com/"
+		tenant2Issuer = "https://tenant2.auth0.com/"
+		audience      = "https://api.example.com/"
+	)
+
+	// Generate token dynamically with tenant1 issuer
+	tenant1Token := generateTestToken(t, tenant1Issuer, audience, []byte("secret"))
+
+	t.Run("successfully validates token with dynamic resolver", func(t *testing.T) {
+		// Track that issuer was added to context
+		var receivedIssuer string
+		keyFunc := func(ctx context.Context) (any, error) {
+			issuer, ok := IssuerFromContext(ctx)
+			if ok {
+				receivedIssuer = issuer
+			}
+			return []byte("secret"), nil
+		}
+
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+				return []string{tenant1Issuer, tenant2Issuer}, nil
+			}),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), tenant1Token)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, claims)
+		assert.Equal(t, tenant1Issuer, receivedIssuer, "issuer should be passed to keyFunc via context")
+
+		validatedClaims := claims.(*ValidatedClaims)
+		assert.Equal(t, tenant1Issuer, validatedClaims.RegisteredClaims.Issuer)
+	})
+
+	t.Run("rejects token when resolver does not allow issuer", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+				// Only allow tenant2, not tenant1
+				return []string{tenant2Issuer}, nil
+			}),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), tenant1Token)
+
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Contains(t, err.Error(), "issuer validation failed")
+		assert.Contains(t, err.Error(), "not allowed by resolver")
+	})
+
+	t.Run("rejects token when resolver returns error", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+				return nil, errors.New("database unavailable")
+			}),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), tenant1Token)
+
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Contains(t, err.Error(), "issuer validation failed")
+		assert.Contains(t, err.Error(), "failed to resolve issuers")
+		assert.Contains(t, err.Error(), "database unavailable")
+	})
+
+	t.Run("rejects token without issuer claim", func(t *testing.T) {
+		// Generate token without issuer claim
+		tokenNoIssuer := generateTestTokenWithoutIssuer(t, audience, []byte("secret"))
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+				return []string{tenant1Issuer}, nil
+			}),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), tokenNoIssuer)
+
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Contains(t, err.Error(), "token has no issuer claim")
+	})
+}
+
+// generateTestToken creates a test JWT token with the given issuer, audience, and signing key.
+// The token expires in 1 hour to prevent expiration issues during tests.
+func generateTestToken(t *testing.T, issuer, audience string, secret []byte) string {
+	t.Helper()
+
+	token, err := jwt.NewBuilder().
+		Issuer(issuer).
+		Audience([]string{audience}).
+		Subject("1234567890").
+		Expiration(time.Now().Add(1 * time.Hour)).
+		Build()
+	require.NoError(t, err)
+
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
+	require.NoError(t, err)
+
+	return string(signed)
+}
+
+// generateTestTokenWithoutIssuer creates a test JWT token without an issuer claim.
+// Used for testing issuer validation failures.
+func generateTestTokenWithoutIssuer(t *testing.T, audience string, secret []byte) string {
+	t.Helper()
+
+	token, err := jwt.NewBuilder().
+		Audience([]string{audience}).
+		Subject("1234567890").
+		Expiration(time.Now().Add(1 * time.Hour)).
+		Build()
+	require.NoError(t, err)
+
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
+	require.NoError(t, err)
+
+	return string(signed)
 }

@@ -33,3 +33,18 @@ jobs:
           files: coverage.out
           fail_ci_if_error: false
           verbose: true
+
+  test-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v6
+
+      - name: install go
+        uses: actions/setup-go@v6.1.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: test examples
+        run: make test-examples
