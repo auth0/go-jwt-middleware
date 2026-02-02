@@ -155,34 +155,33 @@ func TestDefaultErrorHandler_NilError(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDefaultErrorHandler_MessageBasedMapping_Issuer(t *testing.T) {
-	// Test fallback message-based mapping for issuer errors
-	validationErr := core.NewValidationError("custom_code", "something about issuer", nil)
-	err := DefaultErrorHandler(validationErr)
+func TestDefaultErrorHandler_UnknownErrorCode_DefaultsToUnauthenticated(t *testing.T) {
+	// Unknown error codes default to Unauthenticated for security.
+	// This ensures we don't accidentally leak information through error responses.
+	// Note: We intentionally do NOT do string-based message matching as it's fragile.
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{"issuer in message", "something about issuer"},
+		{"audience in message", "something about audience"},
+		{"expired in message", "something expired"},
+		{"generic message", "some unknown error"},
+	}
 
-	st, ok := status.FromError(err)
-	assert.True(t, ok)
-	assert.Equal(t, codes.PermissionDenied, st.Code())
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validationErr := core.NewValidationError("custom_unknown_code", tt.message, nil)
+			err := DefaultErrorHandler(validationErr)
 
-func TestDefaultErrorHandler_MessageBasedMapping_Audience(t *testing.T) {
-	// Test fallback message-based mapping for audience errors
-	validationErr := core.NewValidationError("custom_code", "something about audience", nil)
-	err := DefaultErrorHandler(validationErr)
-
-	st, ok := status.FromError(err)
-	assert.True(t, ok)
-	assert.Equal(t, codes.PermissionDenied, st.Code())
-}
-
-func TestDefaultErrorHandler_MessageBasedMapping_Expired(t *testing.T) {
-	// Test fallback message-based mapping for expired errors
-	validationErr := core.NewValidationError("custom_code", "something expired", nil)
-	err := DefaultErrorHandler(validationErr)
-
-	st, ok := status.FromError(err)
-	assert.True(t, ok)
-	assert.Equal(t, codes.Unauthenticated, st.Code())
+			st, ok := status.FromError(err)
+			assert.True(t, ok)
+			// All unknown codes should map to Unauthenticated as a secure default
+			assert.Equal(t, codes.Unauthenticated, st.Code())
+			// The message should be preserved from the ValidationError
+			assert.Equal(t, tt.message, st.Message())
+		})
+	}
 }
 
 func TestDefaultErrorHandler_ExtractorError_InvalidFormat(t *testing.T) {
@@ -209,36 +208,75 @@ func TestDefaultErrorHandler_ExtractorError_UnsupportedScheme(t *testing.T) {
 	assert.Equal(t, codes.InvalidArgument, st.Code())
 }
 
-func TestDefaultErrorHandler_MessageBasedMapping_JWKS(t *testing.T) {
-	// Test fallback message-based mapping for JWKS errors
-	validationErr := core.NewValidationError("custom_code", "failed to fetch JWKS from server", nil)
-	err := DefaultErrorHandler(validationErr)
+func TestDefaultErrorHandler_JWKSErrors_UseErrorCodes(t *testing.T) {
+	// JWKS errors should use proper error codes, not string-based matching.
+	// This ensures reliable error handling regardless of message content.
+	tests := []struct {
+		name     string
+		code     string
+		message  string
+		wantCode codes.Code
+		wantMsg  string
+	}{
+		{
+			name:     "JWKS fetch failed with proper code",
+			code:     core.ErrorCodeJWKSFetchFailed,
+			message:  "failed to fetch JWKS from server",
+			wantCode: codes.Internal,
+			wantMsg:  "unable to verify token",
+		},
+		{
+			name:     "JWKS key not found with proper code",
+			code:     core.ErrorCodeJWKSKeyNotFound,
+			message:  "key not found in key set",
+			wantCode: codes.Internal,
+			wantMsg:  "unable to verify token",
+		},
+	}
 
-	st, ok := status.FromError(err)
-	assert.True(t, ok)
-	assert.Equal(t, codes.Internal, st.Code())
-	assert.Equal(t, "unable to verify token", st.Message())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validationErr := core.NewValidationError(tt.code, tt.message, nil)
+			err := DefaultErrorHandler(validationErr)
+
+			st, ok := status.FromError(err)
+			assert.True(t, ok)
+			assert.Equal(t, tt.wantCode, st.Code())
+			assert.Equal(t, tt.wantMsg, st.Message())
+		})
+	}
 }
 
-func TestDefaultErrorHandler_MessageBasedMapping_JWKSLowercase(t *testing.T) {
-	// Test fallback message-based mapping for jwks (lowercase)
-	validationErr := core.NewValidationError("custom_code", "error fetching jwks", nil)
-	err := DefaultErrorHandler(validationErr)
+func TestDefaultErrorHandler_ConfigErrors(t *testing.T) {
+	// Configuration errors should map to Internal
+	tests := []struct {
+		name string
+		code string
+	}{
+		{"config invalid", core.ErrorCodeConfigInvalid},
+		{"validator not set", core.ErrorCodeValidatorNotSet},
+	}
 
-	st, ok := status.FromError(err)
-	assert.True(t, ok)
-	assert.Equal(t, codes.Internal, st.Code())
-	assert.Equal(t, "unable to verify token", st.Message())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validationErr := core.NewValidationError(tt.code, "configuration error", nil)
+			err := DefaultErrorHandler(validationErr)
+
+			st, ok := status.FromError(err)
+			assert.True(t, ok)
+			assert.Equal(t, codes.Internal, st.Code())
+			assert.Equal(t, "server configuration error", st.Message())
+		})
+	}
 }
 
-func TestDefaultErrorHandler_MessageBasedMapping_KeySet(t *testing.T) {
-	// Test fallback message-based mapping for key set errors
-	validationErr := core.NewValidationError("custom_code", "error with key set", nil)
+func TestDefaultErrorHandler_InvalidClaims(t *testing.T) {
+	validationErr := core.NewValidationError(core.ErrorCodeInvalidClaims, "custom claims validation failed", nil)
 	err := DefaultErrorHandler(validationErr)
 
 	st, ok := status.FromError(err)
 	assert.True(t, ok)
-	assert.Equal(t, codes.Internal, st.Code())
-	assert.Equal(t, "unable to verify token", st.Message())
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+	assert.Equal(t, "custom claims validation failed", st.Message())
 }
 

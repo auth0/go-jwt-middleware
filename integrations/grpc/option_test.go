@@ -14,13 +14,43 @@ func TestNew_InvalidConfiguration(t *testing.T) {
 	t.Run("missing validator", func(t *testing.T) {
 		_, err := New()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "validator is required")
+		assert.ErrorIs(t, err, ErrValidatorNil)
 	})
 
 	t.Run("nil validator option", func(t *testing.T) {
 		_, err := New(WithValidator(nil))
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "validator cannot be nil")
+		assert.ErrorIs(t, err, ErrValidatorNil)
+	})
+
+	t.Run("nil logger option", func(t *testing.T) {
+		jwtValidator := createTestValidator(t)
+		_, err := New(
+			WithValidator(jwtValidator),
+			WithLogger(nil),
+		)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrLoggerNil)
+	})
+
+	t.Run("nil token extractor option", func(t *testing.T) {
+		jwtValidator := createTestValidator(t)
+		_, err := New(
+			WithValidator(jwtValidator),
+			WithTokenExtractor(nil),
+		)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrTokenExtractorNil)
+	})
+
+	t.Run("nil error handler option", func(t *testing.T) {
+		jwtValidator := createTestValidator(t)
+		_, err := New(
+			WithValidator(jwtValidator),
+			WithErrorHandler(nil),
+		)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrErrorHandlerNil)
 	})
 }
 

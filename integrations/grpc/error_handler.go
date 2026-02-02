@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
 	"google.golang.org/grpc/codes"
@@ -14,12 +13,19 @@ type ErrorHandler func(error) error
 
 // DefaultErrorHandler maps JWT validation errors to appropriate gRPC status codes.
 // It returns gRPC status errors that follow standard gRPC error handling conventions.
+//
+// Error mapping:
+//   - Token missing/expired/invalid signature → Unauthenticated
+//   - Invalid issuer/audience → PermissionDenied
+//   - Extractor errors (malformed header) → InvalidArgument
+//   - JWKS/infrastructure errors → Internal
+//   - Unknown errors → Unauthenticated (secure default)
 func DefaultErrorHandler(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	// Handle core validation errors
+	// Handle core validation errors (preferred path - uses error codes)
 	var validationErr *core.ValidationError
 	if errors.As(err, &validationErr) {
 		return mapValidationError(validationErr)
@@ -37,19 +43,14 @@ func DefaultErrorHandler(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	// Handle JWKS-related errors (should be Internal, not Unauthenticated)
-	if strings.Contains(err.Error(), "failed to get key") ||
-		strings.Contains(err.Error(), "JWKS") ||
-		strings.Contains(err.Error(), "jwks") {
-		return status.Error(codes.Internal, "unable to verify token")
-	}
-
-	// Default: treat unknown validation errors as Unauthenticated for security
-	// This ensures token validation failures don't leak as internal errors
+	// Default: treat unknown validation errors as Unauthenticated for security.
+	// This ensures token validation failures don't leak as internal errors.
+	// Note: JWKS errors should come through as ValidationError with appropriate codes.
 	return status.Error(codes.Unauthenticated, "invalid or malformed token")
 }
 
 // mapValidationError maps core.ValidationError to gRPC status codes.
+// This function relies on error codes from core package for reliable error classification.
 func mapValidationError(err *core.ValidationError) error {
 	switch err.Code {
 	case core.ErrorCodeTokenMissing:
@@ -75,21 +76,14 @@ func mapValidationError(err *core.ValidationError) error {
 		return status.Error(codes.InvalidArgument, err.Message)
 	case core.ErrorCodeInvalidToken:
 		return status.Error(codes.Unauthenticated, err.Message)
+	case core.ErrorCodeInvalidClaims:
+		return status.Error(codes.Unauthenticated, err.Message)
+	case core.ErrorCodeConfigInvalid, core.ErrorCodeValidatorNotSet:
+		// Configuration errors are server-side issues
+		return status.Error(codes.Internal, "server configuration error")
 	default:
-		// Fallback to message-based mapping for compatibility
-		msg := err.Error()
-
-		// JWKS-related errors should be Internal, not Unauthenticated
-		if strings.Contains(msg, "JWKS") || strings.Contains(msg, "jwks") ||
-			strings.Contains(msg, "key set") {
-			return status.Error(codes.Internal, "unable to verify token")
-		}
-
-		if strings.Contains(msg, "expired") {
-			return status.Error(codes.Unauthenticated, msg)
-		} else if strings.Contains(msg, "issuer") || strings.Contains(msg, "audience") {
-			return status.Error(codes.PermissionDenied, msg)
-		}
-		return status.Error(codes.Unauthenticated, msg)
+		// Unknown error codes default to Unauthenticated for security.
+		// If new error codes are added to core, they should be handled explicitly above.
+		return status.Error(codes.Unauthenticated, err.Message)
 	}
 }

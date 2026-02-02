@@ -2,9 +2,10 @@ package grpc
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/auth0/go-jwt-middleware/v3/core"
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 	"google.golang.org/grpc"
 )
 
@@ -16,39 +17,84 @@ type JWTInterceptor struct {
 	excludedMethods map[string]bool
 	logger          Logger
 
-	// Internal builder for accumulating core options
-	coreBuilder *coreBuilder
+	// Temporary fields used during construction
+	validator           *validator.Validator
+	credentialsOptional bool
 }
 
 // New creates a new gRPC JWT interceptor with the provided options.
 // WithValidator option is required.
+//
+// Example:
+//
+//	interceptor, err := grpc.New(
+//	    grpc.WithValidator(validator),
+//	    grpc.WithCredentialsOptional(false),
+//	)
+//	if err != nil {
+//	    log.Fatalf("failed to create interceptor: %v", err)
+//	}
 func New(opts ...Option) (*JWTInterceptor, error) {
 	interceptor := &JWTInterceptor{
-		tokenExtractor:  MetadataTokenExtractor,
-		errorHandler:    DefaultErrorHandler,
-		excludedMethods: make(map[string]bool),
+		excludedMethods:     make(map[string]bool),
+		credentialsOptional: false, // Credentials required by default
 	}
 
+	// Apply all options
 	for _, opt := range opts {
 		if err := opt(interceptor); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid option: %w", err)
 		}
 	}
 
-	// Build core from accumulated options if builder was used
-	if interceptor.core == nil && interceptor.coreBuilder != nil {
-		c, err := interceptor.coreBuilder.build()
-		if err != nil {
-			return nil, err
-		}
-		interceptor.core = c
+	// Validate required configuration
+	if interceptor.validator == nil {
+		return nil, ErrValidatorNil
 	}
 
-	if interceptor.core == nil {
-		return nil, errors.New("validator is required, use WithValidator option")
+	// Apply defaults for optional fields not set by options
+	interceptor.applyDefaults()
+
+	// Create the core with the configured validator and options
+	if err := interceptor.createCore(); err != nil {
+		return nil, fmt.Errorf("failed to create core: %w", err)
 	}
 
 	return interceptor, nil
+}
+
+// applyDefaults sets secure default values for optional fields.
+func (i *JWTInterceptor) applyDefaults() {
+	if i.tokenExtractor == nil {
+		i.tokenExtractor = MetadataTokenExtractor
+	}
+	if i.errorHandler == nil {
+		i.errorHandler = DefaultErrorHandler
+	}
+}
+
+// createCore creates the core.Core instance with the configured options.
+func (i *JWTInterceptor) createCore() error {
+	// Wrap validator in adapter that implements core.Validator interface
+	adapter := &validatorAdapter{validator: i.validator}
+
+	// Build core options
+	coreOpts := []core.Option{
+		core.WithValidator(adapter),
+		core.WithCredentialsOptional(i.credentialsOptional),
+	}
+
+	// Add logger if configured
+	if i.logger != nil {
+		coreOpts = append(coreOpts, core.WithLogger(i.logger))
+	}
+
+	coreInstance, err := core.New(coreOpts...)
+	if err != nil {
+		return err
+	}
+	i.core = coreInstance
+	return nil
 }
 
 // UnaryServerInterceptor returns a grpc.UnaryServerInterceptor that validates JWTs.

@@ -9,6 +9,7 @@ import (
 )
 
 // Option configures the JWT interceptor.
+// Returns error for validation failures.
 type Option func(*JWTInterceptor) error
 
 // Logger defines an optional logging interface compatible with log/slog.
@@ -33,32 +34,20 @@ func (v *validatorAdapter) ValidateDPoPProof(ctx context.Context, proofString st
 	return v.validator.ValidateDPoPProof(ctx, proofString)
 }
 
-// coreBuilder helps build a core.Core with accumulated options.
-type coreBuilder struct {
-	validator           *validator.Validator
-	credentialsOptional *bool
-	logger              Logger
-}
+// Sentinel errors for configuration validation.
+var (
+	// ErrValidatorNil is returned when a nil validator is provided.
+	ErrValidatorNil = errors.New("validator cannot be nil (use WithValidator)")
 
-func (b *coreBuilder) build() (*core.Core, error) {
-	if b.validator == nil {
-		return nil, errors.New("validator is required")
-	}
+	// ErrTokenExtractorNil is returned when a nil token extractor is provided.
+	ErrTokenExtractorNil = errors.New("token extractor cannot be nil")
 
-	adapter := &validatorAdapter{validator: b.validator}
-	opts := []core.Option{
-		core.WithValidator(adapter),
-	}
+	// ErrErrorHandlerNil is returned when a nil error handler is provided.
+	ErrErrorHandlerNil = errors.New("error handler cannot be nil")
 
-	if b.credentialsOptional != nil {
-		opts = append(opts, core.WithCredentialsOptional(*b.credentialsOptional))
-	}
-	if b.logger != nil {
-		opts = append(opts, core.WithLogger(b.logger))
-	}
-
-	return core.New(opts...)
-}
+	// ErrLoggerNil is returned when a nil logger is provided.
+	ErrLoggerNil = errors.New("logger cannot be nil")
+)
 
 // WithValidator sets the JWT validator (REQUIRED).
 // This is the primary way to configure the interceptor.
@@ -75,12 +64,9 @@ func (b *coreBuilder) build() (*core.Core, error) {
 func WithValidator(v *validator.Validator) Option {
 	return func(i *JWTInterceptor) error {
 		if v == nil {
-			return errors.New("validator cannot be nil")
+			return ErrValidatorNil
 		}
-		if i.coreBuilder == nil {
-			i.coreBuilder = &coreBuilder{}
-		}
-		i.coreBuilder.validator = v
+		i.validator = v
 		return nil
 	}
 }
@@ -99,10 +85,7 @@ func WithValidator(v *validator.Validator) Option {
 //	)
 func WithCredentialsOptional(optional bool) Option {
 	return func(i *JWTInterceptor) error {
-		if i.coreBuilder == nil {
-			i.coreBuilder = &coreBuilder{}
-		}
-		i.coreBuilder.credentialsOptional = &optional
+		i.credentialsOptional = optional
 		return nil
 	}
 }
@@ -121,13 +104,9 @@ func WithCredentialsOptional(optional bool) Option {
 func WithLogger(logger Logger) Option {
 	return func(i *JWTInterceptor) error {
 		if logger == nil {
-			return errors.New("logger cannot be nil")
+			return ErrLoggerNil
 		}
-		if i.coreBuilder == nil {
-			i.coreBuilder = &coreBuilder{}
-		}
-		i.coreBuilder.logger = logger
-		i.logger = logger // Set on interceptor for its own logging
+		i.logger = logger
 		return nil
 	}
 }
@@ -137,7 +116,7 @@ func WithLogger(logger Logger) Option {
 func WithTokenExtractor(extractor TokenExtractor) Option {
 	return func(i *JWTInterceptor) error {
 		if extractor == nil {
-			return errors.New("token extractor cannot be nil")
+			return ErrTokenExtractorNil
 		}
 		i.tokenExtractor = extractor
 		return nil
@@ -149,7 +128,7 @@ func WithTokenExtractor(extractor TokenExtractor) Option {
 func WithErrorHandler(handler ErrorHandler) Option {
 	return func(i *JWTInterceptor) error {
 		if handler == nil {
-			return errors.New("error handler cannot be nil")
+			return ErrErrorHandlerNil
 		}
 		i.errorHandler = handler
 		return nil

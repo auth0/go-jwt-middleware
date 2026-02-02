@@ -28,15 +28,22 @@ var (
 //
 // gRPC normalizes incoming metadata keys to lowercase, so this extractor only
 // checks the lowercase "authorization" key.
+//
+// Return behavior:
+//   - ("", nil) when no metadata or no authorization header is present.
+//     This is not an error; the core.CheckToken handles missing tokens
+//     based on the credentialsOptional configuration.
+//   - (token, nil) when a valid Bearer token is extracted.
+//   - ("", error) when the authorization header is malformed.
 func MetadataTokenExtractor(ctx context.Context) (string, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return "", nil // No metadata, no token (not an error)
+		return "", nil // No metadata - let core handle based on credentialsOptional
 	}
 
 	authHeaders := md.Get("authorization")
 	if len(authHeaders) == 0 {
-		return "", nil // No auth header (not an error)
+		return "", nil // No auth header - let core handle based on credentialsOptional
 	}
 
 	if len(authHeaders) > 1 {

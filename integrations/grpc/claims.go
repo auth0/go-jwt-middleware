@@ -23,7 +23,13 @@ func GetClaims[T any](ctx context.Context) (T, error) {
 }
 
 // MustGetClaims retrieves claims from the context or panics.
-// Use only when you are certain claims exist (e.g., after interceptor has run).
+//
+// SAFETY: Only use this function when you are certain claims exist in the context:
+//   - After the JWT interceptor has successfully validated a token
+//   - When credentialsOptional is false (default), ensuring all requests have valid tokens
+//   - In methods that are NOT in the excluded methods list
+//
+// For methods where credentials might be optional, use GetClaims instead and handle the error.
 //
 // Example:
 //

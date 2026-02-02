@@ -286,7 +286,44 @@ func TestUnaryServerInterceptor_ValidatorError(t *testing.T) {
 	assert.Error(t, err)
 	st, ok := status.FromError(err)
 	assert.True(t, ok)
-	// JWKS fetch errors should be Internal (server-side infrastructure error)
+	// Generic errors without proper error codes default to Unauthenticated for security.
+	// To get Internal for JWKS errors, the validator must return a core.ValidationError
+	// with ErrorCodeJWKSFetchFailed or ErrorCodeJWKSKeyNotFound.
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+}
+
+func TestUnaryServerInterceptor_JWKSErrorWithProperCode(t *testing.T) {
+	// Test that JWKS errors with proper error codes return Internal
+	jwtValidator := createTestValidator(t)
+	interceptor, err := New(
+		WithValidator(jwtValidator),
+		WithErrorHandler(func(err error) error {
+			// Simulate a JWKS error with proper code
+			return DefaultErrorHandler(core.NewValidationError(
+				core.ErrorCodeJWKSFetchFailed,
+				"failed to fetch JWKS",
+				err,
+			))
+		}),
+	)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		t.Fatal("handler should not be called")
+		return nil, nil
+	}
+
+	// Use an invalid token to trigger validation error
+	md := metadata.Pairs("authorization", "Bearer invalid.token.here")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	resp, err := interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}, handler)
+
+	assert.Nil(t, resp)
+	assert.Error(t, err)
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	// JWKS errors with proper codes should be Internal
 	assert.Equal(t, codes.Internal, st.Code())
 }
 
@@ -545,6 +582,145 @@ func TestWithLogger(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "success", resp)
 	assert.True(t, logCalled)
+}
+
+func TestWithLogger_ExcludedMethod(t *testing.T) {
+	v := createTestValidator(t)
+
+	debugMessages := []string{}
+	logger := &mockLogger{
+		onDebug: func(msg string, args ...any) { debugMessages = append(debugMessages, msg) },
+	}
+
+	interceptor, err := New(
+		WithValidator(v),
+		WithLogger(logger),
+		WithExcludedMethods("/test.Service/HealthCheck"),
+	)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "success", nil
+	}
+
+	ctx := context.Background()
+	resp, err := interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/HealthCheck"}, handler)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "success", resp)
+	assert.Contains(t, debugMessages, "skipping JWT validation for excluded method")
+}
+
+func TestWithLogger_TokenExtractionFailure(t *testing.T) {
+	v := createTestValidator(t)
+
+	errorMessages := []string{}
+	logger := &mockLogger{
+		onDebug: func(msg string, args ...any) {},
+		onError: func(msg string, args ...any) { errorMessages = append(errorMessages, msg) },
+	}
+
+	interceptor, err := New(WithValidator(v), WithLogger(logger))
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		t.Fatal("handler should not be called")
+		return nil, nil
+	}
+
+	// Multiple auth headers cause extraction error
+	md := metadata.Pairs("authorization", "Bearer token1", "authorization", "Bearer token2")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	_, err = interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}, handler)
+
+	assert.Error(t, err)
+	assert.Contains(t, errorMessages, "failed to extract token from gRPC metadata")
+}
+
+func TestWithLogger_ValidationFailure(t *testing.T) {
+	v := createTestValidator(t)
+
+	warnMessages := []string{}
+	logger := &mockLogger{
+		onDebug: func(msg string, args ...any) {},
+		onWarn:  func(msg string, args ...any) { warnMessages = append(warnMessages, msg) },
+	}
+
+	interceptor, err := New(WithValidator(v), WithLogger(logger))
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		t.Fatal("handler should not be called")
+		return nil, nil
+	}
+
+	// Invalid token
+	md := metadata.Pairs("authorization", "Bearer invalid.token.here")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	_, err = interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}, handler)
+
+	assert.Error(t, err)
+	assert.Contains(t, warnMessages, "JWT validation failed")
+}
+
+func TestWithLogger_OptionalCredentialsNoToken(t *testing.T) {
+	v := createTestValidator(t)
+
+	debugMessages := []string{}
+	logger := &mockLogger{
+		onDebug: func(msg string, args ...any) { debugMessages = append(debugMessages, msg) },
+	}
+
+	interceptor, err := New(
+		WithValidator(v),
+		WithLogger(logger),
+		WithCredentialsOptional(true),
+	)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "success", nil
+	}
+
+	ctx := context.Background()
+	resp, err := interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}, handler)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "success", resp)
+	assert.Contains(t, debugMessages, "no credentials provided, continuing without claims (credentials optional)")
+}
+
+func TestStreamServerInterceptor_ExcludedMethodsWithLogger(t *testing.T) {
+	v := createTestValidator(t)
+
+	debugMessages := []string{}
+	logger := &mockLogger{
+		onDebug: func(msg string, args ...any) { debugMessages = append(debugMessages, msg) },
+	}
+
+	interceptor, err := New(
+		WithValidator(v),
+		WithLogger(logger),
+		WithExcludedMethods("/test.Service/StreamHealth"),
+	)
+	require.NoError(t, err)
+
+	handlerCalled := false
+	handler := func(srv interface{}, stream grpc.ServerStream) error {
+		handlerCalled = true
+		return nil
+	}
+
+	ctx := context.Background()
+	mockStream := &mockServerStream{ctx: ctx}
+
+	err = interceptor.StreamServerInterceptor()(nil, mockStream, &grpc.StreamServerInfo{FullMethod: "/test.Service/StreamHealth"}, handler)
+
+	assert.NoError(t, err)
+	assert.True(t, handlerCalled)
+	assert.Contains(t, debugMessages, "skipping JWT validation for excluded method")
 }
 
 

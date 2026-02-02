@@ -60,7 +60,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("Expected error: %v\n\n", err)
 	} else {
-		fmt.Println("ERROR: Should have failed without token!\n")
+		fmt.Println("ERROR: Should have failed without token!")
 	}
 
 	// Test 3: SayHello with valid token (should succeed)
