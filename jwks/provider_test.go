@@ -1284,7 +1284,7 @@ func TestCacheControlSecurity(t *testing.T) {
 		assert.Equal(t, int32(2), requestCount, "Should use 1 hour Cache-Control, not 1s configured TTL")
 	})
 
-	t.Run("Uses configured TTL when Cache-Control is shorter", func(t *testing.T) {
+	t.Run("Respects shorter Cache-Control max-age for key rotation", func(t *testing.T) {
 		var requestCount int32
 		var shortCacheServer *httptest.Server
 
@@ -1326,10 +1326,11 @@ func TestCacheControlSecurity(t *testing.T) {
 		// Wait just over Cache-Control TTL (1 second)
 		time.Sleep(1100 * time.Millisecond)
 
-		// Should NOT fetch again because configured TTL (10m) > max-age (1s), so uses 10m
+		// Should fetch again because max-age (1s) < configured TTL (10m),
+		// and we respect the shorter max-age to support key rotation signals from the IdP
 		_, err = provider.KeyFunc(context.Background())
 		require.NoError(t, err)
-		assert.Equal(t, int32(2), requestCount, "Should use 10m configured TTL, not 1s Cache-Control")
+		assert.Equal(t, int32(3), requestCount, "Should respect shorter Cache-Control max-age for key rotation")
 	})
 }
 

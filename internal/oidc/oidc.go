@@ -54,14 +54,18 @@ func GetWellKnownEndpointsFromIssuerURL(
 	}
 	defer func() { _ = response.Body.Close() }()
 
+	// Limit response body to 1 MB to prevent memory exhaustion from oversized responses.
+	const maxResponseBytes = 1 << 20
+	limitedBody := io.LimitReader(response.Body, maxResponseBytes)
+
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(response.Body)
+		body, _ := io.ReadAll(limitedBody)
 		return nil, fmt.Errorf("received HTTP %d from %s: %s",
 			response.StatusCode, issuerURL.String(), string(body))
 	}
 
 	var wkEndpoints WellKnownEndpoints
-	if err := json.NewDecoder(response.Body).Decode(&wkEndpoints); err != nil {
+	if err := json.NewDecoder(limitedBody).Decode(&wkEndpoints); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON response from %s: %w", issuerURL.String(), err)
 	}
 

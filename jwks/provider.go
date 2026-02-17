@@ -159,6 +159,10 @@ func (c *jwxCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
 	cached.fetchMu.Lock()
 	defer cached.fetchMu.Unlock()
 
+	// Refresh timestamp after acquiring lock - the original `now` may be stale
+	// if we waited for another goroutine that already refreshed the cache.
+	now = time.Now()
+
 	// Double-check after acquiring fetch lock - another goroutine may have fetched
 	// Must also check with cacheMu.RLock to avoid race with writes
 	c.cacheMu.RLock()
@@ -176,13 +180,18 @@ func (c *jwxCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
 		return nil, fmt.Errorf("could not fetch JWKS: %w", err)
 	}
 
-	// Use Cache-Control max-age only when configured TTL is shorter
-	// This allows extending cache time when the provider permits longer caching
+	// Respect Cache-Control max-age from the JWKS endpoint.
+	// - If max-age > configured TTL: extend to max-age (provider allows longer caching)
+	// - If max-age < configured TTL: shorten to max-age (provider needs faster rotation, e.g. key rollover)
+	// - If no Cache-Control header: use configured TTL as-is
 	effectiveTTL := c.refreshTTL
-	if cacheTTL > 0 && c.refreshTTL < cacheTTL {
-		effectiveTTL = cacheTTL // Configured TTL is shorter - use the longer max-age
+	if cacheTTL > 0 {
+		if cacheTTL < c.refreshTTL {
+			effectiveTTL = cacheTTL // IdP wants shorter TTL - respect key rotation signals
+		} else if cacheTTL > c.refreshTTL {
+			effectiveTTL = cacheTTL // IdP allows longer caching - reduce fetch frequency
+		}
 	}
-	// Otherwise use configured TTL (either no Cache-Control, it's shorter, or invalid)
 
 	// Update cache - must hold cacheMu to synchronize with readers in fast path
 	c.cacheMu.Lock()

@@ -75,13 +75,15 @@ type cachingProviderConfig struct {
 // If not specified, defaults to 15 minutes.
 //
 // The TTL determines the minimum interval between JWKS refreshes.
+// Passing a zero value will use the default TTL of 15 minutes.
+// To set a very short TTL, use a small positive duration (e.g., 1*time.Second).
 func WithCacheTTL(ttl time.Duration) CachingProviderOption {
 	return func(c *cachingProviderConfig) error {
 		if ttl < 0 {
 			return fmt.Errorf("cache TTL cannot be negative")
 		}
 		if ttl == 0 {
-			ttl = 15 * time.Minute
+			ttl = 15 * time.Minute // Zero means use default
 		}
 		c.cacheTTL = ttl
 		return nil
@@ -127,13 +129,15 @@ type multiIssuerConfig struct {
 // If not specified, defaults to 15 minutes.
 //
 // The TTL determines the minimum interval between JWKS refreshes for each issuer.
+// Passing a zero value will use the default TTL of 15 minutes.
+// To set a very short TTL, use a small positive duration (e.g., 1*time.Second).
 func WithMultiIssuerCacheTTL(ttl time.Duration) MultiIssuerProviderOption {
 	return func(c *multiIssuerConfig) error {
 		if ttl < 0 {
 			return fmt.Errorf("cache TTL cannot be negative")
 		}
 		if ttl == 0 {
-			ttl = 15 * time.Minute
+			ttl = 15 * time.Minute // Zero means use default
 		}
 		c.cacheTTL = ttl
 		return nil

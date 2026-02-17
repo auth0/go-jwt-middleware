@@ -197,16 +197,16 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any,
 		return nil, fmt.Errorf("token has no issuer claim")
 	}
 
-	// Step 2: Validate issuer BEFORE fetching JWKS (security: prevents SSRF)
+	// Step 2: Pass unverified issuer into context so that the resolver
+	// has access to the iss claim for dynamic issuer resolution.
+	ctx = SetIssuerInContext(ctx, issuer)
+
+	// Step 3: Validate issuer BEFORE fetching JWKS (security: prevents SSRF)
 	if err := v.validateIssuerWithResolver(ctx, issuer); err != nil {
 		return nil, fmt.Errorf("issuer validation failed: %w", err)
 	}
 
-	// Step 3: Pass validated issuer to keyFunc via context
-	// This allows MultiIssuerProvider to route to the correct JWKS endpoint
-	ctx = SetIssuerInContext(ctx, issuer)
-
-	// Step 4: Get the verification key (now safe to fetch from issuer)
+	// Step 4: Get the verification key (now safe to fetch from validated issuer)
 	key, err := v.keyFunc(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
