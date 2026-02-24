@@ -1,10 +1,13 @@
 package jwks
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
 
 // ============================================================================
@@ -22,7 +25,7 @@ type ProviderOption func(*Provider) error
 func WithIssuerURL(issuerURL *url.URL) ProviderOption {
 	return func(p *Provider) error {
 		if issuerURL == nil {
-			return fmt.Errorf("issuer URL cannot be nil")
+			return errors.New("issuer URL cannot be nil")
 		}
 		p.IssuerURL = issuerURL
 		return nil
@@ -35,7 +38,7 @@ func WithIssuerURL(issuerURL *url.URL) ProviderOption {
 func WithCustomJWKSURI(jwksURI *url.URL) ProviderOption {
 	return func(p *Provider) error {
 		if jwksURI == nil {
-			return fmt.Errorf("custom JWKS URI cannot be nil")
+			return errors.New("custom JWKS URI cannot be nil")
 		}
 		p.CustomJWKSURI = jwksURI
 		return nil
@@ -47,7 +50,7 @@ func WithCustomJWKSURI(jwksURI *url.URL) ProviderOption {
 func WithCustomClient(c *http.Client) ProviderOption {
 	return func(p *Provider) error {
 		if c == nil {
-			return fmt.Errorf("HTTP client cannot be nil")
+			return errors.New("HTTP client cannot be nil")
 		}
 		p.Client = c
 		return nil
@@ -80,7 +83,7 @@ type cachingProviderConfig struct {
 func WithCacheTTL(ttl time.Duration) CachingProviderOption {
 	return func(c *cachingProviderConfig) error {
 		if ttl < 0 {
-			return fmt.Errorf("cache TTL cannot be negative")
+			return errors.New("cache TTL cannot be negative")
 		}
 		if ttl == 0 {
 			ttl = 15 * time.Minute // Zero means use default
@@ -103,7 +106,7 @@ func WithCacheTTL(ttl time.Duration) CachingProviderOption {
 func WithCache(cache Cache) CachingProviderOption {
 	return func(c *cachingProviderConfig) error {
 		if cache == nil {
-			return fmt.Errorf("cache cannot be nil")
+			return errors.New("cache cannot be nil")
 		}
 		c.cache = cache
 		return nil
@@ -119,10 +122,11 @@ type MultiIssuerProviderOption func(*multiIssuerConfig) error
 
 // multiIssuerConfig holds internal configuration for creating a MultiIssuerProvider.
 type multiIssuerConfig struct {
-	cacheTTL     time.Duration
-	httpClient   *http.Client
-	cache        Cache // Optional: custom cache implementation
-	maxProviders int   // Maximum number of cached providers (0 = unlimited)
+	cacheTTL         time.Duration
+	httpClient       *http.Client
+	cache            Cache // Optional: custom cache implementation
+	maxProviders     int   // Maximum number of cached providers (0 = unlimited)
+	issuerKeyConfigs map[string]*IssuerKeyConfig
 }
 
 // WithMultiIssuerCacheTTL sets the cache refresh interval for all per-issuer providers.
@@ -134,7 +138,7 @@ type multiIssuerConfig struct {
 func WithMultiIssuerCacheTTL(ttl time.Duration) MultiIssuerProviderOption {
 	return func(c *multiIssuerConfig) error {
 		if ttl < 0 {
-			return fmt.Errorf("cache TTL cannot be negative")
+			return errors.New("cache TTL cannot be negative")
 		}
 		if ttl == 0 {
 			ttl = 15 * time.Minute // Zero means use default
@@ -159,7 +163,7 @@ func WithMultiIssuerCacheTTL(ttl time.Duration) MultiIssuerProviderOption {
 func WithMultiIssuerHTTPClient(client *http.Client) MultiIssuerProviderOption {
 	return func(c *multiIssuerConfig) error {
 		if client == nil {
-			return fmt.Errorf("HTTP client cannot be nil")
+			return errors.New("HTTP client cannot be nil")
 		}
 		c.httpClient = client
 		return nil
@@ -184,7 +188,7 @@ func WithMultiIssuerHTTPClient(client *http.Client) MultiIssuerProviderOption {
 func WithMultiIssuerCache(cache Cache) MultiIssuerProviderOption {
 	return func(c *multiIssuerConfig) error {
 		if cache == nil {
-			return fmt.Errorf("cache cannot be nil")
+			return errors.New("cache cannot be nil")
 		}
 		c.cache = cache
 		return nil
@@ -207,9 +211,97 @@ func WithMultiIssuerCache(cache Cache) MultiIssuerProviderOption {
 func WithMaxProviders(maxProviders int) MultiIssuerProviderOption {
 	return func(c *multiIssuerConfig) error {
 		if maxProviders < 0 {
-			return fmt.Errorf("max providers cannot be negative")
+			return errors.New("max providers cannot be negative")
 		}
 		c.maxProviders = maxProviders
 		return nil
 	}
+}
+
+// WithIssuerKeyConfig configures a symmetric key for a single issuer.
+// This enables MCD (Multiple Custom Domains) scenarios where some issuers
+// use symmetric algorithms (HS256/HS384/HS512) instead of OIDC discovery.
+//
+// Symmetric issuers use a pre-shared secret for token verification, while
+// asymmetric issuers (without IssuerKeyConfig) use OIDC discovery as usual.
+//
+// For configuring multiple symmetric issuers at once, use WithIssuerKeyConfigs.
+//
+// Example:
+//
+//	provider, _ := jwks.NewMultiIssuerProvider(
+//	    jwks.WithIssuerKeyConfig("https://symmetric-issuer.com/", jwks.IssuerKeyConfig{
+//	        Secret:    []byte("my-secret"),
+//	        Algorithm: validator.HS256,
+//	    }),
+//	)
+func WithIssuerKeyConfig(issuer string, config IssuerKeyConfig) MultiIssuerProviderOption {
+	return func(c *multiIssuerConfig) error {
+		return addIssuerKeyConfig(c, issuer, config)
+	}
+}
+
+// WithIssuerKeyConfigs configures symmetric keys for multiple issuers at once.
+// This is the batch equivalent of WithIssuerKeyConfig, following the same pattern
+// as WithIssuer/WithIssuers and WithAlgorithm/WithAlgorithms.
+//
+// Each entry maps an issuer URL to its key configuration. All entries are validated
+// with the same rules as WithIssuerKeyConfig.
+//
+// Example:
+//
+//	provider, _ := jwks.NewMultiIssuerProvider(
+//	    jwks.WithIssuerKeyConfigs(map[string]jwks.IssuerKeyConfig{
+//	        "https://service-a.example.com/": {Secret: []byte("secret-a"), Algorithm: validator.HS256},
+//	        "https://service-b.example.com/": {Secret: []byte("secret-b"), Algorithm: validator.HS256},
+//	        "https://service-c.example.com/": {Secret: []byte("secret-c"), Algorithm: validator.HS384},
+//	    }),
+//	)
+func WithIssuerKeyConfigs(configs map[string]IssuerKeyConfig) MultiIssuerProviderOption {
+	return func(c *multiIssuerConfig) error {
+		if len(configs) == 0 {
+			return errors.New("issuer key configs cannot be empty")
+		}
+		for issuer, config := range configs {
+			if err := addIssuerKeyConfig(c, issuer, config); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// addIssuerKeyConfig validates and stores a single issuer key configuration.
+// Shared by WithIssuerKeyConfig and WithIssuerKeyConfigs.
+func addIssuerKeyConfig(c *multiIssuerConfig, issuer string, config IssuerKeyConfig) error {
+	if issuer == "" {
+		return errors.New("issuer cannot be empty")
+	}
+
+	// Validate that config is not empty
+	if len(config.Secret) == 0 && config.Algorithm == "" {
+		return fmt.Errorf("issuer %q: at least secret and algorithm must be provided", issuer)
+	}
+
+	// Validate symmetric configuration
+	if len(config.Secret) > 0 && config.Algorithm == "" {
+		return fmt.Errorf("issuer %q: algorithm is required when secret is provided", issuer)
+	}
+	if config.Algorithm != "" && isSymmetricAlgorithm(config.Algorithm) && len(config.Secret) == 0 {
+		return fmt.Errorf("issuer %q: secret is required for symmetric algorithm %s", issuer, config.Algorithm)
+	}
+	if config.Algorithm != "" && !isSymmetricAlgorithm(config.Algorithm) && len(config.Secret) > 0 {
+		return fmt.Errorf("issuer %q: secret cannot be used with asymmetric algorithm %s (asymmetric issuers use OIDC discovery)", issuer, config.Algorithm)
+	}
+
+	if c.issuerKeyConfigs == nil {
+		c.issuerKeyConfigs = make(map[string]*IssuerKeyConfig)
+	}
+	c.issuerKeyConfigs[issuer] = &config
+	return nil
+}
+
+// isSymmetricAlgorithm returns true if the algorithm is a symmetric (HMAC) algorithm.
+func isSymmetricAlgorithm(alg validator.SignatureAlgorithm) bool {
+	return alg == validator.HS256 || alg == validator.HS384 || alg == validator.HS512
 }

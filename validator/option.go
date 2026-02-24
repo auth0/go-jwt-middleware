@@ -34,10 +34,40 @@ func WithKeyFunc(keyFunc func(context.Context) (any, error)) Option {
 // PS256, PS384, PS512, HS256, HS384, HS512, EdDSA.
 func WithAlgorithm(algorithm SignatureAlgorithm) Option {
 	return func(v *Validator) error {
+		if len(v.allowedAlgorithms) > 0 {
+			return errors.New("cannot use WithAlgorithm with WithAlgorithms")
+		}
 		if _, ok := allowedSigningAlgorithms[algorithm]; !ok {
 			return fmt.Errorf("unsupported signature algorithm: %s", algorithm)
 		}
-		v.signatureAlgorithm = algorithm
+		v.allowedAlgorithms = []SignatureAlgorithm{algorithm}
+		return nil
+	}
+}
+
+// WithAlgorithms sets multiple signature algorithms that tokens may use.
+// This is useful for mixed-algorithm MCD (Multiple Custom Domains) scenarios
+// where different issuers use different algorithms (e.g., RS256 + HS256).
+//
+// Tokens will be validated against the allowed list before signature verification.
+// Cannot be used with WithAlgorithm — they are mutually exclusive.
+//
+// Supported algorithms: RS256, RS384, RS512, ES256, ES384, ES512,
+// PS256, PS384, PS512, HS256, HS384, HS512, EdDSA.
+func WithAlgorithms(algorithms []SignatureAlgorithm) Option {
+	return func(v *Validator) error {
+		if len(v.allowedAlgorithms) > 0 {
+			return errors.New("cannot use WithAlgorithms with WithAlgorithm")
+		}
+		if len(algorithms) == 0 {
+			return errors.New("algorithms list cannot be empty")
+		}
+		for i, alg := range algorithms {
+			if _, ok := allowedSigningAlgorithms[alg]; !ok {
+				return fmt.Errorf("unsupported signature algorithm at index %d: %s", i, alg)
+			}
+		}
+		v.allowedAlgorithms = algorithms
 		return nil
 	}
 }

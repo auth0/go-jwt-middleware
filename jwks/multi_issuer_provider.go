@@ -10,8 +10,27 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+
 	"github.com/auth0/go-jwt-middleware/v3/validator"
 )
+
+// IssuerKeyConfig configures key material for a specific issuer.
+// Used with WithIssuerKeyConfig to support symmetric (HS256/HS384/HS512) issuers
+// in MCD (Multiple Custom Domains) scenarios.
+type IssuerKeyConfig struct {
+	// Secret is the shared secret for symmetric algorithms (HS256/HS384/HS512).
+	Secret []byte
+
+	// Algorithm is the signature algorithm for this issuer.
+	// Must be a symmetric algorithm (HS256, HS384, or HS512) when Secret is provided.
+	Algorithm validator.SignatureAlgorithm
+
+	// KeyID is an optional key ID (kid) for token header matching.
+	// If set, it will be embedded in the JWK for kid-based key selection.
+	KeyID string
+}
 
 // MultiIssuerProvider handles JWKS for multiple issuers dynamically.
 // It creates and caches per-issuer JWKS providers on-demand, automatically
@@ -29,7 +48,7 @@ import (
 // JWKS entry per issuer, which can consume significant memory and may lead to performance
 // issues with a large number of tenants.
 //
-// Example usage:
+// Example usage with asymmetric issuers (OIDC discovery):
 //
 //	provider, _ := jwks.NewMultiIssuerProvider(
 //	    jwks.WithMultiIssuerCacheTTL(10*time.Minute),
@@ -44,14 +63,36 @@ import (
 //	    }),
 //	    validator.WithAudience("https://api.example.com"),
 //	)
+//
+// Example with mixed symmetric + asymmetric issuers:
+//
+//	provider, _ := jwks.NewMultiIssuerProvider(
+//	    jwks.WithMultiIssuerCacheTTL(10*time.Minute),
+//	    jwks.WithIssuerKeyConfig("https://symmetric.example.com/", jwks.IssuerKeyConfig{
+//	        Secret:    []byte("shared-secret"),
+//	        Algorithm: validator.HS256,
+//	    }),
+//	)
+//
+//	validator, _ := validator.New(
+//	    validator.WithKeyFunc(provider.KeyFunc),
+//	    validator.WithAlgorithms([]validator.SignatureAlgorithm{validator.RS256, validator.HS256}),
+//	    validator.WithIssuers([]string{
+//	        "https://tenant1.auth0.com/",        // RS256 via OIDC
+//	        "https://symmetric.example.com/",     // HS256 via pre-shared secret
+//	    }),
+//	    validator.WithAudience("https://api.example.com"),
+//	)
 type MultiIssuerProvider struct {
-	mu           sync.RWMutex
-	providers    map[string]*providerEntry
-	lruList      *list.List // LRU list for eviction
-	maxProviders int        // Maximum number of cached providers (0 = unlimited)
-	cacheTTL     time.Duration
-	httpClient   *http.Client
-	cache        Cache // Optional: custom cache shared by all issuers
+	mu               sync.RWMutex
+	providers        map[string]*providerEntry
+	lruList          *list.List // LRU list for eviction
+	maxProviders     int        // Maximum number of cached providers (0 = unlimited)
+	cacheTTL         time.Duration
+	httpClient       *http.Client
+	cache            Cache                       // Optional: custom cache shared by all issuers
+	staticKeys       map[string]jwk.Set          // Pre-built JWK sets for symmetric issuers
+	issuerKeyConfigs map[string]*IssuerKeyConfig // Configuration for symmetric issuers
 }
 
 // providerEntry wraps a CachingProvider with metadata for LRU tracking
@@ -94,13 +135,27 @@ func NewMultiIssuerProvider(opts ...MultiIssuerProviderOption) (*MultiIssuerProv
 		}
 	}
 
+	// Build static JWK sets for symmetric issuers
+	staticKeys := make(map[string]jwk.Set)
+	issuerKeyConfigs := make(map[string]*IssuerKeyConfig)
+	for issuer, keyConfig := range config.issuerKeyConfigs {
+		keySet, err := buildSymmetricKeySet(keyConfig.Secret, keyConfig.Algorithm, keyConfig.KeyID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build key set for issuer %q: %w", issuer, err)
+		}
+		staticKeys[issuer] = keySet
+		issuerKeyConfigs[issuer] = keyConfig
+	}
+
 	return &MultiIssuerProvider{
-		providers:    make(map[string]*providerEntry),
-		lruList:      list.New(),
-		maxProviders: config.maxProviders,
-		cacheTTL:     config.cacheTTL,
-		httpClient:   config.httpClient,
-		cache:        config.cache,
+		providers:        make(map[string]*providerEntry),
+		lruList:          list.New(),
+		maxProviders:     config.maxProviders,
+		cacheTTL:         config.cacheTTL,
+		httpClient:       config.httpClient,
+		cache:            config.cache,
+		staticKeys:       staticKeys,
+		issuerKeyConfigs: issuerKeyConfigs,
 	}, nil
 }
 
@@ -119,7 +174,12 @@ func (p *MultiIssuerProvider) KeyFunc(ctx context.Context) (any, error) {
 		return nil, errors.New("issuer not found in context - ensure validator validates issuer before calling keyFunc")
 	}
 
-	// Get or create provider for this issuer
+	// Check for pre-built static key set (symmetric issuers)
+	if keySet, ok := p.staticKeys[issuer]; ok {
+		return keySet, nil
+	}
+
+	// Get or create provider for this issuer (asymmetric / OIDC discovery)
 	entry, err := p.getOrCreateProvider(issuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JWKS provider for issuer %q: %w", issuer, err)
@@ -238,4 +298,51 @@ func (p *MultiIssuerProvider) ProviderCount() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return len(p.providers)
+}
+
+// buildSymmetricKeySet creates a jwk.Set containing a symmetric key with the
+// specified algorithm and optional key ID. This allows symmetric keys to be
+// handled through the same jwk.Set code path as asymmetric JWKS keys.
+func buildSymmetricKeySet(secret []byte, alg validator.SignatureAlgorithm, keyID string) (jwk.Set, error) {
+	key, err := jwk.Import(secret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import symmetric key: %w", err)
+	}
+
+	jwxAlg, err := algToJWX(alg)
+	if err != nil {
+		return nil, err
+	}
+	if err := key.Set(jwk.AlgorithmKey, jwxAlg); err != nil {
+		return nil, fmt.Errorf("failed to set algorithm on key: %w", err)
+	}
+
+	if keyID != "" {
+		if err := key.Set(jwk.KeyIDKey, keyID); err != nil {
+			return nil, fmt.Errorf("failed to set key ID: %w", err)
+		}
+	}
+
+	set := jwk.NewSet()
+	if err := set.AddKey(key); err != nil {
+		return nil, fmt.Errorf("failed to add key to set: %w", err)
+	}
+	return set, nil
+}
+
+// algToJWX maps validator.SignatureAlgorithm to jwa.SignatureAlgorithm for
+// symmetric algorithms. This is a local helper to avoid importing the
+// validator's unexported stringToJWXAlgorithm function.
+func algToJWX(alg validator.SignatureAlgorithm) (jwa.SignatureAlgorithm, error) {
+	switch alg {
+	case validator.HS256:
+		return jwa.HS256(), nil
+	case validator.HS384:
+		return jwa.HS384(), nil
+	case validator.HS512:
+		return jwa.HS512(), nil
+	default:
+		var zero jwa.SignatureAlgorithm
+		return zero, fmt.Errorf("unsupported symmetric algorithm: %s", alg)
+	}
 }

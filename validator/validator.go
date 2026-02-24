@@ -11,6 +11,7 @@ import (
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 )
 
@@ -60,13 +61,13 @@ const (
 
 // Validator validates JWTs using the jwx v3 library.
 type Validator struct {
-	keyFunc            func(context.Context) (any, error)          // Required.
-	signatureAlgorithm SignatureAlgorithm                          // Required.
-	expectedIssuers    []string                                    // Required (unless issuersResolver is set).
-	expectedAudiences  []string                                    // Required.
-	customClaims       func() CustomClaims                         // Optional.
-	allowedClockSkew   time.Duration                               // Optional.
-	issuersResolver    func(ctx context.Context) ([]string, error) // Optional: dynamic issuer resolution.
+	keyFunc           func(context.Context) (any, error)          // Required.
+	allowedAlgorithms []SignatureAlgorithm                        // Required.
+	expectedIssuers   []string                                    // Required (unless issuersResolver is set).
+	expectedAudiences []string                                    // Required.
+	customClaims      func() CustomClaims                         // Optional.
+	allowedClockSkew  time.Duration                               // Optional.
+	issuersResolver   func(ctx context.Context) ([]string, error) // Optional: dynamic issuer resolution.
 }
 
 // SignatureAlgorithm is a signature algorithm.
@@ -162,8 +163,8 @@ func (v *Validator) validate() error {
 	if v.keyFunc == nil {
 		errs = append(errs, errors.New("keyFunc is required (use WithKeyFunc)"))
 	}
-	if v.signatureAlgorithm == "" {
-		errs = append(errs, errors.New("signature algorithm is required (use WithAlgorithm)"))
+	if len(v.allowedAlgorithms) == 0 {
+		errs = append(errs, errors.New("signature algorithm is required (use WithAlgorithm or WithAlgorithms)"))
 	}
 	// Either expectedIssuers or issuersResolver must be set (but not both)
 	if len(v.expectedIssuers) == 0 && v.issuersResolver == nil {
@@ -185,16 +186,46 @@ func (v *Validator) validate() error {
 // Security: The issuer is validated BEFORE fetching JWKS to prevent SSRF attacks.
 // This ensures that the issuer claim is trusted before making external requests.
 func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any, error) {
-	// Step 1: Parse token WITHOUT verification to extract the issuer claim
-	// This is safe because we only use it for validation, not trust decisions
-	unverifiedToken, err := jwt.ParseInsecure([]byte(tokenString))
+	// Step 1: Parse JWS envelope in a single pass (no signature verification).
+	// This gives us both the algorithm header and unverified claims without
+	// needing separate jwt.ParseInsecure + manual header decode.
+	msg, err := jws.Parse([]byte(tokenString))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	issuer, ok := unverifiedToken.Issuer()
+	// Step 1a: Validate token algorithm against allowed list (fail-fast).
+	// Rejects tokens with disallowed algorithms before JWKS fetch or signature verification.
+	sigs := msg.Signatures()
+	if len(sigs) == 0 {
+		return nil, errors.New("token has no signatures")
+	}
+	tokenAlg, ok := sigs[0].ProtectedHeaders().Algorithm()
 	if !ok {
-		return nil, fmt.Errorf("token has no issuer claim")
+		return nil, errors.New("token header missing required alg field")
+	}
+	algStr := tokenAlg.String()
+	algAllowed := false
+	for _, allowed := range v.allowedAlgorithms {
+		if string(allowed) == algStr {
+			algAllowed = true
+			break
+		}
+	}
+	if !algAllowed {
+		return nil, fmt.Errorf("token algorithm %q is not allowed (allowed: %v)", algStr, v.allowedAlgorithms)
+	}
+
+	// Step 1b: Extract issuer from unverified payload.
+	var unverifiedClaims struct {
+		Issuer string `json:"iss"`
+	}
+	if err := json.Unmarshal(msg.Payload(), &unverifiedClaims); err != nil {
+		return nil, fmt.Errorf("failed to parse token claims: %w", err)
+	}
+	issuer := unverifiedClaims.Issuer
+	if issuer == "" {
+		return nil, errors.New("token has no issuer claim")
 	}
 
 	// Step 2: Pass unverified issuer into context so that the resolver
@@ -230,31 +261,38 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any,
 // parseToken parses and performs basic validation on the token.
 // Abstraction point: This method wraps the underlying JWT library's parsing.
 func (v *Validator) parseToken(_ context.Context, tokenString string, key any) (jwt.Token, error) {
-	// Convert string algorithm to jwa.SignatureAlgorithm
-	jwxAlg, err := stringToJWXAlgorithm(string(v.signatureAlgorithm))
-	if err != nil {
-		return nil, fmt.Errorf("unsupported algorithm: %w", err)
-	}
-
-	// Build parse options
-	// Note: We'll validate issuer and audience manually to support multiple values
 	parseOpts := []jwt.ParseOption{
 		jwt.WithAcceptableSkew(v.allowedClockSkew),
 		jwt.WithValidate(true),
 	}
 
-	// Handle both single keys and JWK sets
+	// Handle both single keys and JWK sets.
 	// When using JWKS providers, key will be jwk.Set - use WithKeySet to automatically
-	// select the correct key based on the token's kid header.
-	// For single keys (byte slices, etc.), use WithKey.
+	// select the correct key based on the token's kid header and embedded alg.
+	// WithUseDefault(true) enables fallback: if the set has exactly one key and the
+	// token has no kid header, that key is used. This is required for symmetric MCD
+	// (HS256 keys typically don't use kid) and is safe because algorithm enforcement
+	// already happened in ValidateToken before reaching this point.
+	// For single keys (byte slices, etc.), use WithKey with the configured algorithm.
 	switch k := key.(type) {
 	case jwk.Set:
-		parseOpts = append(parseOpts, jwt.WithKeySet(k))
+		parseOpts = append(parseOpts, jwt.WithKeySet(k, jws.WithUseDefault(true)))
 	default:
+		if len(v.allowedAlgorithms) != 1 {
+			return nil, fmt.Errorf(
+				"multiple algorithms configured (%v) but key provider returned a raw key; "+
+					"use a key provider that returns jwk.Set (e.g., MultiIssuerProvider with "+
+					"WithIssuerKeyConfig), or use WithAlgorithm with a single algorithm for raw keys",
+				v.allowedAlgorithms,
+			)
+		}
+		jwxAlg, err := stringToJWXAlgorithm(string(v.allowedAlgorithms[0]))
+		if err != nil {
+			return nil, fmt.Errorf("unsupported algorithm: %w", err)
+		}
 		parseOpts = append(parseOpts, jwt.WithKey(jwxAlg, key))
 	}
 
-	// Parse and validate the token (without issuer/audience validation)
 	token, err := jwt.ParseString(tokenString, parseOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse and validate token: %w", err)
@@ -397,7 +435,7 @@ func (v *Validator) validateIssuer(issuer string) error {
 // This method should be called BEFORE fetching JWKS to prevent SSRF attacks.
 func (v *Validator) validateIssuerWithResolver(ctx context.Context, issuer string) error {
 	if issuer == "" {
-		return fmt.Errorf("token has no issuer")
+		return errors.New("token has no issuer")
 	}
 
 	// Use dynamic resolver if configured
@@ -424,7 +462,7 @@ func (v *Validator) validateIssuerWithResolver(ctx context.Context, issuer strin
 func (v *Validator) validateAudience(tokenAudiences []string) error {
 	// Token must have at least one audience
 	if len(tokenAudiences) == 0 {
-		return fmt.Errorf("token has no audience")
+		return errors.New("token has no audience")
 	}
 
 	// Check if token contains at least one expected audience

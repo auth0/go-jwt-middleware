@@ -589,6 +589,220 @@ func TestMultiIssuerProvider_LRUEviction(t *testing.T) {
 	})
 }
 
+// TestWithIssuerKeyConfig tests the symmetric issuer key configuration option.
+func TestWithIssuerKeyConfig(t *testing.T) {
+	t.Run("accepts valid symmetric config", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Secret:    []byte("my-secret-key"),
+				Algorithm: validator.HS256,
+			}),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, provider)
+		assert.Contains(t, provider.staticKeys, "https://symmetric.example.com/")
+	})
+
+	t.Run("accepts config with key ID", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Secret:    []byte("my-secret-key"),
+				Algorithm: validator.HS256,
+				KeyID:     "my-key-id",
+			}),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, provider)
+	})
+
+	t.Run("rejects empty issuer", func(t *testing.T) {
+		_, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("", IssuerKeyConfig{
+				Secret:    []byte("my-secret-key"),
+				Algorithm: validator.HS256,
+			}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer cannot be empty")
+	})
+
+	t.Run("rejects secret without algorithm", func(t *testing.T) {
+		_, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Secret: []byte("my-secret-key"),
+			}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "algorithm is required when secret is provided")
+	})
+
+	t.Run("rejects symmetric algorithm without secret", func(t *testing.T) {
+		_, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Algorithm: validator.HS256,
+			}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "secret is required for symmetric algorithm HS256")
+	})
+
+	t.Run("rejects asymmetric algorithm with secret", func(t *testing.T) {
+		_, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://example.com/", IssuerKeyConfig{
+				Secret:    []byte("my-secret-key"),
+				Algorithm: validator.RS256,
+			}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "secret cannot be used with asymmetric algorithm RS256")
+		assert.Contains(t, err.Error(), "asymmetric issuers use OIDC discovery")
+	})
+
+	t.Run("rejects empty config", func(t *testing.T) {
+		_, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://example.com/", IssuerKeyConfig{}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "at least secret and algorithm must be provided")
+	})
+
+	t.Run("supports multiple symmetric issuers", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://issuer1.example.com/", IssuerKeyConfig{
+				Secret:    []byte("secret-1"),
+				Algorithm: validator.HS256,
+			}),
+			WithIssuerKeyConfig("https://issuer2.example.com/", IssuerKeyConfig{
+				Secret:    []byte("secret-2"),
+				Algorithm: validator.HS384,
+			}),
+		)
+		require.NoError(t, err)
+		assert.Len(t, provider.staticKeys, 2)
+	})
+}
+
+func TestWithIssuerKeyConfigs(t *testing.T) {
+	t.Run("accepts batch configuration", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfigs(map[string]IssuerKeyConfig{
+				"https://issuer1.example.com/": {Secret: []byte("secret-1"), Algorithm: validator.HS256},
+				"https://issuer2.example.com/": {Secret: []byte("secret-2"), Algorithm: validator.HS384},
+				"https://issuer3.example.com/": {Secret: []byte("secret-3"), Algorithm: validator.HS512},
+			}),
+		)
+		require.NoError(t, err)
+		assert.Len(t, provider.staticKeys, 3)
+		assert.Contains(t, provider.staticKeys, "https://issuer1.example.com/")
+		assert.Contains(t, provider.staticKeys, "https://issuer2.example.com/")
+		assert.Contains(t, provider.staticKeys, "https://issuer3.example.com/")
+	})
+
+	t.Run("rejects empty configs map", func(t *testing.T) {
+		_, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfigs(map[string]IssuerKeyConfig{}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer key configs cannot be empty")
+	})
+
+	t.Run("validates each entry", func(t *testing.T) {
+		_, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfigs(map[string]IssuerKeyConfig{
+				"https://valid.example.com/": {Secret: []byte("secret"), Algorithm: validator.HS256},
+				"":                           {Secret: []byte("secret"), Algorithm: validator.HS256},
+			}),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer cannot be empty")
+	})
+
+	t.Run("can be combined with singular WithIssuerKeyConfig", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfigs(map[string]IssuerKeyConfig{
+				"https://issuer1.example.com/": {Secret: []byte("secret-1"), Algorithm: validator.HS256},
+				"https://issuer2.example.com/": {Secret: []byte("secret-2"), Algorithm: validator.HS256},
+			}),
+			WithIssuerKeyConfig("https://issuer3.example.com/", IssuerKeyConfig{
+				Secret:    []byte("secret-3"),
+				Algorithm: validator.HS384,
+			}),
+		)
+		require.NoError(t, err)
+		assert.Len(t, provider.staticKeys, 3)
+	})
+}
+
+func TestMultiIssuerProvider_SymmetricKeyFunc(t *testing.T) {
+	t.Run("returns static key set for symmetric issuer", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Secret:    []byte("my-secret-key"),
+				Algorithm: validator.HS256,
+			}),
+		)
+		require.NoError(t, err)
+
+		ctx := validator.SetIssuerInContext(context.Background(), "https://symmetric.example.com/")
+		key, err := provider.KeyFunc(ctx)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, key)
+		// Should not create any OIDC providers
+		assert.Equal(t, 0, provider.ProviderCount())
+	})
+
+	t.Run("falls through to OIDC discovery for non-symmetric issuer", func(t *testing.T) {
+		mockServer := createMockOIDCServer()
+		defer mockServer.Close()
+
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Secret:    []byte("my-secret-key"),
+				Algorithm: validator.HS256,
+			}),
+		)
+		require.NoError(t, err)
+
+		// Use OIDC issuer (not in staticKeys)
+		ctx := validator.SetIssuerInContext(context.Background(), mockServer.URL+"/")
+		key, err := provider.KeyFunc(ctx)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, key)
+		// Should have created an OIDC provider
+		assert.Equal(t, 1, provider.ProviderCount())
+	})
+
+	t.Run("mixed mode: symmetric + asymmetric issuers", func(t *testing.T) {
+		mockServer := createMockOIDCServer()
+		defer mockServer.Close()
+
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Secret:    []byte("my-secret-key"),
+				Algorithm: validator.HS256,
+			}),
+		)
+		require.NoError(t, err)
+
+		// Request for symmetric issuer
+		ctx1 := validator.SetIssuerInContext(context.Background(), "https://symmetric.example.com/")
+		key1, err := provider.KeyFunc(ctx1)
+		assert.NoError(t, err)
+		assert.NotNil(t, key1)
+
+		// Request for asymmetric issuer (OIDC discovery)
+		ctx2 := validator.SetIssuerInContext(context.Background(), mockServer.URL+"/")
+		key2, err := provider.KeyFunc(ctx2)
+		assert.NoError(t, err)
+		assert.NotNil(t, key2)
+
+		// Only 1 OIDC provider should have been created (symmetric doesn't count)
+		assert.Equal(t, 1, provider.ProviderCount())
+	})
+}
+
 // TestEvictLRUEdgeCases tests edge cases in LRU eviction
 func TestEvictLRUEdgeCases(t *testing.T) {
 	t.Run("handles eviction when LRU list is empty", func(t *testing.T) {
@@ -605,4 +819,78 @@ func TestEvictLRUEdgeCases(t *testing.T) {
 		// Should still work normally
 		assert.Equal(t, 0, provider.ProviderCount())
 	})
+}
+
+func TestAlgToJWX(t *testing.T) {
+	t.Run("maps HS256", func(t *testing.T) {
+		alg, err := algToJWX(validator.HS256)
+		assert.NoError(t, err)
+		assert.Equal(t, "HS256", alg.String())
+	})
+
+	t.Run("maps HS384", func(t *testing.T) {
+		alg, err := algToJWX(validator.HS384)
+		assert.NoError(t, err)
+		assert.Equal(t, "HS384", alg.String())
+	})
+
+	t.Run("maps HS512", func(t *testing.T) {
+		alg, err := algToJWX(validator.HS512)
+		assert.NoError(t, err)
+		assert.Equal(t, "HS512", alg.String())
+	})
+
+	t.Run("rejects unsupported algorithm", func(t *testing.T) {
+		_, err := algToJWX(validator.RS256)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported symmetric algorithm")
+	})
+}
+
+func TestBuildSymmetricKeySet(t *testing.T) {
+	t.Run("builds HS256 key set", func(t *testing.T) {
+		set, err := buildSymmetricKeySet([]byte("my-secret-key-32-bytes-long!!!!"), validator.HS256, "")
+		assert.NoError(t, err)
+		assert.Equal(t, 1, set.Len())
+	})
+
+	t.Run("builds HS384 key set", func(t *testing.T) {
+		set, err := buildSymmetricKeySet([]byte("my-secret-key-32-bytes-long!!!!"), validator.HS384, "")
+		assert.NoError(t, err)
+		assert.Equal(t, 1, set.Len())
+	})
+
+	t.Run("builds HS512 key set", func(t *testing.T) {
+		set, err := buildSymmetricKeySet([]byte("my-secret-key-32-bytes-long!!!!"), validator.HS512, "")
+		assert.NoError(t, err)
+		assert.Equal(t, 1, set.Len())
+	})
+
+	t.Run("builds key set with key ID", func(t *testing.T) {
+		set, err := buildSymmetricKeySet([]byte("my-secret-key-32-bytes-long!!!!"), validator.HS256, "my-kid")
+		assert.NoError(t, err)
+		assert.Equal(t, 1, set.Len())
+
+		key, ok := set.Key(0)
+		assert.True(t, ok)
+		kid, ok := key.KeyID()
+		assert.True(t, ok)
+		assert.Equal(t, "my-kid", kid)
+	})
+
+	t.Run("rejects unsupported algorithm", func(t *testing.T) {
+		_, err := buildSymmetricKeySet([]byte("secret"), validator.RS256, "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported symmetric algorithm")
+	})
+}
+
+func TestMultiIssuerProvider_KeyFunc_NoIssuerInContext(t *testing.T) {
+	provider, err := NewMultiIssuerProvider()
+	require.NoError(t, err)
+
+	// Call KeyFunc without issuer in context
+	_, err = provider.KeyFunc(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "issuer not found in context")
 }

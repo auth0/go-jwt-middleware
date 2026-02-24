@@ -8,6 +8,7 @@ import (
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,7 +82,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     RS256,
-			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.VerifyCompact: signature verification failed for RS256: jwsbb.Verify: invalid key type []uint8. *rsa.PublicKey is required: keyconv: expected rsa.PublicKey/rsa.PrivateKey or *rsa.PublicKey/*rsa.PrivateKey, got []uint8`),
+			expectedError: errors.New(`token algorithm "HS256" is not allowed (allowed: [RS256])`),
 		},
 		{
 			name:  "it throws an error when it cannot parse the token",
@@ -90,7 +91,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				return []byte("secret"), nil
 			},
 			algorithm:     HS256,
-			expectedError: errors.New("failed to parse token: jwt.ParseInsecure: failed to parse token: jwt.Parse: failed to parse token: unknown payload type (payload is not JWT?)"),
+			expectedError: errors.New("failed to parse token: jws.Parse: failed to parse compact format: invalid compact serialization format: jws.Parse: jwsbb: invalid number of segments"),
 		},
 		{
 			name:  "it throws an error when it fails to fetch the keys from the key func",
@@ -517,7 +518,7 @@ func TestAllSignatureAlgorithms(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.NotNil(t, v)
-			assert.Equal(t, alg, v.signatureAlgorithm)
+			assert.Equal(t, []SignatureAlgorithm{alg}, v.allowedAlgorithms)
 		})
 	}
 }
@@ -757,7 +758,7 @@ func TestParseToken_DefensiveAlgorithmCheck(t *testing.T) {
 		// Create a validator with an invalid algorithm by bypassing normal construction
 		// This tests the defensive code path in parseToken
 		v := &Validator{
-			signatureAlgorithm: "UNSUPPORTED",
+			allowedAlgorithms: []SignatureAlgorithm{"UNSUPPORTED"},
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
@@ -784,9 +785,9 @@ func TestParseToken_WithJWKSet(t *testing.T) {
 
 		// Create a simple validator
 		v := &Validator{
-			signatureAlgorithm: HS256,
-			expectedIssuers:    []string{"https://issuer.example.com/"},
-			expectedAudiences:  []string{"audience"},
+			allowedAlgorithms: []SignatureAlgorithm{HS256},
+			expectedIssuers:   []string{"https://issuer.example.com/"},
+			expectedAudiences: []string{"audience"},
 		}
 
 		// Call parseToken directly to test the jwk.Set branch
@@ -1142,6 +1143,209 @@ func generateTestToken(t *testing.T, issuer, audience string, secret []byte) str
 	return string(signed)
 }
 
+func TestWithAlgorithms(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+	)
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	t.Run("accepts multiple algorithms", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithms([]SignatureAlgorithm{RS256, HS256}),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+		assert.Equal(t, []SignatureAlgorithm{RS256, HS256}, v.allowedAlgorithms)
+	})
+
+	t.Run("rejects empty algorithms list", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithms([]SignatureAlgorithm{}),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "algorithms list cannot be empty")
+	})
+
+	t.Run("rejects unsupported algorithm in list", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithms([]SignatureAlgorithm{RS256, "INVALID"}),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported signature algorithm at index 1")
+	})
+
+	t.Run("validates token with allowed algorithm using jwk.Set", func(t *testing.T) {
+		secret := []byte("super-secret-key-that-is-long-enough")
+
+		// Build a jwk.Set with the HS256 key and kid (simulates what MultiIssuerProvider does)
+		jwkKey, err := jwk.Import(secret)
+		require.NoError(t, err)
+		require.NoError(t, jwkKey.Set(jwk.AlgorithmKey, jwa.HS256()))
+		require.NoError(t, jwkKey.Set(jwk.KeyIDKey, "test-kid"))
+		set := jwk.NewSet()
+		require.NoError(t, set.AddKey(jwkKey))
+
+		token := generateTestTokenWithKid(t, issuer, audience, secret, "test-kid")
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) {
+				return set, nil
+			}),
+			WithAlgorithms([]SignatureAlgorithm{HS256, RS256}),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), token)
+		assert.NoError(t, err)
+		assert.NotNil(t, claims)
+	})
+
+	t.Run("rejects token with disallowed algorithm", func(t *testing.T) {
+		// Token is signed with HS256 but validator only allows RS256+ES256
+		token := generateTestToken(t, issuer, audience, []byte("secret"))
+
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithms([]SignatureAlgorithm{RS256, ES256}),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), token)
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Contains(t, err.Error(), `token algorithm "HS256" is not allowed`)
+	})
+
+	t.Run("rejects WithAlgorithm after WithAlgorithms", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithms([]SignatureAlgorithm{RS256, HS256}),
+			WithAlgorithm(RS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot use WithAlgorithm with WithAlgorithms")
+	})
+
+	t.Run("rejects WithAlgorithms after WithAlgorithm", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(RS256),
+			WithAlgorithms([]SignatureAlgorithm{RS256, HS256}),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot use WithAlgorithms with WithAlgorithm")
+	})
+}
+
+func TestValidateToken_EdgeCases(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+	)
+
+	t.Run("rejects token with no alg in header", func(t *testing.T) {
+		// Craft a JWS with an empty alg ("none"-like) by building raw JWS.
+		// A header with {"typ":"JWT"} but no alg field.
+		// base64url({"typ":"JWT"}) = eyJ0eXAiOiJKV1QifQ
+		// base64url({"iss":"https://go-jwt-middleware.eu.auth0.com/","aud":["https://go-jwt-middleware-api/"]}) = eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJhdWQiOlsiaHR0cHM6Ly9nby1qd3QtbWlkZGxld2FyZS1hcGkvIl19
+		// This won't parse as valid JWS (jws.Parse requires alg), so this tests the parse error path.
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		// Token with header {"typ":"JWT"} and no alg - hits the missing alg check
+		_, err = v.ValidateToken(context.Background(), "eyJ0eXAiOiJKV1QifQ.eyJpc3MiOiJ0ZXN0In0.fake")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token header missing required alg field")
+	})
+
+	t.Run("rejects token with corrupt payload JSON", func(t *testing.T) {
+		// Create a valid JWS structure with HS256 alg but corrupt payload
+		// Header: {"alg":"HS256","typ":"JWT"} → eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+		// Payload: not-json (base64url of "not json") → bm90IGpzb24
+		// Signature: fake
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		_, err = v.ValidateToken(context.Background(), "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bm90IGpzb24.fake")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse token claims")
+	})
+
+	t.Run("rejects token with empty issuer claim", func(t *testing.T) {
+		// Token with iss="" (empty string issuer)
+		secret := []byte("super-secret-key-that-is-long-enough")
+		token, err := jwt.NewBuilder().
+			Audience([]string{audience}).
+			Subject("user").
+			Expiration(time.Now().Add(time.Hour)).
+			Build()
+		require.NoError(t, err)
+
+		signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
+		require.NoError(t, err)
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return secret, nil }),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		_, err = v.ValidateToken(context.Background(), string(signed))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token has no issuer claim")
+	})
+}
+
+func TestParseToken_MultiAlgRawKeyError(t *testing.T) {
+	t.Run("returns error when multiple algorithms with raw key", func(t *testing.T) {
+		v := &Validator{
+			allowedAlgorithms: []SignatureAlgorithm{RS256, HS256},
+			expectedIssuers:   []string{"https://issuer.example.com/"},
+			expectedAudiences: []string{"audience"},
+		}
+
+		token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmNvbS8iLCJhdWQiOlsiYXVkaWVuY2UiXX0.4Adcj0pYJ0iqh_iFcxJDCbU9wE9c0q4mKIwZH4u1rLo"
+		key := []byte("secret") // raw key, not jwk.Set
+
+		_, err := v.parseToken(context.Background(), token, key)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "multiple algorithms configured")
+		assert.Contains(t, err.Error(), "key provider returned a raw key")
+	})
+}
+
 // generateTestTokenWithoutIssuer creates a test JWT token without an issuer claim.
 // Used for testing issuer validation failures.
 func generateTestTokenWithoutIssuer(t *testing.T, audience string, secret []byte) string {
@@ -1155,6 +1359,28 @@ func generateTestTokenWithoutIssuer(t *testing.T, audience string, secret []byte
 	require.NoError(t, err)
 
 	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
+	require.NoError(t, err)
+
+	return string(signed)
+}
+
+// generateTestTokenWithKid creates a test JWT token with a specific kid in the header.
+// Used for testing jwk.Set key matching with multi-algorithm configurations.
+func generateTestTokenWithKid(t *testing.T, issuer, audience string, secret []byte, kid string) string {
+	t.Helper()
+
+	token, err := jwt.NewBuilder().
+		Issuer(issuer).
+		Audience([]string{audience}).
+		Subject("1234567890").
+		Expiration(time.Now().Add(1 * time.Hour)).
+		Build()
+	require.NoError(t, err)
+
+	headers := jws.NewHeaders()
+	require.NoError(t, headers.Set(jws.KeyIDKey, kid))
+
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret, jws.WithProtectedHeaders(headers)))
 	require.NoError(t, err)
 
 	return string(signed)

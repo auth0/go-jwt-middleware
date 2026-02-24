@@ -356,6 +356,37 @@ Implement caching in your resolver for optimal performance (< 1ms cache hit).
 See examples/http-multi-issuer-example and examples/http-dynamic-issuer-example
 for complete working implementations.
 
+Mixed-algorithm MCD (symmetric + asymmetric issuers):
+
+	// Configure MultiIssuerProvider with symmetric issuer support
+	provider, _ := jwks.NewMultiIssuerProvider(
+	    jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+	    // HS256 issuer: pre-shared secret, no OIDC discovery needed
+	    jwks.WithIssuerKeyConfig("https://internal-service.example.com/", jwks.IssuerKeyConfig{
+	        Secret:    []byte("shared-secret"),
+	        Algorithm: validator.HS256,
+	    }),
+	)
+
+	jwtValidator, _ := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    // Allow both RS256 (OIDC) and HS256 (symmetric) tokens
+	    validator.WithAlgorithms([]validator.SignatureAlgorithm{
+	        validator.RS256,
+	        validator.HS256,
+	    }),
+	    validator.WithIssuers([]string{
+	        "https://tenant1.auth0.com/",              // RS256 via OIDC discovery
+	        "https://internal-service.example.com/",    // HS256 via pre-shared secret
+	    }),
+	    validator.WithAudience("your-api-identifier"),
+	)
+
+Algorithm enforcement: The validator checks the token's alg header before
+fetching JWKS, rejecting tokens with disallowed algorithms immediately.
+This prevents algorithm confusion attacks and avoids unnecessary network
+requests for invalid tokens.
+
 # Thread Safety
 
 The JWTMiddleware instance is immutable after creation and safe for

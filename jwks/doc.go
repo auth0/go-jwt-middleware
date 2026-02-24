@@ -270,6 +270,57 @@ Available configuration options:
 	    - Recommended: 500-1000 for large-scale apps
 	    - LRU eviction removes least-recently-used providers
 
+	WithIssuerKeyConfig(issuer string, config IssuerKeyConfig)
+	    - Configure a symmetric key for a single issuer
+	    - Requires Secret (shared secret) and Algorithm (HS256/HS384/HS512)
+	    - Optional KeyID for kid-based token matching
+	    - Symmetric issuers bypass OIDC discovery entirely
+	    - Use for: Single symmetric issuer in mixed MCD
+
+	WithIssuerKeyConfigs(configs map[string]IssuerKeyConfig)
+	    - Batch configure symmetric keys for multiple issuers
+	    - Same validation as WithIssuerKeyConfig, applied to each entry
+	    - Can be combined with singular WithIssuerKeyConfig
+	    - Use for: Multiple symmetric issuers in mixed MCD
+
+# Mixed-Algorithm MCD (Symmetric + Asymmetric Issuers)
+
+For MCD scenarios where some issuers use symmetric algorithms (HS256) and
+others use asymmetric algorithms (RS256 via OIDC discovery):
+
+	provider, err := jwks.NewMultiIssuerProvider(
+	    jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+	    // Configure symmetric issuers with pre-shared secrets (batch)
+	    jwks.WithIssuerKeyConfigs(map[string]jwks.IssuerKeyConfig{
+	        "https://service-a.example.com/": {Secret: []byte("secret-a"), Algorithm: validator.HS256},
+	        "https://service-b.example.com/": {Secret: []byte("secret-b"), Algorithm: validator.HS256},
+	    }),
+	    // Asymmetric issuers (RS256) use OIDC discovery automatically
+	)
+
+	v, err := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    // Allow both RS256 and HS256 tokens
+	    validator.WithAlgorithms([]validator.SignatureAlgorithm{
+	        validator.RS256,
+	        validator.HS256,
+	    }),
+	    validator.WithIssuers([]string{
+	        "https://tenant1.auth0.com/",       // RS256 via OIDC discovery
+	        "https://symmetric-issuer.com/",     // HS256 via pre-shared secret
+	    }),
+	    validator.WithAudience("my-api"),
+	)
+
+The MultiIssuerProvider handles symmetric issuers by:
+  - Wrapping the secret in a jwk.Set with the algorithm embedded
+  - Returning the static key set directly (no OIDC discovery needed)
+  - Falling through to OIDC discovery for non-symmetric issuers
+
+The validator enforces algorithm policy by:
+  - Checking the token's alg header before JWKS fetch (fail-fast)
+  - Rejecting tokens with algorithms not in the allowed list
+
 # When to Use MultiIssuerProvider vs CachingProvider
 
 Use CachingProvider when:

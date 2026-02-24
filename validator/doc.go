@@ -99,6 +99,32 @@ claims - you don't need to validate these yourself. This is secure by default.
 	customClaims := validatedClaims.CustomClaims.(*MyCustomClaims)
 	fmt.Println(customClaims.Scope)
 
+# Multiple Algorithms
+
+For mixed-algorithm environments (e.g., MCD with RS256 + HS256 issuers),
+use WithAlgorithms to allow multiple algorithms:
+
+	v, err := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    validator.WithAlgorithms([]validator.SignatureAlgorithm{
+	        validator.RS256,
+	        validator.HS256,
+	    }),
+	    validator.WithIssuer("https://issuer.example.com/"),
+	    validator.WithAudience("my-api"),
+	)
+
+Algorithm enforcement: The validator extracts the alg header from incoming
+tokens and rejects any token whose algorithm is not in the allowed list.
+This check happens before JWKS fetch and signature verification (fail-fast),
+preventing algorithm confusion attacks (e.g., an attacker sending an HS256
+token when only RS256 is expected).
+
+Note: When using WithAlgorithms with multiple algorithms, the key provider
+must return jwk.Set (not raw keys). Use MultiIssuerProvider with
+WithIssuerKeyConfig for symmetric issuers, or a CachingProvider for
+asymmetric issuers.
+
 # Multiple Issuers and Audiences
 
 Support tokens from multiple issuers or for multiple audiences:
