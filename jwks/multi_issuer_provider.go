@@ -287,17 +287,109 @@ func (p *MultiIssuerProvider) evictLRU() {
 	p.lruList.Remove(oldest)
 }
 
-// ProviderCount returns the number of issuer-specific providers currently cached.
+// ProviderCount returns the total number of issuers currently managed.
+// This includes both OIDC providers (cached dynamically) and symmetric
+// issuers (configured via WithIssuerKeyConfig).
+//
 // This is useful for monitoring memory usage in systems with many issuers.
 //
 // Example usage:
 //
 //	count := provider.ProviderCount()
-//	log.Printf("Currently caching JWKS for %d issuers", count)
+//	log.Printf("Currently managing JWKS for %d issuers", count)
 func (p *MultiIssuerProvider) ProviderCount() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return len(p.providers)
+	return len(p.providers) + len(p.staticKeys)
+}
+
+// IssuerType represents the type of key management for an issuer.
+type IssuerType string
+
+const (
+	// IssuerTypeOIDC indicates the issuer uses OIDC discovery for JWKS.
+	IssuerTypeOIDC IssuerType = "oidc"
+	// IssuerTypeSymmetric indicates the issuer uses a pre-shared symmetric key.
+	IssuerTypeSymmetric IssuerType = "symmetric"
+)
+
+// IssuerInfo contains observability information about a single managed issuer.
+type IssuerInfo struct {
+	// Issuer is the issuer URL.
+	Issuer string
+
+	// Type indicates whether this issuer uses OIDC discovery or a symmetric key.
+	Type IssuerType
+
+	// Algorithm is the configured algorithm (only set for symmetric issuers).
+	Algorithm string
+
+	// LastUsed is the last time this issuer's provider was accessed (only set for OIDC issuers).
+	LastUsed time.Time
+}
+
+// ProviderStats contains summary and per-issuer information about the
+// MultiIssuerProvider's current state. Useful for monitoring dashboards
+// and debugging authentication failures.
+type ProviderStats struct {
+	// Total is the total number of managed issuers (OIDC + symmetric).
+	Total int
+
+	// OIDC is the number of dynamically created OIDC providers.
+	OIDC int
+
+	// Symmetric is the number of statically configured symmetric issuers.
+	Symmetric int
+
+	// Issuers contains per-issuer detail.
+	Issuers []IssuerInfo
+}
+
+// Stats returns observability information about all managed issuers.
+// This includes both OIDC providers (dynamically cached) and symmetric
+// issuers (statically configured via WithIssuerKeyConfig).
+//
+// Example:
+//
+//	stats := provider.Stats()
+//	log.Printf("Managing %d issuers (%d OIDC, %d symmetric)", stats.Total, stats.OIDC, stats.Symmetric)
+//	for _, info := range stats.Issuers {
+//	    log.Printf("  %s: type=%s alg=%s lastUsed=%v", info.Issuer, info.Type, info.Algorithm, info.LastUsed)
+//	}
+func (p *MultiIssuerProvider) Stats() ProviderStats {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	stats := ProviderStats{
+		OIDC:      len(p.providers),
+		Symmetric: len(p.staticKeys),
+	}
+	stats.Total = stats.OIDC + stats.Symmetric
+
+	stats.Issuers = make([]IssuerInfo, 0, stats.Total)
+
+	// Add OIDC providers
+	for issuer, entry := range p.providers {
+		stats.Issuers = append(stats.Issuers, IssuerInfo{
+			Issuer:   issuer,
+			Type:     IssuerTypeOIDC,
+			LastUsed: entry.lastUsed,
+		})
+	}
+
+	// Add symmetric issuers
+	for issuer := range p.staticKeys {
+		info := IssuerInfo{
+			Issuer: issuer,
+			Type:   IssuerTypeSymmetric,
+		}
+		if config, ok := p.issuerKeyConfigs[issuer]; ok {
+			info.Algorithm = string(config.Algorithm)
+		}
+		stats.Issuers = append(stats.Issuers, info)
+	}
+
+	return stats
 }
 
 // buildSymmetricKeySet creates a jwk.Set containing a symmetric key with the

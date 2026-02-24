@@ -748,8 +748,8 @@ func TestMultiIssuerProvider_SymmetricKeyFunc(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.NotNil(t, key)
-		// Should not create any OIDC providers
-		assert.Equal(t, 0, provider.ProviderCount())
+		// 1 symmetric issuer, no OIDC providers
+		assert.Equal(t, 1, provider.ProviderCount())
 	})
 
 	t.Run("falls through to OIDC discovery for non-symmetric issuer", func(t *testing.T) {
@@ -770,8 +770,8 @@ func TestMultiIssuerProvider_SymmetricKeyFunc(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.NotNil(t, key)
-		// Should have created an OIDC provider
-		assert.Equal(t, 1, provider.ProviderCount())
+		// 1 OIDC provider + 1 symmetric issuer
+		assert.Equal(t, 2, provider.ProviderCount())
 	})
 
 	t.Run("mixed mode: symmetric + asymmetric issuers", func(t *testing.T) {
@@ -798,8 +798,8 @@ func TestMultiIssuerProvider_SymmetricKeyFunc(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, key2)
 
-		// Only 1 OIDC provider should have been created (symmetric doesn't count)
-		assert.Equal(t, 1, provider.ProviderCount())
+		// 1 OIDC provider + 1 symmetric issuer
+		assert.Equal(t, 2, provider.ProviderCount())
 	})
 }
 
@@ -818,6 +818,89 @@ func TestEvictLRUEdgeCases(t *testing.T) {
 
 		// Should still work normally
 		assert.Equal(t, 0, provider.ProviderCount())
+	})
+}
+
+func TestMultiIssuerProvider_Stats(t *testing.T) {
+	t.Run("empty provider", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider()
+		require.NoError(t, err)
+
+		stats := provider.Stats()
+		assert.Equal(t, 0, stats.Total)
+		assert.Equal(t, 0, stats.OIDC)
+		assert.Equal(t, 0, stats.Symmetric)
+		assert.Empty(t, stats.Issuers)
+	})
+
+	t.Run("symmetric issuers only", func(t *testing.T) {
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfigs(map[string]IssuerKeyConfig{
+				"https://hs256.example.com/": {Secret: []byte("secret-a"), Algorithm: validator.HS256},
+				"https://hs384.example.com/": {Secret: []byte("secret-b"), Algorithm: validator.HS384},
+			}),
+		)
+		require.NoError(t, err)
+
+		stats := provider.Stats()
+		assert.Equal(t, 2, stats.Total)
+		assert.Equal(t, 0, stats.OIDC)
+		assert.Equal(t, 2, stats.Symmetric)
+		assert.Len(t, stats.Issuers, 2)
+
+		// Verify per-issuer info
+		byIssuer := make(map[string]IssuerInfo)
+		for _, info := range stats.Issuers {
+			byIssuer[info.Issuer] = info
+		}
+
+		hs256Info := byIssuer["https://hs256.example.com/"]
+		assert.Equal(t, IssuerTypeSymmetric, hs256Info.Type)
+		assert.Equal(t, "HS256", hs256Info.Algorithm)
+		assert.True(t, hs256Info.LastUsed.IsZero())
+
+		hs384Info := byIssuer["https://hs384.example.com/"]
+		assert.Equal(t, IssuerTypeSymmetric, hs384Info.Type)
+		assert.Equal(t, "HS384", hs384Info.Algorithm)
+	})
+
+	t.Run("mixed symmetric and OIDC", func(t *testing.T) {
+		mockServer := createMockOIDCServer()
+		defer mockServer.Close()
+
+		provider, err := NewMultiIssuerProvider(
+			WithIssuerKeyConfig("https://symmetric.example.com/", IssuerKeyConfig{
+				Secret:    []byte("my-secret"),
+				Algorithm: validator.HS256,
+			}),
+		)
+		require.NoError(t, err)
+
+		// Trigger OIDC provider creation
+		ctx := validator.SetIssuerInContext(context.Background(), mockServer.URL+"/")
+		_, err = provider.KeyFunc(ctx)
+		require.NoError(t, err)
+
+		stats := provider.Stats()
+		assert.Equal(t, 2, stats.Total)
+		assert.Equal(t, 1, stats.OIDC)
+		assert.Equal(t, 1, stats.Symmetric)
+		assert.Len(t, stats.Issuers, 2)
+
+		// Verify per-issuer detail
+		byIssuer := make(map[string]IssuerInfo)
+		for _, info := range stats.Issuers {
+			byIssuer[info.Issuer] = info
+		}
+
+		symInfo := byIssuer["https://symmetric.example.com/"]
+		assert.Equal(t, IssuerTypeSymmetric, symInfo.Type)
+		assert.Equal(t, "HS256", symInfo.Algorithm)
+
+		oidcInfo := byIssuer[mockServer.URL+"/"]
+		assert.Equal(t, IssuerTypeOIDC, oidcInfo.Type)
+		assert.Empty(t, oidcInfo.Algorithm)
+		assert.False(t, oidcInfo.LastUsed.IsZero())
 	})
 }
 
