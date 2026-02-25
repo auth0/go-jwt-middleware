@@ -306,6 +306,8 @@ func (v *Validator) parseToken(_ context.Context, tokenString string, key any) (
 			return nil, core.NewValidationError(core.ErrorCodeTokenNotYetValid, "failed to parse and validate token", err)
 		case strings.Contains(errStr, `"iat" not satisfied`):
 			return nil, core.NewValidationError(core.ErrorCodeTokenNotYetValid, "failed to parse and validate token", err)
+		case strings.Contains(errStr, "failed to find key with key ID"):
+			return nil, core.NewValidationError(core.ErrorCodeJWKSKeyNotFound, "failed to parse and validate token", err)
 		default:
 			return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "failed to parse and validate token", err)
 		}
@@ -379,23 +381,23 @@ func (v *Validator) extractCustomClaims(ctx context.Context, tokenString string)
 	// Extract and decode the payload (second part) directly
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
+		return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, fmt.Sprintf("invalid JWT format: expected 3 parts, got %d", len(parts)), nil)
 	}
 
 	// Decode the payload using base64url encoding (JWT standard)
 	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode JWT payload: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "failed to decode JWT payload", err)
 	}
 
 	// Unmarshal JSON payload into custom claims struct
 	if err := json.Unmarshal(payloadJSON, customClaims); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal custom claims: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "failed to unmarshal custom claims", err)
 	}
 
 	// Validate the custom claims
 	if err := customClaims.Validate(ctx); err != nil {
-		return nil, fmt.Errorf("custom claims not validated: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeInvalidClaims, "custom claims not validated", err)
 	}
 
 	return customClaims, nil

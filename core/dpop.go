@@ -66,7 +66,6 @@ const (
 	ErrorCodeDPoPATHMismatch     = "dpop_ath_mismatch"
 	ErrorCodeDPoPProofExpired    = "dpop_proof_expired"
 	ErrorCodeDPoPProofTooNew     = "dpop_proof_too_new"
-	ErrorCodeBearerNotAllowed    = "bearer_not_allowed"
 	ErrorCodeDPoPNotAllowed      = "dpop_not_allowed"
 )
 

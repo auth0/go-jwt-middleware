@@ -36,6 +36,7 @@ type ValidationError = core.ValidationError
 // Error codes for ValidationError.Code.
 // These identify the specific reason a JWT was rejected.
 const (
+	// Token validation error codes.
 	ErrorCodeTokenMalformed   = core.ErrorCodeTokenMalformed   // Token could not be parsed
 	ErrorCodeTokenExpired     = core.ErrorCodeTokenExpired     // Token exp claim is in the past
 	ErrorCodeTokenNotYetValid = core.ErrorCodeTokenNotYetValid // Token nbf/iat claim is in the future
@@ -45,6 +46,20 @@ const (
 	ErrorCodeInvalidAudience  = core.ErrorCodeInvalidAudience  // Token audience does not match
 	ErrorCodeInvalidClaims    = core.ErrorCodeInvalidClaims    // Custom claims validation failed
 	ErrorCodeJWKSFetchFailed  = core.ErrorCodeJWKSFetchFailed  // Failed to fetch signing keys
+	ErrorCodeJWKSKeyNotFound  = core.ErrorCodeJWKSKeyNotFound  // No matching key found in JWKS
+	ErrorCodeInvalidToken     = core.ErrorCodeInvalidToken     // Access token is invalid (e.g., DPoP scheme without cnf claim)
+	ErrorCodeInvalidRequest   = core.ErrorCodeInvalidRequest   // Request format is invalid (e.g., Bearer + DPoP proof)
+
+	// DPoP proof validation error codes (RFC 9449).
+	ErrorCodeDPoPProofMissing    = core.ErrorCodeDPoPProofMissing    // DPoP proof header is missing
+	ErrorCodeDPoPProofInvalid    = core.ErrorCodeDPoPProofInvalid    // DPoP proof is malformed or has invalid signature
+	ErrorCodeDPoPBindingMismatch = core.ErrorCodeDPoPBindingMismatch // DPoP proof thumbprint does not match token cnf/jkt
+	ErrorCodeDPoPHTMMismatch     = core.ErrorCodeDPoPHTMMismatch     // DPoP proof htm claim does not match HTTP method
+	ErrorCodeDPoPHTUMismatch     = core.ErrorCodeDPoPHTUMismatch     // DPoP proof htu claim does not match request URI
+	ErrorCodeDPoPATHMismatch     = core.ErrorCodeDPoPATHMismatch     // DPoP proof ath claim does not match access token hash
+	ErrorCodeDPoPProofExpired    = core.ErrorCodeDPoPProofExpired    // DPoP proof iat is too far in the past
+	ErrorCodeDPoPProofTooNew     = core.ErrorCodeDPoPProofTooNew     // DPoP proof iat is too far in the future
+	ErrorCodeDPoPNotAllowed      = core.ErrorCodeDPoPNotAllowed      // DPoP scheme used when DPoP is disabled
 )
 
 // ErrorHandler is a handler which is called when an error occurs in the
@@ -212,6 +227,17 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 			ErrorCode:        err.Code,
 		}, headers
 
+	case core.ErrorCodeInvalidClaims:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "The access token claims are invalid",
+			authScheme, dpopMode, false, // Bearer error
+		)
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "The access token claims are invalid",
+			ErrorCode:        err.Code,
+		}, headers
+
 	case core.ErrorCodeInvalidAlgorithm:
 		headers := buildWWWAuthenticateHeaders(
 			"invalid_token", "The access token uses an unsupported algorithm",
@@ -262,16 +288,6 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: err.Message,
-			ErrorCode:        err.Code,
-		}, headers
-
-	case core.ErrorCodeBearerNotAllowed:
-		headers := []string{
-			fmt.Sprintf(`DPoP algs="%s", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`, validator.DPoPSupportedAlgorithms),
-		}
-		return http.StatusBadRequest, ErrorResponse{
-			Error:            "invalid_request",
-			ErrorDescription: "Bearer tokens are not allowed (DPoP required)",
 			ErrorCode:        err.Code,
 		}, headers
 

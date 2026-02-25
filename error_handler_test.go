@@ -273,15 +273,6 @@ func TestDefaultErrorHandler_DPoPErrors(t *testing.T) {
 			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_token", error_description="JKT does not match cnf claim"`,
 		},
 		{
-			name:                 "Bearer not allowed",
-			err:                  core.NewValidationError(core.ErrorCodeBearerNotAllowed, "Bearer tokens are not allowed", core.ErrBearerNotAllowed),
-			wantStatus:           http.StatusBadRequest,
-			wantError:            "invalid_request",
-			wantErrorDescription: "Bearer tokens are not allowed (DPoP required)",
-			wantErrorCode:        "bearer_not_allowed",
-			wantWWWAuthenticate:  `DPoP algs="` + validator.DPoPSupportedAlgorithms + `", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`,
-		},
-		{
 			name:                 "DPoP not allowed - bare challenge (RFC 6750 Section 3.1)",
 			err:                  core.NewValidationError(core.ErrorCodeDPoPNotAllowed, "", core.ErrDPoPNotAllowed),
 			wantStatus:           http.StatusBadRequest,
