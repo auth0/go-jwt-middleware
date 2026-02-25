@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/auth0/go-jwt-middleware/v3/core"
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jws"
@@ -31,13 +32,14 @@ func TestValidator_ValidateToken(t *testing.T) {
 	)
 
 	testCases := []struct {
-		name           string
-		token          string
-		keyFunc        func(context.Context) (any, error)
-		algorithm      SignatureAlgorithm
-		customClaims   func() CustomClaims
-		expectedError  error
-		expectedClaims *ValidatedClaims
+		name              string
+		token             string
+		keyFunc           func(context.Context) (any, error)
+		algorithm         SignatureAlgorithm
+		customClaims      func() CustomClaims
+		expectedError     error
+		expectedErrorCode string
+		expectedClaims    *ValidatedClaims
 	}{
 		{
 			name:  "it successfully validates a token",
@@ -81,8 +83,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     RS256,
-			expectedError: errors.New(`token algorithm "HS256" is not allowed (allowed: [RS256])`),
+			algorithm:         RS256,
+			expectedError:     errors.New(`token algorithm "HS256" is not allowed (allowed: [RS256])`),
+			expectedErrorCode: core.ErrorCodeInvalidAlgorithm,
 		},
 		{
 			name:  "it throws an error when it cannot parse the token",
@@ -90,8 +93,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
-			expectedError: errors.New("failed to parse token: jws.Parse: failed to parse compact format: invalid compact serialization format: jws.Parse: jwsbb: invalid number of segments"),
+			algorithm:         HS256,
+			expectedError:     errors.New("failed to parse token: jws.Parse: failed to parse compact format: invalid compact serialization format: jws.Parse: jwsbb: invalid number of segments"),
+			expectedErrorCode: core.ErrorCodeTokenMalformed,
 		},
 		{
 			name:  "it throws an error when it fails to fetch the keys from the key func",
@@ -99,8 +103,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return nil, errors.New("key func error message")
 			},
-			algorithm:     HS256,
-			expectedError: errors.New("error getting the keys from the key func: key func error message"),
+			algorithm:         HS256,
+			expectedError:     errors.New("error getting the keys from the key func: key func error message"),
+			expectedErrorCode: core.ErrorCodeJWKSFetchFailed,
 		},
 		{
 			name:  "it throws an error when it fails to deserialize the claims because the signature is invalid",
@@ -108,8 +113,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
-			expectedError: errors.New("failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.VerifyCompact: signature verification failed for HS256: invalid HMAC signature"),
+			algorithm:         HS256,
+			expectedError:     errors.New("failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.VerifyCompact: signature verification failed for HS256: invalid HMAC signature"),
+			expectedErrorCode: core.ErrorCodeInvalidSignature,
 		},
 		{
 			name:  "it throws an error when it fails to validate the registered claims",
@@ -117,8 +123,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
-			expectedError: errors.New("audience validation failed: token has no audience"),
+			algorithm:         HS256,
+			expectedError:     errors.New("audience validation failed: token has no audience"),
+			expectedErrorCode: core.ErrorCodeInvalidAudience,
 		},
 		{
 			name:  "it throws an error when it fails to validate the custom claims",
@@ -177,8 +184,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
-			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "exp" not satisfied: token is expired`),
+			algorithm:         HS256,
+			expectedError:     errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "exp" not satisfied: token is expired`),
+			expectedErrorCode: core.ErrorCodeTokenExpired,
 		},
 		{
 			name:  "it throws an error when token is expired",
@@ -186,8 +194,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
-			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "exp" not satisfied: token is expired`),
+			algorithm:         HS256,
+			expectedError:     errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "exp" not satisfied: token is expired`),
+			expectedErrorCode: core.ErrorCodeTokenExpired,
 		},
 		{
 			name:  "it throws an error when token is issued in the future",
@@ -195,8 +204,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
-			expectedError: errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "iat" not satisfied`),
+			algorithm:         HS256,
+			expectedError:     errors.New(`failed to parse and validate token: jwt.ParseString: failed to parse string: jwt.Validate: validation failed: "iat" not satisfied`),
+			expectedErrorCode: core.ErrorCodeTokenNotYetValid,
 		},
 		{
 			name:  "it throws an error when token issuer is invalid",
@@ -204,8 +214,9 @@ func TestValidator_ValidateToken(t *testing.T) {
 			keyFunc: func(context.Context) (any, error) {
 				return []byte("secret"), nil
 			},
-			algorithm:     HS256,
-			expectedError: errors.New(`issuer validation failed: token issuer "https://hacked-jwt-middleware.eu.auth0.com/" does not match any expected issuer`),
+			algorithm:         HS256,
+			expectedError:     errors.New(`issuer validation failed: token issuer "https://hacked-jwt-middleware.eu.auth0.com/" does not match any expected issuer`),
+			expectedErrorCode: core.ErrorCodeInvalidIssuer,
 		},
 	}
 
@@ -232,6 +243,12 @@ func TestValidator_ValidateToken(t *testing.T) {
 			if testCase.expectedError != nil {
 				assert.EqualError(t, err, testCase.expectedError.Error())
 				assert.Nil(t, tokenClaims)
+				if testCase.expectedErrorCode != "" {
+					var validationErr *core.ValidationError
+					assert.True(t, errors.As(err, &validationErr), "error should be a *core.ValidationError")
+					assert.Equal(t, testCase.expectedErrorCode, validationErr.Code)
+					assert.True(t, errors.Is(err, core.ErrJWTInvalid), "error should match core.ErrJWTInvalid")
+				}
 			} else {
 				require.NoError(t, err)
 				assert.Exactly(t, testCase.expectedClaims, tokenClaims)

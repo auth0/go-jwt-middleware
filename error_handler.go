@@ -21,6 +21,32 @@ var (
 	ErrJWTInvalid = core.ErrJWTInvalid
 )
 
+// ValidationError is a structured JWT validation error with a machine-readable code.
+// Use errors.As to extract it from errors returned to custom ErrorHandler functions:
+//
+//	var validationErr *jwtmiddleware.ValidationError
+//	if errors.As(err, &validationErr) {
+//	    switch validationErr.Code {
+//	    case jwtmiddleware.ErrorCodeTokenExpired:
+//	        // handle expired token
+//	    }
+//	}
+type ValidationError = core.ValidationError
+
+// Error codes for ValidationError.Code.
+// These identify the specific reason a JWT was rejected.
+const (
+	ErrorCodeTokenMalformed   = core.ErrorCodeTokenMalformed   // Token could not be parsed
+	ErrorCodeTokenExpired     = core.ErrorCodeTokenExpired     // Token exp claim is in the past
+	ErrorCodeTokenNotYetValid = core.ErrorCodeTokenNotYetValid // Token nbf/iat claim is in the future
+	ErrorCodeInvalidSignature = core.ErrorCodeInvalidSignature // Token signature verification failed
+	ErrorCodeInvalidAlgorithm = core.ErrorCodeInvalidAlgorithm // Token uses a disallowed algorithm
+	ErrorCodeInvalidIssuer    = core.ErrorCodeInvalidIssuer    // Token issuer is not trusted
+	ErrorCodeInvalidAudience  = core.ErrorCodeInvalidAudience  // Token audience does not match
+	ErrorCodeInvalidClaims    = core.ErrorCodeInvalidClaims    // Custom claims validation failed
+	ErrorCodeJWKSFetchFailed  = core.ErrorCodeJWKSFetchFailed  // Failed to fetch signing keys
+)
+
 // ErrorHandler is a handler which is called when an error occurs in the
 // JWTMiddleware. The handler determines the HTTP response when a token is
 // not found, is invalid, or other errors occur.
@@ -155,22 +181,22 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 
 	case core.ErrorCodeTokenMalformed:
 		headers := buildWWWAuthenticateHeaders(
-			"invalid_request", "The access token is malformed",
-			authScheme, dpopMode, false, // Bearer error
+			"invalid_token", "The access token is malformed",
+			authScheme, dpopMode, true, // ambiguous - malformed token affects all schemes
 		)
-		return http.StatusBadRequest, ErrorResponse{
-			Error:            "invalid_request",
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
 			ErrorDescription: "The access token is malformed",
 			ErrorCode:        err.Code,
 		}, headers
 
 	case core.ErrorCodeInvalidIssuer:
 		headers := buildWWWAuthenticateHeaders(
-			"insufficient_scope", "The access token was issued by an untrusted issuer",
+			"invalid_token", "The access token was issued by an untrusted issuer",
 			authScheme, dpopMode, false, // Bearer error
 		)
-		return http.StatusForbidden, ErrorResponse{
-			Error:            "insufficient_scope",
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
 			ErrorDescription: "The access token was issued by an untrusted issuer",
 			ErrorCode:        err.Code,
 		}, headers

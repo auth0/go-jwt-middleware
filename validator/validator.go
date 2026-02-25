@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/auth0/go-jwt-middleware/v3/core"
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jws"
@@ -191,18 +192,18 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any,
 	// needing separate jwt.ParseInsecure + manual header decode.
 	msg, err := jws.Parse([]byte(tokenString))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "failed to parse token", err)
 	}
 
 	// Step 1a: Validate token algorithm against allowed list (fail-fast).
 	// Rejects tokens with disallowed algorithms before JWKS fetch or signature verification.
 	sigs := msg.Signatures()
 	if len(sigs) == 0 {
-		return nil, errors.New("token has no signatures")
+		return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "token has no signatures", nil)
 	}
 	tokenAlg, ok := sigs[0].ProtectedHeaders().Algorithm()
 	if !ok {
-		return nil, errors.New("token header missing required alg field")
+		return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "token header missing required alg field", nil)
 	}
 	algStr := tokenAlg.String()
 	algAllowed := false
@@ -213,7 +214,7 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any,
 		}
 	}
 	if !algAllowed {
-		return nil, fmt.Errorf("token algorithm %q is not allowed (allowed: %v)", algStr, v.allowedAlgorithms)
+		return nil, core.NewValidationError(core.ErrorCodeInvalidAlgorithm, fmt.Sprintf("token algorithm %q is not allowed (allowed: %v)", algStr, v.allowedAlgorithms), nil)
 	}
 
 	// Step 1b: Extract issuer from unverified payload.
@@ -221,11 +222,11 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any,
 		Issuer string `json:"iss"`
 	}
 	if err := json.Unmarshal(msg.Payload(), &unverifiedClaims); err != nil {
-		return nil, fmt.Errorf("failed to parse token claims: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "failed to parse token claims", err)
 	}
 	issuer := unverifiedClaims.Issuer
 	if issuer == "" {
-		return nil, errors.New("token has no issuer claim")
+		return nil, core.NewValidationError(core.ErrorCodeInvalidIssuer, "token has no issuer claim", nil)
 	}
 
 	// Step 2: Pass unverified issuer into context so that the resolver
@@ -234,13 +235,13 @@ func (v *Validator) ValidateToken(ctx context.Context, tokenString string) (any,
 
 	// Step 3: Validate issuer BEFORE fetching JWKS (security: prevents SSRF)
 	if err := v.validateIssuerWithResolver(ctx, issuer); err != nil {
-		return nil, fmt.Errorf("issuer validation failed: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeInvalidIssuer, "issuer validation failed", err)
 	}
 
 	// Step 4: Get the verification key (now safe to fetch from validated issuer)
 	key, err := v.keyFunc(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error getting the keys from the key func: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeJWKSFetchFailed, "error getting the keys from the key func", err)
 	}
 
 	// Step 5: Parse and validate token signature using the key
@@ -295,7 +296,19 @@ func (v *Validator) parseToken(_ context.Context, tokenString string, key any) (
 
 	token, err := jwt.ParseString(tokenString, parseOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse and validate token: %w", err)
+		errStr := err.Error()
+		switch {
+		case strings.Contains(errStr, "signature verification failed"):
+			return nil, core.NewValidationError(core.ErrorCodeInvalidSignature, "failed to parse and validate token", err)
+		case strings.Contains(errStr, `"exp" not satisfied`):
+			return nil, core.NewValidationError(core.ErrorCodeTokenExpired, "failed to parse and validate token", err)
+		case strings.Contains(errStr, `"nbf" not satisfied`):
+			return nil, core.NewValidationError(core.ErrorCodeTokenNotYetValid, "failed to parse and validate token", err)
+		case strings.Contains(errStr, `"iat" not satisfied`):
+			return nil, core.NewValidationError(core.ErrorCodeTokenNotYetValid, "failed to parse and validate token", err)
+		default:
+			return nil, core.NewValidationError(core.ErrorCodeTokenMalformed, "failed to parse and validate token", err)
+		}
 	}
 
 	return token, nil
@@ -316,7 +329,7 @@ func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Toke
 
 	// Validate audience (issuer already validated in ValidateToken before JWKS fetch)
 	if err := v.validateAudience(audience); err != nil {
-		return nil, fmt.Errorf("audience validation failed: %w", err)
+		return nil, core.NewValidationError(core.ErrorCodeInvalidAudience, "audience validation failed", err)
 	}
 
 	registeredClaims := RegisteredClaims{
@@ -427,7 +440,7 @@ func (v *Validator) validateIssuer(issuer string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("token issuer %q does not match any expected issuer", issuer)
+	return core.NewValidationError(core.ErrorCodeInvalidIssuer, fmt.Sprintf("token issuer %q does not match any expected issuer", issuer), nil)
 }
 
 // validateIssuerWithResolver checks if the token issuer is valid using either
@@ -435,7 +448,7 @@ func (v *Validator) validateIssuer(issuer string) error {
 // This method should be called BEFORE fetching JWKS to prevent SSRF attacks.
 func (v *Validator) validateIssuerWithResolver(ctx context.Context, issuer string) error {
 	if issuer == "" {
-		return errors.New("token has no issuer")
+		return core.NewValidationError(core.ErrorCodeInvalidIssuer, "token has no issuer", nil)
 	}
 
 	// Use dynamic resolver if configured
@@ -451,7 +464,7 @@ func (v *Validator) validateIssuerWithResolver(ctx context.Context, issuer strin
 				return nil
 			}
 		}
-		return fmt.Errorf("issuer %q not allowed by resolver", issuer)
+		return core.NewValidationError(core.ErrorCodeInvalidIssuer, fmt.Sprintf("issuer %q not allowed by resolver", issuer), nil)
 	}
 
 	// Fall back to static issuer validation
@@ -462,7 +475,7 @@ func (v *Validator) validateIssuerWithResolver(ctx context.Context, issuer strin
 func (v *Validator) validateAudience(tokenAudiences []string) error {
 	// Token must have at least one audience
 	if len(tokenAudiences) == 0 {
-		return errors.New("token has no audience")
+		return core.NewValidationError(core.ErrorCodeInvalidAudience, "token has no audience", nil)
 	}
 
 	// Check if token contains at least one expected audience
@@ -474,7 +487,7 @@ func (v *Validator) validateAudience(tokenAudiences []string) error {
 		}
 	}
 
-	return fmt.Errorf("token audience %v does not match any expected audience %v", tokenAudiences, v.expectedAudiences)
+	return core.NewValidationError(core.ErrorCodeInvalidAudience, fmt.Sprintf("token audience %v does not match any expected audience %v", tokenAudiences, v.expectedAudiences), nil)
 }
 
 // stringToJWXAlgorithm converts our string algorithm to jwx's jwa.SignatureAlgorithm.
