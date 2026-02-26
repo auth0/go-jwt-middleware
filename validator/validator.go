@@ -22,12 +22,16 @@ import (
 type contextKey int
 
 const (
-	// issuerContextKey is the context key for storing the validated issuer.
+	// issuerContextKey is the context key for storing the issuer.
 	issuerContextKey contextKey = iota
 )
 
-// IssuerFromContext extracts the validated issuer from the context.
+// IssuerFromContext extracts the issuer from the context.
 // This is useful for JWKS providers that need to route requests based on the issuer.
+//
+// Note: The issuer is set from the unverified token claims before issuer validation,
+// so that dynamic issuer resolvers have access to the iss claim. After ValidateToken
+// returns successfully, the issuer in context is guaranteed to be validated.
 //
 // Returns the issuer string and true if found, or empty string and false if not present.
 func IssuerFromContext(ctx context.Context) (string, bool) {
@@ -37,7 +41,8 @@ func IssuerFromContext(ctx context.Context) (string, bool) {
 
 // SetIssuerInContext stores the issuer in the context.
 // This is primarily used for testing purposes. In production, the issuer is automatically
-// set by ValidateToken after validation.
+// set by ValidateToken before issuer validation, so that dynamic issuer resolvers
+// (configured via WithIssuersResolver) have access to the unverified iss claim.
 func SetIssuerInContext(ctx context.Context, issuer string) context.Context {
 	return context.WithValue(ctx, issuerContextKey, issuer)
 }

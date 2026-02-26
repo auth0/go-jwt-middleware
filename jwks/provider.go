@@ -298,10 +298,17 @@ func (c *jwxCache) backgroundRefresh(jwksURI string, cached *cachedJWKS) {
 		return
 	}
 
-	// Use Cache-Control max-age only when configured TTL is shorter
+	// Respect Cache-Control max-age from the JWKS endpoint.
+	// - If max-age > configured TTL: extend to max-age (provider allows longer caching)
+	// - If max-age < configured TTL: shorten to max-age (provider needs faster rotation, e.g. key rollover)
+	// - If no Cache-Control header: use configured TTL as-is
 	effectiveTTL := c.refreshTTL
-	if cacheTTL > 0 && c.refreshTTL < cacheTTL {
-		effectiveTTL = cacheTTL // Configured TTL is shorter - use the longer max-age
+	if cacheTTL > 0 {
+		if cacheTTL < c.refreshTTL {
+			effectiveTTL = cacheTTL // IdP wants shorter TTL - respect key rotation signals
+		} else if cacheTTL > c.refreshTTL {
+			effectiveTTL = cacheTTL // IdP allows longer caching - reduce fetch frequency
+		}
 	}
 
 	// Update cache with fresh data
