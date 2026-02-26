@@ -88,11 +88,11 @@ func TestDefaultErrorHandler(t *testing.T) {
 		{
 			name:                 "invalid audience",
 			err:                  core.NewValidationError(core.ErrorCodeInvalidAudience, "invalid audience", nil),
-			wantStatus:           http.StatusForbidden,
-			wantError:            "insufficient_scope",
+			wantStatus:           http.StatusUnauthorized,
+			wantError:            "invalid_token",
 			wantErrorDescription: "The access token audience does not match",
 			wantErrorCode:        "invalid_audience",
-			wantWWWAuthenticate:  `Bearer realm="api", error="insufficient_scope", error_description="The access token audience does not match"`,
+			wantWWWAuthenticate:  `Bearer realm="api", error="invalid_token", error_description="The access token audience does not match"`,
 		},
 		{
 			name:                 "invalid algorithm",

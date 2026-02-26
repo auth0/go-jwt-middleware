@@ -276,11 +276,12 @@ Response:
 ```
 HTTP/1.1 401 Unauthorized
 Content-Type: application/json
-WWW-Authenticate: Bearer error="invalid_token", error_description="The access token is invalid"
+WWW-Authenticate: Bearer realm="api", error="invalid_token", error_description="The access token is malformed"
 
 {
   "error": "invalid_token",
-  "error_description": "The access token is invalid"
+  "error_description": "The access token is malformed",
+  "error_code": "token_malformed"
 }
 ```
 
@@ -419,11 +420,17 @@ func customErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	var validationErr *core.ValidationError
+	var validationErr *jwtmiddleware.ValidationError
 	if errors.As(err, &validationErr) {
 		switch validationErr.Code {
-		case core.ErrorCodeTokenExpired:
+		case jwtmiddleware.ErrorCodeTokenExpired:
 			http.Error(w, "Token expired", http.StatusUnauthorized)
+		case jwtmiddleware.ErrorCodeInvalidIssuer:
+			http.Error(w, "Untrusted issuer", http.StatusUnauthorized)
+		case jwtmiddleware.ErrorCodeInvalidAudience:
+			http.Error(w, "Audience mismatch", http.StatusUnauthorized)
+		case jwtmiddleware.ErrorCodeInvalidSignature:
+			http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		default:
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 		}
@@ -438,6 +445,42 @@ middleware, err := jwtmiddleware.New(
 	jwtmiddleware.WithErrorHandler(customErrorHandler),
 )
 ```
+
+### Error Responses
+
+The default error handler returns specific HTTP status codes and structured JSON responses for each type of JWT validation failure:
+
+| Failure | HTTP Status | `error` | `error_code` |
+|---------|------------|---------|-------------|
+| Malformed token | 401 | `invalid_token` | `token_malformed` |
+| Invalid algorithm | 401 | `invalid_token` | `invalid_algorithm` |
+| Invalid signature | 401 | `invalid_token` | `invalid_signature` |
+| Expired token | 401 | `invalid_token` | `token_expired` |
+| Not yet valid (nbf/iat) | 401 | `invalid_token` | `token_not_yet_valid` |
+| Invalid issuer | 401 | `invalid_token` | `invalid_issuer` |
+| Invalid audience | 401 | `invalid_token` | `invalid_audience` |
+| Invalid claims | 401 | `invalid_token` | `invalid_claims` |
+| JWKS fetch failed | 401 | `invalid_token` | `jwks_fetch_failed` |
+| JWKS key not found | 401 | `invalid_token` | `jwks_key_not_found` |
+| Missing token | 401 | `invalid_token` | — |
+
+Example response for an expired token:
+```json
+{
+  "error": "invalid_token",
+  "error_description": "The access token expired",
+  "error_code": "token_expired"
+}
+```
+
+All error responses include RFC 6750 compliant `WWW-Authenticate` headers.
+
+**Available error code constants** (on the `jwtmiddleware` package):
+
+`ErrorCodeTokenMalformed`, `ErrorCodeTokenExpired`, `ErrorCodeTokenNotYetValid`,
+`ErrorCodeInvalidSignature`, `ErrorCodeInvalidAlgorithm`, `ErrorCodeInvalidIssuer`,
+`ErrorCodeInvalidAudience`, `ErrorCodeInvalidClaims`, `ErrorCodeJWKSFetchFailed`,
+`ErrorCodeJWKSKeyNotFound`
 
 ### Clock Skew Tolerance
 

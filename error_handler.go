@@ -218,11 +218,11 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 
 	case core.ErrorCodeInvalidAudience:
 		headers := buildWWWAuthenticateHeaders(
-			"insufficient_scope", "The access token audience does not match",
+			"invalid_token", "The access token audience does not match",
 			authScheme, dpopMode, false, // Bearer error
 		)
-		return http.StatusForbidden, ErrorResponse{
-			Error:            "insufficient_scope",
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
 			ErrorDescription: "The access token audience does not match",
 			ErrorCode:        err.Code,
 		}, headers
