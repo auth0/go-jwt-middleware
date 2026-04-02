@@ -470,27 +470,26 @@ func (m *mockMultiIssuerCache) Get(ctx context.Context, jwksURI string) (KeySet,
 }
 
 func TestMultiIssuerProvider_LRUEviction(t *testing.T) {
-	t.Run("allows unlimited providers when maxProviders is 0", func(t *testing.T) {
+	t.Run("maxProviders 0 resets to default instead of unlimited", func(t *testing.T) {
 		provider, err := NewMultiIssuerProvider(
-			WithMaxProviders(0), // Unlimited
+			WithMaxProviders(0), // Should reset to default (100)
 		)
 		require.NoError(t, err)
+		assert.Equal(t, 100, provider.maxProviders)
 
-		// Create multiple tenants
+		// Create multiple tenants - none should be evicted (well under ceiling)
 		servers := make([]*httptest.Server, 5)
 		for i := range servers {
 			servers[i] = createMockOIDCServer()
 			defer servers[i].Close()
 		}
 
-		// Add all tenants - none should be evicted
 		for _, server := range servers {
 			ctx := validator.SetIssuerInContext(context.Background(), server.URL+"/")
 			_, err := provider.KeyFunc(ctx)
 			require.NoError(t, err)
 		}
 
-		// All 5 providers should still be cached
 		assert.Equal(t, 5, provider.ProviderCount())
 	})
 

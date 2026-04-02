@@ -166,7 +166,7 @@ func Test_JWKSProvider(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = provider.KeyFunc(context.Background())
-			if !strings.Contains(err.Error(), "could not parse JWKS URI from well known endpoints") {
+			if !strings.Contains(err.Error(), "invalid jwks_uri") && !strings.Contains(err.Error(), "could not parse JWKS URI from well known endpoints") {
 				t.Fatalf("wanted an error, but got %s", err)
 			}
 		},

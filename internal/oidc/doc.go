@@ -19,14 +19,18 @@ This document contains metadata about the provider, including:
 
 # Double-Validation for MCD (Multiple Custom Domains)
 
-This package performs double-validation for enhanced security:
+This package performs multi-layer validation for enhanced security:
 
 1. Fetches OIDC discovery metadata from the issuer
 2. Validates that the metadata's "issuer" field exactly matches the expected issuer
-3. Returns validated metadata with jwks_uri
+3. Enforces HTTPS on jwks_uri when the issuer uses HTTPS (prevents MITM on JWKS fetch)
+4. Optionally validates jwks_uri shares the same origin as the issuer (StrictJWKSURIOrigin)
+5. Returns validated metadata with jwks_uri
 
 This prevents token substitution attacks where an attacker might try to use
-a token from one issuer with JWKS from another issuer.
+a token from one issuer with JWKS from another issuer. The HTTPS enforcement
+on jwks_uri prevents a compromised discovery endpoint from downgrading the
+JWKS fetch to plaintext HTTP.
 
 # Usage
 
@@ -72,6 +76,8 @@ The WellKnownEndpoints struct contains commonly used OIDC endpoints:
 	    // - Invalid JSON response
 	    // - Missing required fields (issuer, jwks_uri)
 	    // - Issuer mismatch (metadata issuer != expectedIssuer)
+	    // - jwks_uri uses HTTP when issuer uses HTTPS
+	    // - jwks_uri origin mismatch (when StrictJWKSURIOrigin is enabled)
 	}
 
 # HTTP Client Configuration

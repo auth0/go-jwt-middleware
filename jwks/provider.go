@@ -329,10 +329,17 @@ type CachingProvider struct {
 	issuerURL  *url.URL
 	httpClient *http.Client
 
-	// JWKS URI discovery - lazily initialized and cached
+	// strictJWKSURIOrigin enables strict validation that jwks_uri shares the
+	// same scheme+host as the issuer URL during OIDC discovery.
+	strictJWKSURIOrigin bool
+
+	// JWKS URI discovery - lazily initialized and cached.
+	// Uses mutex + discovered flag instead of sync.Once so that transient
+	// discovery failures (network blips, DNS timeouts, IdP 503s) can be
+	// retried on subsequent requests instead of permanently breaking the provider.
 	jwksURIMu   sync.Mutex
 	jwksURI     string
-	jwksURIOnce sync.Once
+	discovered  bool // true once discovery has succeeded
 }
 
 // NewCachingProvider builds and returns a new CachingProvider.
@@ -402,8 +409,9 @@ func NewCachingProvider(opts ...any) (*CachingProvider, error) {
 	}
 
 	cp := &CachingProvider{
-		issuerURL:  config.issuerURL,
-		httpClient: config.httpClient,
+		issuerURL:           config.issuerURL,
+		httpClient:          config.httpClient,
+		strictJWKSURIOrigin: config.strictJWKSURIOrigin,
 	}
 
 	// Pre-set JWKS URI if custom URI provided
@@ -427,30 +435,37 @@ func NewCachingProvider(opts ...any) (*CachingProvider, error) {
 }
 
 // discoverJWKSURI discovers the JWKS URI from the well-known endpoint.
-// Uses sync.Once to ensure discovery only happens once, improving performance.
+// Uses mutex + discovered flag so that transient failures (network blips, IdP 503s)
+// allow retry on subsequent requests, unlike sync.Once which marks as "done" even on error.
 // Performs MCD double-validation: ensures metadata's issuer matches expected issuer.
 func (c *CachingProvider) discoverJWKSURI(ctx context.Context) error {
-	var discoveryErr error
+	c.jwksURIMu.Lock()
+	defer c.jwksURIMu.Unlock()
 
-	c.jwksURIOnce.Do(func() {
-		// Fetch OIDC discovery metadata with MCD double-validation
-		wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(
-			ctx,
-			c.httpClient,
-			*c.issuerURL,
-			c.issuerURL.String(),
-		)
-		if err != nil {
-			discoveryErr = fmt.Errorf("failed to discover JWKS URI: %w", err)
-			return
-		}
+	// Another goroutine may have completed discovery while we waited for the lock.
+	if c.discovered {
+		return nil
+	}
 
-		c.jwksURIMu.Lock()
-		c.jwksURI = wkEndpoints.JWKSURI
-		c.jwksURIMu.Unlock()
-	})
+	// Fetch OIDC discovery metadata with MCD double-validation
+	discoveryOpts := oidc.DiscoveryOptions{
+		StrictJWKSURIOrigin: c.strictJWKSURIOrigin,
+	}
+	wkEndpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(
+		ctx,
+		c.httpClient,
+		*c.issuerURL,
+		c.issuerURL.String(),
+		discoveryOpts,
+	)
+	if err != nil {
+		// Do NOT set discovered=true on failure, allowing retry on next request.
+		return fmt.Errorf("failed to discover JWKS URI: %w", err)
+	}
 
-	return discoveryErr
+	c.jwksURI = wkEndpoints.JWKSURI
+	c.discovered = true
+	return nil
 }
 
 // getJWKSURI returns the JWKS URI, discovering it if necessary.
@@ -464,7 +479,7 @@ func (c *CachingProvider) getJWKSURI(ctx context.Context) (string, error) {
 		return uri, nil
 	}
 
-	// Slow path: discover URI
+	// Slow path: discover URI (retryable on transient failure)
 	if err := c.discoverJWKSURI(ctx); err != nil {
 		return "", err
 	}

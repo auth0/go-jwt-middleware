@@ -26,7 +26,7 @@ CachingProvider: Production-ready with intelligent caching
   - Caches JWKS with configurable TTL (default: 15 minutes)
   - Thread-safe with proper locking
   - Proactive background refresh at 80% TTL
-  - OIDC discovery cached once (until application restart)
+  - OIDC discovery cached after first successful fetch (retries on transient failure)
   - Use for: Single issuer production applications
 
 MultiIssuerProvider: Multi-tenant with dynamic JWKS routing
@@ -34,7 +34,7 @@ MultiIssuerProvider: Multi-tenant with dynamic JWKS routing
   - Lazy loading - creates providers on-demand
   - LRU eviction for memory management (optional)
   - Custom cache support (e.g., Redis)
-  - OIDC discovery cached per issuer (until application restart)
+  - OIDC discovery cached per issuer after first successful fetch (retries on transient failure)
   - Use for: Multi-tenant SaaS, multiple Auth0 tenants, dynamic issuers
 
 # Basic Usage with Provider
@@ -98,8 +98,9 @@ Skip OIDC discovery and use a custom JWKS URI:
 	)
 
 Note: OIDC discovery (fetching .well-known/openid-configuration) is performed
-once per provider and cached for the lifetime of the application. The discovered
-JWKS URI is stored and will not be updated until the application restarts.
+once per provider after the first successful fetch. If discovery fails transiently
+(network blip, DNS timeout, IdP 503), it will be retried on the next request.
+The discovered JWKS URI is cached for the lifetime of the provider.
 If you need dynamic JWKS URI updates, use WithCustomJWKSURI or restart the application.
 
 # Custom HTTP Client
@@ -266,7 +267,7 @@ Available configuration options:
 	WithMaxProviders(max int)
 	    - Maximum number of issuer providers to cache
 	    - Default: 100 (recommended for MCD scenarios)
-	    - Set to 0 for unlimited
+	    - Passing 0 resets to default (100)
 	    - Recommended: 500-1000 for large-scale apps
 	    - LRU eviction removes least-recently-used providers
 
@@ -282,6 +283,12 @@ Available configuration options:
 	    - Same validation as WithIssuerKeyConfig, applied to each entry
 	    - Can be combined with singular WithIssuerKeyConfig
 	    - Use for: Multiple symmetric issuers in mixed MCD
+
+	WithMultiIssuerStrictJWKSURIOrigin()
+	    - Requires jwks_uri to share scheme+host with issuer (opt-in)
+	    - Enable for Auth0, Okta, Azure AD (JWKS on same origin as issuer)
+	    - Do not enable for Google/Firebase (JWKS on different host)
+	    - HTTPS on jwks_uri is always enforced when issuer uses HTTPS
 
 # Mixed-Algorithm MCD (Symmetric + Asymmetric Issuers)
 
@@ -408,13 +415,15 @@ Scaling guidelines:
 # Security Notes
 
 1. Always use HTTPS URLs for issuerURL and JWKS URIs
-2. Consider shorter TTLs for high-security applications
-3. The cache does not validate key expiration (jwx handles this)
-4. Provider fetches all keys in the JWKS (jwx selects the right one)
-5. MultiIssuerProvider validates issuer BEFORE fetching JWKS (prevents SSRF)
-6. Use validator.WithIssuers() to explicitly allowlist issuers
-7. For dynamic issuers, implement proper authorization in your resolver
-8. Monitor provider count in multi-tenant apps to detect abuse
+2. HTTPS is enforced on jwks_uri when the issuer uses HTTPS (prevents MITM downgrade)
+3. Use WithStrictJWKSURIOrigin/WithMultiIssuerStrictJWKSURIOrigin for same-origin validation
+4. Consider shorter TTLs for high-security applications
+5. The cache does not validate key expiration (jwx handles this)
+6. Provider fetches all keys in the JWKS (jwx selects the right one)
+7. MultiIssuerProvider validates issuer BEFORE fetching JWKS (prevents SSRF)
+8. Use validator.WithIssuers() to explicitly allowlist issuers
+9. For dynamic issuers, implement proper authorization in your resolver
+10. Monitor provider count in multi-tenant apps to detect abuse
 
 # Thread Safety
 

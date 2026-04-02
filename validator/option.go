@@ -139,6 +139,12 @@ func WithIssuers(issuers []string) Option {
 //   - Fast (< 5ms recommended - implement caching if needed)
 //   - Secure (validate and sanitize any data from context)
 //
+// Security note: The issuer value available via IssuerFromContext at the time
+// the resolver is called comes from the unverified token claims. Resolvers
+// should only use it for comparison against an allowlist. Do not use it for
+// logging, metrics, database queries, or any operation with side effects,
+// as this could enable log injection or oracle attacks.
+//
 // Cannot be used with WithIssuer or WithIssuers - they are mutually exclusive.
 //
 // Example with caching:
