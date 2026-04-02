@@ -39,7 +39,7 @@ type DiscoveryOptions struct {
 //  5. Return validated metadata with jwks_uri
 //
 // Parameters:
-//   - expectedIssuer: The issuer claim from the JWT token (already validated in step 3)
+//   - expectedIssuer: The issuer claim from the JWT token (validated by the caller before discovery is invoked)
 //   - httpClient: HTTP client for fetching metadata
 //   - opts: Optional discovery validation options
 //
