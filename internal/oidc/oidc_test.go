@@ -417,4 +417,82 @@ func TestGetWellKnownEndpointsFromIssuerURL_SecurityScenarios(t *testing.T) {
 			t.Errorf("Expected 'jwks_uri origin mismatch' error, got: %v", err)
 		}
 	})
+
+	t.Run("Strict mode: case-insensitive host comparison per RFC 3986", func(t *testing.T) {
+		// RFC 3986 Section 3.2.2: host is case-insensitive
+		responseBody := `{"issuer":"https://Auth0.Example.COM/","jwks_uri":"https://auth0.example.com/.well-known/jwks.json"}`
+		server := setupTestServer(http.StatusOK, responseBody, map[string]string{"Content-Type": "application/json"})
+		defer server.Close()
+
+		client := &http.Client{}
+		issuerURL, _ := url.Parse(server.URL)
+		expectedIssuer := "https://Auth0.Example.COM/"
+
+		endpoints, err := GetWellKnownEndpointsFromIssuerURL(
+			context.Background(),
+			client,
+			*issuerURL,
+			expectedIssuer,
+			DiscoveryOptions{StrictJWKSURIOrigin: true},
+		)
+
+		if err != nil {
+			t.Errorf("Expected case-insensitive host match to pass, got: %v", err)
+		}
+		if endpoints == nil {
+			t.Fatal("Expected endpoints but got nil")
+		}
+	})
+
+	t.Run("Strict mode: default port normalization (HTTPS :443)", func(t *testing.T) {
+		// https://auth.example.com and https://auth.example.com:443 are the same origin
+		responseBody := `{"issuer":"https://auth.example.com/","jwks_uri":"https://auth.example.com:443/.well-known/jwks.json"}`
+		server := setupTestServer(http.StatusOK, responseBody, map[string]string{"Content-Type": "application/json"})
+		defer server.Close()
+
+		client := &http.Client{}
+		issuerURL, _ := url.Parse(server.URL)
+		expectedIssuer := "https://auth.example.com/"
+
+		endpoints, err := GetWellKnownEndpointsFromIssuerURL(
+			context.Background(),
+			client,
+			*issuerURL,
+			expectedIssuer,
+			DiscoveryOptions{StrictJWKSURIOrigin: true},
+		)
+
+		if err != nil {
+			t.Errorf("Expected default port normalization to pass, got: %v", err)
+		}
+		if endpoints == nil {
+			t.Fatal("Expected endpoints but got nil")
+		}
+	})
+
+	t.Run("Strict mode: non-default port must match", func(t *testing.T) {
+		// https://auth.example.com:8443 and https://auth.example.com are NOT the same origin
+		responseBody := `{"issuer":"https://auth.example.com/","jwks_uri":"https://auth.example.com:8443/.well-known/jwks.json"}`
+		server := setupTestServer(http.StatusOK, responseBody, map[string]string{"Content-Type": "application/json"})
+		defer server.Close()
+
+		client := &http.Client{}
+		issuerURL, _ := url.Parse(server.URL)
+		expectedIssuer := "https://auth.example.com/"
+
+		_, err := GetWellKnownEndpointsFromIssuerURL(
+			context.Background(),
+			client,
+			*issuerURL,
+			expectedIssuer,
+			DiscoveryOptions{StrictJWKSURIOrigin: true},
+		)
+
+		if err == nil {
+			t.Error("Expected non-default port mismatch to fail")
+		}
+		if !strings.Contains(err.Error(), "jwks_uri origin mismatch") {
+			t.Errorf("Expected 'jwks_uri origin mismatch' error, got: %v", err)
+		}
+	})
 }

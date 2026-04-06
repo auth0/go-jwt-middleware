@@ -983,6 +983,57 @@ func Test_JWKSProvider(t *testing.T) {
 	})
 }
 
+func TestCachingProvider_RetriesDiscoveryAfterTransientFailure(t *testing.T) {
+	var discoveryAttempts int32
+	var discoveryServer *httptest.Server
+
+	discoveryServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			attempt := atomic.AddInt32(&discoveryAttempts, 1)
+			if attempt == 1 {
+				// First attempt: simulate transient failure (503)
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("Service Unavailable"))
+				return
+			}
+			// Subsequent attempts: succeed
+			wk := oidc.WellKnownEndpoints{
+				Issuer:  discoveryServer.URL,
+				JWKSURI: discoveryServer.URL + "/.well-known/jwks.json",
+			}
+			_ = json.NewEncoder(w).Encode(wk)
+		case "/.well-known/jwks.json":
+			jwks, _ := generateJWKS()
+			jsonData, _ := json.Marshal(jwks)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(jsonData)
+		}
+	}))
+	defer discoveryServer.Close()
+
+	serverURL, _ := url.Parse(discoveryServer.URL)
+	provider, err := NewCachingProvider(
+		WithIssuerURL(serverURL),
+		WithCacheTTL(5*time.Minute),
+	)
+	require.NoError(t, err)
+
+	// First call should fail because discovery returns 503
+	_, err = provider.KeyFunc(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to discover JWKS URI")
+
+	// Second call should succeed because discovery is retried (not cached as "done")
+	jwksResult, err := provider.KeyFunc(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, jwksResult)
+
+	// Verify discovery was attempted twice
+	assert.Equal(t, int32(2), atomic.LoadInt32(&discoveryAttempts),
+		"Discovery should have been attempted twice (first failed, second succeeded)")
+}
+
 // mockCache is a test cache implementation
 type mockCache struct {
 	jwks      KeySet

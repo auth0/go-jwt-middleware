@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 )
 
 // WellKnownEndpoints holds the well known OIDC endpoints.
@@ -136,7 +137,7 @@ func GetWellKnownEndpointsFromIssuerURL(
 	// Optional strict origin validation: jwks_uri must share scheme+host with issuer.
 	// Enable for providers known to serve JWKS from the same origin (Auth0, Okta, Azure AD).
 	if options.StrictJWKSURIOrigin {
-		if jwksURL.Scheme != expectedURL.Scheme || jwksURL.Host != expectedURL.Host {
+		if !sameOrigin(jwksURL, expectedURL) {
 			return nil, fmt.Errorf(
 				"jwks_uri origin mismatch: jwks_uri %q does not share the same origin as issuer %q",
 				wkEndpoints.JWKSURI,
@@ -146,4 +147,31 @@ func GetWellKnownEndpointsFromIssuerURL(
 	}
 
 	return &wkEndpoints, nil
+}
+
+// sameOrigin compares two URLs for same-origin equality following RFC 3986:
+//   - Schemes are compared case-insensitively (Section 3.1)
+//   - Hosts are compared case-insensitively (Section 3.2.2)
+//   - Default ports are normalized (e.g., :443 for HTTPS, :80 for HTTP)
+func sameOrigin(a, b *url.URL) bool {
+	if !strings.EqualFold(a.Scheme, b.Scheme) {
+		return false
+	}
+	return strings.EqualFold(normalizeHost(a), normalizeHost(b))
+}
+
+// normalizeHost returns the hostname:port with default ports stripped,
+// so that "example.com" and "example.com:443" compare equal for HTTPS.
+func normalizeHost(u *url.URL) string {
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		return host
+	}
+	// Strip default ports per scheme.
+	if (strings.EqualFold(u.Scheme, "https") && port == "443") ||
+		(strings.EqualFold(u.Scheme, "http") && port == "80") {
+		return host
+	}
+	return host + ":" + port
 }

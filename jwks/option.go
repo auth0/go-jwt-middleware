@@ -237,7 +237,8 @@ const maxProvidersDefault = 100
 // When the limit is reached, the least-recently-used provider will be evicted.
 // Default is 100 providers (recommended for MCD scenarios).
 //
-// Passing 0 resets to the default (100).
+// Passing 0 resets to the default (100). There is no "unlimited" setting;
+// callers who need more than the default should pass an explicit value.
 //
 // RECOMMENDED: For applications with 1000+ dynamic issuers, set this to a reasonable
 // limit (e.g., 500-1000) and consider using a custom cache (WithMultiIssuerCache)
