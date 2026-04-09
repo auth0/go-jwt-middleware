@@ -48,6 +48,38 @@ Framework-agnostic validation logic that can be reused across HTTP, gRPC, and ot
 
 ```
 HTTP Middleware → Core Engine → Validator
+gRPC Interceptor → Core Engine → Validator
+```
+
+### 🚀 gRPC Support
+Native gRPC integration with interceptors for unary and streaming methods:
+
+```go
+import (
+    jwtgrpc "github.com/auth0/go-jwt-middleware/v3/integrations/grpc"
+    "github.com/auth0/go-jwt-middleware/v3/validator"
+    "google.golang.org/grpc"
+)
+
+// Create validator (same as HTTP)
+jwtValidator, _ := validator.New(
+    validator.WithKeyFunc(keyFunc),
+    validator.WithAlgorithm(validator.RS256),
+    validator.WithIssuer("https://issuer.example.com/"),
+    validator.WithAudience("my-api"),
+)
+
+// Create gRPC interceptor
+interceptor, _ := jwtgrpc.New(
+    jwtgrpc.WithValidator(jwtValidator),
+    jwtgrpc.WithExcludedMethods("/health.Check"),
+)
+
+// Register with gRPC server
+grpcServer := grpc.NewServer(
+    grpc.UnaryInterceptor(interceptor.UnaryServerInterceptor()),
+    grpc.StreamInterceptor(interceptor.StreamServerInterceptor()),
+)
 ```
 
 ### 🎁 Type-Safe Claims with Generics
@@ -794,6 +826,7 @@ For complete working examples, check the [examples](./examples) directory:
 - **[http-dpop-required](./examples/http-dpop-required)** - DPoP required mode
 - **[http-dpop-disabled](./examples/http-dpop-disabled)** - DPoP disabled mode
 - **[http-dpop-trusted-proxy](./examples/http-dpop-trusted-proxy)** - DPoP behind reverse proxy
+- **[grpc-example](./examples/grpc-example)** - gRPC server with JWT authentication
 - **[gin-example](./examples/gin-example)** - Integration with Gin framework
 - **[echo-example](./examples/echo-example)** - Integration with Echo framework
 - **[iris-example](./examples/iris-example)** - Integration with Iris framework
