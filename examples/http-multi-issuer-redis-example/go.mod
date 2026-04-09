@@ -6,8 +6,8 @@ replace github.com/auth0/go-jwt-middleware/v3 => ../..
 
 require (
 	github.com/auth0/go-jwt-middleware/v3 v3.0.0-00010101000000-000000000000
-	github.com/lestrrat-go/jwx/v3 v3.0.12
-	github.com/redis/go-redis/v9 v9.7.0
+	github.com/lestrrat-go/jwx/v3 v3.0.13
+	github.com/redis/go-redis/v9 v9.7.3
 	github.com/stretchr/testify v1.11.1
 )
 
