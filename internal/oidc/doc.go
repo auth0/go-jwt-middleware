@@ -19,14 +19,26 @@ This document contains metadata about the provider, including:
 
 # Double-Validation for MCD (Multiple Custom Domains)
 
-This package performs double-validation for enhanced security:
+This package performs multi-layer validation for enhanced security:
 
 1. Fetches OIDC discovery metadata from the issuer
 2. Validates that the metadata's "issuer" field exactly matches the expected issuer
-3. Returns validated metadata with jwks_uri
+3. Enforces HTTPS on jwks_uri when the issuer uses HTTPS (prevents MITM on JWKS fetch)
+4. Optionally validates jwks_uri shares the same origin as the issuer (StrictJWKSURIOrigin)
+5. Returns validated metadata with jwks_uri
 
 This prevents token substitution attacks where an attacker might try to use
-a token from one issuer with JWKS from another issuer.
+a token from one issuer with JWKS from another issuer. The HTTPS enforcement
+on jwks_uri prevents a compromised discovery endpoint from downgrading the
+JWKS fetch to plaintext HTTP.
+
+Note: When using dynamic issuer resolution, callers must ensure that
+request-derived values (headers, host, etc.) are mapped to a fixed allowlist
+of trusted issuer domains rather than being passed through directly. The
+unverified issuer from the token should only be used to check membership in
+a fixed allowlist. It must never be used as a trusted value for logging,
+database queries, metrics, or any operation with side effects, as it is
+attacker-controlled before signature verification.
 
 # Usage
 
@@ -51,15 +63,21 @@ a token from one issuer with JWKS from another issuer.
 The expectedIssuer parameter must match the metadata's issuer field exactly,
 providing defense-in-depth against token substitution attacks.
 
+An optional DiscoveryOptions parameter can be passed to enable strict origin
+validation on the jwks_uri:
+
+	endpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(
+	    ctx, client, *issuerURL, expectedIssuer,
+	    oidc.DiscoveryOptions{StrictJWKSURIOrigin: true},
+	)
+
 # Endpoints Struct
 
-The WellKnownEndpoints struct contains commonly used OIDC endpoints:
+The WellKnownEndpoints struct contains the validated OIDC endpoints:
 
 	type WellKnownEndpoints struct {
-	    Issuer                string // Issuer identifier
-	    JWKSURI               string // JSON Web Key Set URI
-	    AuthorizationEndpoint string // OAuth 2.0 authorization endpoint
-	    TokenEndpoint         string // OAuth 2.0 token endpoint
+	    Issuer  string // Issuer identifier
+	    JWKSURI string // JSON Web Key Set URI
 	}
 
 # Error Handling
@@ -72,6 +90,8 @@ The WellKnownEndpoints struct contains commonly used OIDC endpoints:
 	    // - Invalid JSON response
 	    // - Missing required fields (issuer, jwks_uri)
 	    // - Issuer mismatch (metadata issuer != expectedIssuer)
+	    // - jwks_uri uses HTTP when issuer uses HTTPS
+	    // - jwks_uri origin mismatch (when StrictJWKSURIOrigin is enabled)
 	}
 
 # HTTP Client Configuration

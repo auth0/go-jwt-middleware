@@ -141,7 +141,7 @@ func setupHandler(audience []string) http.Handler {
 
 	// Use MultiIssuerProvider for automatic JWKS routing
 	provider, err := jwks.NewMultiIssuerProvider(
-		jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+		jwks.WithMultiIssuerCacheTTL(5 * time.Minute),
 	)
 	if err != nil {
 		log.Fatalf("failed to create multi-issuer jwks provider: %v", err)

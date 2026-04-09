@@ -280,7 +280,7 @@ func TestDynamicIssuerExample_WrongTenantForToken(t *testing.T) {
 
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
 	require.NoError(t, err)
-	req.Header.Set("X-Tenant-ID", "tenant2") // Claims to be tenant2
+	req.Header.Set("X-Tenant-ID", "tenant2")         // Claims to be tenant2
 	req.Header.Set("Authorization", "Bearer "+token) // But uses tenant1 token
 
 	resp, err := http.DefaultClient.Do(req)
@@ -410,7 +410,7 @@ func TestDynamicIssuerExample_SSRFPrevention(t *testing.T) {
 
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
 	require.NoError(t, err)
-	req.Header.Set("X-Tenant-ID", "tenant1") // Claims tenant1
+	req.Header.Set("X-Tenant-ID", "tenant1")         // Claims tenant1
 	req.Header.Set("Authorization", "Bearer "+token) // But has tenant2 token
 
 	resp, err := http.DefaultClient.Do(req)

@@ -84,15 +84,16 @@ type IssuerKeyConfig struct {
 //	    validator.WithAudience("https://api.example.com"),
 //	)
 type MultiIssuerProvider struct {
-	mu               sync.RWMutex
-	providers        map[string]*providerEntry
-	lruList          *list.List // LRU list for eviction
-	maxProviders     int        // Maximum number of cached providers (0 = unlimited)
-	cacheTTL         time.Duration
-	httpClient       *http.Client
-	cache            Cache                       // Optional: custom cache shared by all issuers
-	staticKeys       map[string]jwk.Set          // Pre-built JWK sets for symmetric issuers
-	issuerKeyConfigs map[string]*IssuerKeyConfig // Configuration for symmetric issuers
+	mu                  sync.RWMutex
+	providers           map[string]*providerEntry
+	lruList             *list.List // LRU list for eviction
+	maxProviders        int        // Maximum number of cached providers (default: 100)
+	cacheTTL            time.Duration
+	httpClient          *http.Client
+	cache               Cache                       // Optional: custom cache shared by all issuers
+	staticKeys          map[string]jwk.Set          // Pre-built JWK sets for symmetric issuers
+	issuerKeyConfigs    map[string]*IssuerKeyConfig // Configuration for symmetric issuers
+	strictJWKSURIOrigin bool                        // Require jwks_uri to share scheme+host with issuer
 }
 
 // providerEntry wraps a CachingProvider with metadata for LRU tracking
@@ -148,14 +149,15 @@ func NewMultiIssuerProvider(opts ...MultiIssuerProviderOption) (*MultiIssuerProv
 	}
 
 	return &MultiIssuerProvider{
-		providers:        make(map[string]*providerEntry),
-		lruList:          list.New(),
-		maxProviders:     config.maxProviders,
-		cacheTTL:         config.cacheTTL,
-		httpClient:       config.httpClient,
-		cache:            config.cache,
-		staticKeys:       staticKeys,
-		issuerKeyConfigs: issuerKeyConfigs,
+		providers:           make(map[string]*providerEntry),
+		lruList:             list.New(),
+		maxProviders:        config.maxProviders,
+		cacheTTL:            config.cacheTTL,
+		httpClient:          config.httpClient,
+		cache:               config.cache,
+		staticKeys:          staticKeys,
+		issuerKeyConfigs:    issuerKeyConfigs,
+		strictJWKSURIOrigin: config.strictJWKSURIOrigin,
 	}, nil
 }
 
@@ -246,6 +248,11 @@ func (p *MultiIssuerProvider) getOrCreateProvider(issuer string) (*providerEntry
 	// Add custom cache if provided
 	if p.cache != nil {
 		opts = append(opts, WithCache(p.cache))
+	}
+
+	// Forward strict JWKS URI origin validation
+	if p.strictJWKSURIOrigin {
+		opts = append(opts, WithStrictJWKSURIOrigin())
 	}
 
 	provider, err := NewCachingProvider(opts...)

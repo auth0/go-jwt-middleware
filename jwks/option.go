@@ -67,11 +67,12 @@ type CachingProviderOption func(*cachingProviderConfig) error
 
 // cachingProviderConfig holds internal configuration for creating a CachingProvider.
 type cachingProviderConfig struct {
-	issuerURL     *url.URL
-	customJWKSURI *url.URL
-	httpClient    *http.Client
-	cacheTTL      time.Duration
-	cache         Cache // Optional: custom cache implementation
+	issuerURL           *url.URL
+	customJWKSURI       *url.URL
+	httpClient          *http.Client
+	cacheTTL            time.Duration
+	cache               Cache // Optional: custom cache implementation
+	strictJWKSURIOrigin bool  // Require jwks_uri to share scheme+host with issuer
 }
 
 // WithCacheTTL sets the cache refresh interval for the CachingProvider.
@@ -113,6 +114,26 @@ func WithCache(cache Cache) CachingProviderOption {
 	}
 }
 
+// WithStrictJWKSURIOrigin enables strict validation that the jwks_uri returned
+// by OIDC discovery shares the same scheme and host as the issuer URL.
+//
+// This provides defense-in-depth against compromised discovery endpoints that
+// could redirect JWKS fetches to attacker-controlled infrastructure. Enable this
+// for providers known to serve JWKS from the same origin as the issuer, such as
+// Auth0, Okta, and Azure AD.
+//
+// Do not enable this for providers that host JWKS on a different domain (e.g.,
+// Google/Firebase use googleapis.com for JWKS while the issuer is accounts.google.com).
+//
+// Note: Regardless of this setting, HTTPS is always enforced on jwks_uri when the
+// issuer uses HTTPS. This option adds the additional same-origin requirement.
+func WithStrictJWKSURIOrigin() CachingProviderOption {
+	return func(c *cachingProviderConfig) error {
+		c.strictJWKSURIOrigin = true
+		return nil
+	}
+}
+
 // ============================================================================
 // MultiIssuerProvider Options
 // ============================================================================
@@ -122,11 +143,12 @@ type MultiIssuerProviderOption func(*multiIssuerConfig) error
 
 // multiIssuerConfig holds internal configuration for creating a MultiIssuerProvider.
 type multiIssuerConfig struct {
-	cacheTTL         time.Duration
-	httpClient       *http.Client
-	cache            Cache // Optional: custom cache implementation
-	maxProviders     int   // Maximum number of cached providers (0 = unlimited)
-	issuerKeyConfigs map[string]*IssuerKeyConfig
+	cacheTTL            time.Duration
+	httpClient          *http.Client
+	cache               Cache // Optional: custom cache implementation
+	maxProviders        int   // Maximum number of cached providers (default: 100)
+	issuerKeyConfigs    map[string]*IssuerKeyConfig
+	strictJWKSURIOrigin bool // Require jwks_uri to share scheme+host with issuer
 }
 
 // WithMultiIssuerCacheTTL sets the cache refresh interval for all per-issuer providers.
@@ -195,12 +217,32 @@ func WithMultiIssuerCache(cache Cache) MultiIssuerProviderOption {
 	}
 }
 
+// WithMultiIssuerStrictJWKSURIOrigin enables strict validation that the jwks_uri
+// returned by OIDC discovery shares the same scheme and host as the issuer URL,
+// for all per-issuer providers created by MultiIssuerProvider.
+//
+// See WithStrictJWKSURIOrigin for full documentation on when to enable this.
+func WithMultiIssuerStrictJWKSURIOrigin() MultiIssuerProviderOption {
+	return func(c *multiIssuerConfig) error {
+		c.strictJWKSURIOrigin = true
+		return nil
+	}
+}
+
+// maxProvidersDefault is the default number of cached providers, also used
+// when 0 is passed to WithMaxProviders.
+const maxProvidersDefault = 100
+
 // WithMaxProviders sets the maximum number of issuer providers to cache in memory.
 // When the limit is reached, the least-recently-used provider will be evicted.
-// Default is 100 providers (recommended for MCD scenarios). Set to 0 for unlimited.
+// Default is 100 providers (recommended for MCD scenarios).
+//
+// Passing 0 resets to the default (100). There is no "unlimited" setting;
+// callers who need more than the default should pass an explicit value.
 //
 // RECOMMENDED: For applications with 1000+ dynamic issuers, set this to a reasonable
-// limit (e.g., 500-1000) to prevent unbounded memory growth.
+// limit (e.g., 500-1000) and consider using a custom cache (WithMultiIssuerCache)
+// to prevent unbounded memory growth.
 //
 // Example:
 //
@@ -212,6 +254,9 @@ func WithMaxProviders(maxProviders int) MultiIssuerProviderOption {
 	return func(c *multiIssuerConfig) error {
 		if maxProviders < 0 {
 			return errors.New("max providers cannot be negative")
+		}
+		if maxProviders == 0 {
+			maxProviders = maxProvidersDefault
 		}
 		c.maxProviders = maxProviders
 		return nil
