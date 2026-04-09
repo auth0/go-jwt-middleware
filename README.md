@@ -276,11 +276,12 @@ Response:
 ```
 HTTP/1.1 401 Unauthorized
 Content-Type: application/json
-WWW-Authenticate: Bearer error="invalid_token", error_description="The access token is invalid"
+WWW-Authenticate: Bearer realm="api", error="invalid_token", error_description="The access token is malformed"
 
 {
   "error": "invalid_token",
-  "error_description": "The access token is invalid"
+  "error_description": "The access token is malformed",
+  "error_code": "token_malformed"
 }
 ```
 
@@ -419,11 +420,17 @@ func customErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	var validationErr *core.ValidationError
+	var validationErr *jwtmiddleware.ValidationError
 	if errors.As(err, &validationErr) {
 		switch validationErr.Code {
-		case core.ErrorCodeTokenExpired:
+		case jwtmiddleware.ErrorCodeTokenExpired:
 			http.Error(w, "Token expired", http.StatusUnauthorized)
+		case jwtmiddleware.ErrorCodeInvalidIssuer:
+			http.Error(w, "Untrusted issuer", http.StatusUnauthorized)
+		case jwtmiddleware.ErrorCodeInvalidAudience:
+			http.Error(w, "Audience mismatch", http.StatusUnauthorized)
+		case jwtmiddleware.ErrorCodeInvalidSignature:
+			http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		default:
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 		}
@@ -438,6 +445,42 @@ middleware, err := jwtmiddleware.New(
 	jwtmiddleware.WithErrorHandler(customErrorHandler),
 )
 ```
+
+### Error Responses
+
+The default error handler returns specific HTTP status codes and structured JSON responses for each type of JWT validation failure:
+
+| Failure | HTTP Status | `error` | `error_code` |
+|---------|------------|---------|-------------|
+| Malformed token | 401 | `invalid_token` | `token_malformed` |
+| Invalid algorithm | 401 | `invalid_token` | `invalid_algorithm` |
+| Invalid signature | 401 | `invalid_token` | `invalid_signature` |
+| Expired token | 401 | `invalid_token` | `token_expired` |
+| Not yet valid (nbf/iat) | 401 | `invalid_token` | `token_not_yet_valid` |
+| Invalid issuer | 401 | `invalid_token` | `invalid_issuer` |
+| Invalid audience | 401 | `invalid_token` | `invalid_audience` |
+| Invalid claims | 401 | `invalid_token` | `invalid_claims` |
+| JWKS fetch failed | 401 | `invalid_token` | `jwks_fetch_failed` |
+| JWKS key not found | 401 | `invalid_token` | `jwks_key_not_found` |
+| Missing token | 401 | `invalid_token` | — |
+
+Example response for an expired token:
+```json
+{
+  "error": "invalid_token",
+  "error_description": "The access token expired",
+  "error_code": "token_expired"
+}
+```
+
+All error responses include RFC 6750 compliant `WWW-Authenticate` headers.
+
+**Available error code constants** (on the `jwtmiddleware` package):
+
+`ErrorCodeTokenMalformed`, `ErrorCodeTokenExpired`, `ErrorCodeTokenNotYetValid`,
+`ErrorCodeInvalidSignature`, `ErrorCodeInvalidAlgorithm`, `ErrorCodeInvalidIssuer`,
+`ErrorCodeInvalidAudience`, `ErrorCodeInvalidClaims`, `ErrorCodeJWKSFetchFailed`,
+`ErrorCodeJWKSKeyNotFound`
 
 ### Clock Skew Tolerance
 
@@ -497,12 +540,256 @@ middleware, err := jwtmiddleware.New(
 
 See the [DPoP examples](./examples/http-dpop-example) for complete working code.
 
+### Multiple Issuers (Multi-Tenant Support)
+
+Accept JWTs from multiple issuers simultaneously - perfect for multi-tenant SaaS applications, domain migrations, or enterprise deployments.
+
+#### When to Use What
+
+Choose the right issuer validation approach for your use case:
+
+| Approach | When to Use | Example Use Case |
+|----------|-------------|------------------|
+| **`WithIssuer`** (single) | You have one Auth0 tenant or identity provider | Simple API with single Auth0 tenant |
+| **`WithIssuers`** (static list) | You have a fixed set of issuers known at startup | - Small number of tenants (< 10)<br>- Rarely changing issuer list<br>- Domain migration (old + new) |
+| **`WithIssuersResolver`** (dynamic) | Issuers determined at request time from database/context | - Multi-tenant SaaS with 100s+ tenants<br>- Tenant-specific issuer configuration<br>- Dynamic tenant onboarding |
+
+**Performance Comparison:**
+
+- **Single Issuer**: ~1ms validation (fastest, no issuer lookup)
+- **Static Multiple**: ~1ms validation (in-memory list check, very fast)
+- **Dynamic Resolver**: ~1-5ms validation (with caching), ~10-20ms (cache miss with DB query)
+
+**💡 Recommendation:** Start with `WithIssuer` or `WithIssuers` if possible. Only use `WithIssuersResolver` if you need dynamic tenant-based resolution.
+
+#### Choosing the Right JWKS Provider
+
+Use the correct JWKS provider based on your issuer validation approach:
+
+| JWKS Provider | Use With | Why |
+|---------------|----------|-----|
+| **`CachingProvider`** | `WithIssuer` (single issuer) | Optimized for single issuer, simpler configuration |
+| **`MultiIssuerProvider`** | `WithIssuers` or `WithIssuersResolver` | Handles dynamic JWKS routing per issuer, lazy loading |
+
+**⚠️ Important:**
+- Using `CachingProvider` with multiple issuers won't work correctly - it only caches JWKS for one issuer
+- Using `MultiIssuerProvider` with a single issuer works but adds unnecessary overhead
+- Always pair your issuer validation method with the appropriate provider
+
+**Example Mismatch (❌ Don't do this):**
+```go
+// WRONG: CachingProvider can't handle multiple issuers
+provider := jwks.NewCachingProvider(jwks.WithIssuerURL(url))
+validator.New(
+    validator.WithIssuers([]string{"issuer1", "issuer2"}), // Won't work!
+    validator.WithKeyFunc(provider.KeyFunc),
+)
+```
+
+**Correct Usage (✅ Do this):**
+```go
+// RIGHT: MultiIssuerProvider for multiple issuers
+provider := jwks.NewMultiIssuerProvider()
+validator.New(
+    validator.WithIssuers([]string{"issuer1", "issuer2"}),
+    validator.WithKeyFunc(provider.KeyFunc),
+)
+```
+
+#### Static Multiple Issuers
+
+Configure a fixed list of allowed issuers:
+
+```go
+// Use MultiIssuerProvider for automatic JWKS routing
+provider, err := jwks.NewMultiIssuerProvider(
+	jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+)
+
+jwtValidator, err := validator.New(
+	validator.WithKeyFunc(provider.KeyFunc),
+	validator.WithAlgorithm(validator.RS256),
+	validator.WithIssuers([]string{  // Multiple issuers!
+		"https://tenant1.auth0.com/",
+		"https://tenant2.auth0.com/",
+		"https://tenant3.auth0.com/",
+	}),
+	validator.WithAudience("your-api-identifier"),
+)
+```
+
+**Available Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `WithMultiIssuerCacheTTL` | JWKS cache refresh interval | 15 minutes |
+| `WithMultiIssuerHTTPClient` | Custom HTTP client for JWKS fetching | 30s timeout |
+| `WithMultiIssuerCache` | Custom cache implementation (e.g., Redis) | In-memory |
+| `WithMaxProviders` | Maximum issuer providers to cache | 100 |
+
+#### Large-Scale Multi-Tenant (100+ Tenants)
+
+For applications with many tenants, use Redis and LRU eviction to manage memory:
+
+```go
+// Create Redis cache (see examples/http-multi-issuer-redis-example)
+redisCache := &RedisCache{
+	client: redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+	ttl:    5 * time.Minute,
+}
+
+// Configure provider with Redis and LRU eviction
+provider, err := jwks.NewMultiIssuerProvider(
+	jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+	jwks.WithMultiIssuerCache(redisCache),  // Share JWKS across instances
+	jwks.WithMaxProviders(1000),            // Keep max 1000 providers in memory
+)
+
+jwtValidator, err := validator.New(
+	validator.WithKeyFunc(provider.KeyFunc),
+	validator.WithAlgorithm(validator.RS256),
+	validator.WithIssuers(allowedIssuers),  // Your tenant list
+	validator.WithAudience("your-api-identifier"),
+)
+```
+
+**Why Redis for 100+ Tenants?**
+- 📦 **Shared Cache**: JWKS data shared across multiple application instances
+- 💾 **Memory Efficiency**: Offload JWKS storage from application memory
+- 🔄 **Automatic Expiry**: Redis handles TTL and eviction
+- 📈 **Scalability**: Handles thousands of tenants without memory bloat
+
+#### Dynamic Issuer Resolution
+
+Determine allowed issuers at request time based on context (tenant ID, database, etc.):
+
+```go
+// For many tenants, use Redis and limit cached providers
+provider, err := jwks.NewMultiIssuerProvider(
+	jwks.WithMultiIssuerCache(redisCache),  // Optional: Redis for JWKS caching
+	jwks.WithMaxProviders(500),             // Optional: LRU limit for memory control
+)
+
+jwtValidator, err := validator.New(
+	validator.WithKeyFunc(provider.KeyFunc),
+	validator.WithAlgorithm(validator.RS256),
+	validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+		// Extract tenant from context (set by your middleware)
+		tenantID, _ := ctx.Value("tenant").(string)
+
+		// Check cache (user-managed caching for optimal performance)
+		if cached, found := cache.Get(tenantID); found {
+			return cached, nil
+		}
+
+		// Query database for tenant's allowed issuers
+		issuers, err := database.GetIssuersForTenant(ctx, tenantID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Cache for 5 minutes
+		cache.Set(tenantID, issuers, 5*time.Minute)
+		return issuers, nil
+	}),
+	validator.WithAudience("your-api-identifier"),
+)
+```
+
+**Key Features:**
+- 🔒 **Security**: Issuer validated BEFORE fetching JWKS (prevents SSRF attacks)
+- ⚡ **Performance**: Per-issuer JWKS caching with lazy loading
+- 🎯 **Flexibility**: User-controlled caching strategy (in-memory, Redis, etc.)
+- 🔄 **Thread-Safe**: Concurrent request handling with double-checked locking
+
+**Use Cases:**
+- Multi-tenant SaaS applications
+- Domain migration (support old and new domains simultaneously)
+- Enterprise deployments with multiple Auth0 tenants
+- Connected accounts from different identity providers
+
+See the [multi-issuer examples](./examples/http-multi-issuer-example) for complete working code.
+
+#### Security Requirements for Multiple Custom Domains (MCD)
+
+When using `WithIssuers` or `WithIssuersResolver` to support Multiple Custom Domains (MCD), you are responsible for ensuring that only trusted issuer domains are returned.
+
+Misconfiguring the issuer list or resolver is a critical security risk. It can cause the middleware to:
+- Accept access tokens from unintended issuers
+- Make discovery or JWKS requests to unintended domains
+
+> **Note for Auth0 users:** The `WithIssuers` / `WithIssuersResolver` configuration for MCD is intended only for multiple custom domains that belong to the same Auth0 tenant. It is not a supported mechanism for connecting multiple Auth0 tenants to a single API. Each domain in your issuer list should resolve to the same underlying Auth0 tenant.
+
+**Dynamic Resolver Warning:**
+If your `WithIssuersResolver` function uses request-derived values (such as headers, query parameters, or path segments), do not trust those values directly. Use them only to map known and expected request values to a fixed allowlist of issuer domains that you control.
+
+In particular:
+- Request headers like `Host`, `X-Forwarded-Host`, or `Origin` may be influenced by clients, proxies, or load balancers depending on your deployment setup
+- The unverified `iss` claim from the token has not been signature-verified yet and must not be trusted by itself
+
+If your deployment relies on reverse proxies or load balancers, ensure that host-related request information is treated as trusted only when it comes from trusted infrastructure. Misconfigured proxy handling can cause the middleware to trust unintended issuer domains.
+
+**Example of a safe resolver pattern:**
+
+The resolver receives `context.Context` with the unverified `iss` claim available via `validator.IssuerFromContext`. Use this only to check membership in a fixed allowlist, never as a trusted value for logging, database queries, or external calls.
+
+```go
+// allowedIssuers is a fixed set of trusted issuer URLs.
+var allowedIssuers = map[string]bool{
+    "https://brand-a.auth.example.com/":    true,
+    "https://brand-a-jp.auth.example.com/": true,
+    "https://brand-b.auth.example.com/":    true,
+}
+
+validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+    // Return the full allowlist. The middleware will check the token's
+    // iss claim against this list before making any JWKS requests.
+    issuers := make([]string, 0, len(allowedIssuers))
+    for iss := range allowedIssuers {
+        issuers = append(issuers, iss)
+    }
+    return issuers, nil
+})
+```
+
+The resolver's `context.Context` does not automatically include HTTP request information. If your resolver needs request-derived values (such as the host or tenant ID), an upstream middleware must explicitly set them in the context before the JWT middleware runs. Without that, the context will only contain the unverified `iss` claim via `validator.IssuerFromContext`.
+
+For per-request filtering (e.g., tenant-scoped resolution), use trusted context values set by upstream middleware:
+
+```go
+validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+    // tenantID must be set by a trusted upstream middleware,
+    // not derived from the token or untrusted request headers.
+    tenantID, ok := ctx.Value(tenantContextKey).(string)
+    if !ok {
+        return nil, fmt.Errorf("missing tenant in context")
+    }
+
+    switch tenantID {
+    case "brand-a":
+        return []string{
+            "https://brand-a.auth.example.com/",
+            "https://brand-a-jp.auth.example.com/",
+        }, nil
+    case "brand-b":
+        return []string{
+            "https://brand-b.auth.example.com/",
+        }, nil
+    default:
+        return nil, fmt.Errorf("unknown tenant: %s", tenantID)
+    }
+})
+```
+
 ## Examples
 
 For complete working examples, check the [examples](./examples) directory:
 
 - **[http-example](./examples/http-example)** - Basic HTTP server with HMAC
 - **[http-jwks-example](./examples/http-jwks-example)** - Production setup with JWKS and Auth0
+- **[http-multi-issuer-example](./examples/http-multi-issuer-example)** - Multiple issuers with static list
+- **[http-multi-issuer-redis-example](./examples/http-multi-issuer-redis-example)** - Multi-tenant with Redis cache and LRU eviction
+- **[http-dynamic-issuer-example](./examples/http-dynamic-issuer-example)** - Dynamic issuer resolution with caching
 - **[http-dpop-example](./examples/http-dpop-example)** - DPoP support (allowed mode)
 - **[http-dpop-required](./examples/http-dpop-required)** - DPoP required mode
 - **[http-dpop-disabled](./examples/http-dpop-disabled)** - DPoP disabled mode
@@ -522,6 +809,74 @@ v3 supports 14 signature algorithms:
 | RSA-PSS | PS256, PS384, PS512 |
 | ECDSA | ES256, ES384, ES512, ES256K |
 | EdDSA | EdDSA (Ed25519) |
+
+### Symmetric vs Asymmetric: When to Use What
+
+Choose the right algorithm type based on your use case:
+
+| Algorithm Type | Key Distribution | When to Use | Example Use Case |
+|----------------|------------------|-------------|------------------|
+| **Symmetric (HMAC)** | Shared secret between issuer and API | - Simple single-service architecture<br>- You control both token creation and validation<br>- Internal microservices communication | Backend API validating its own tokens |
+| **Asymmetric (RS256, ES256, EdDSA)** | Public/private key pair (issuer has private, API has public) | - **Production with Auth0 or external OAuth providers**<br>- Multiple services validating tokens<br>- You don't control token creation<br>- Security-critical applications | Production API with Auth0, Okta, or any OAuth provider |
+
+**🔐 Security Recommendations:**
+
+1. **For Production with Auth0/OAuth providers: Use RS256** (default)
+   - Industry standard for OAuth 2.0 and OpenID Connect
+   - Auth0 uses RS256 by default
+   - Public key rotation supported via JWKS
+   - No shared secrets to manage
+
+2. **For Modern Applications: Consider EdDSA**
+   - Fastest signing and verification
+   - Smaller signatures (better bandwidth)
+   - Immune to timing attacks
+   - Supported by Auth0 (must enable in dashboard)
+
+3. **For Internal Services Only: HMAC is acceptable**
+   - Simplest to configure (just a shared secret)
+   - Fast performance
+   - ⚠️ But: Secret must be protected and distributed securely
+
+4. **Avoid using HMAC with external identity providers**
+   - Can't use with Auth0/Okta (they use asymmetric keys)
+   - Shared secret is a security risk at scale
+
+**Example Configurations:**
+
+Production with Auth0 (RS256):
+```go
+provider, _ := jwks.NewCachingProvider(jwks.WithIssuerURL(issuerURL))
+validator.New(
+    validator.WithKeyFunc(provider.KeyFunc),
+    validator.WithAlgorithm(validator.RS256), // Standard for OAuth
+    validator.WithIssuer(issuerURL.String()),
+    validator.WithAudience("your-api"),
+)
+```
+
+Internal microservices (HMAC):
+```go
+validator.New(
+    validator.WithKeyFunc(func(ctx context.Context) (any, error) {
+        return []byte(os.Getenv("JWT_SECRET")), nil
+    }),
+    validator.WithAlgorithm(validator.HS256), // Simple shared secret
+    validator.WithIssuer("internal-service"),
+    validator.WithAudience("my-api"),
+)
+```
+
+High-security applications (EdDSA):
+```go
+provider, _ := jwks.NewCachingProvider(jwks.WithIssuerURL(issuerURL))
+validator.New(
+    validator.WithKeyFunc(provider.KeyFunc),
+    validator.WithAlgorithm(validator.EdDSA), // Modern, fast, secure
+    validator.WithIssuer(issuerURL.String()),
+    validator.WithAudience("your-api"),
+)
+```
 
 ## Migration from v2
 

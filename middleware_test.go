@@ -95,7 +95,7 @@ func Test_CheckJWT(t *testing.T) {
 			token:          invalidToken,
 			method:         http.MethodGet,
 			wantStatusCode: http.StatusUnauthorized,
-			wantBody:       `{"error":"invalid_token","error_description":"JWT is invalid"}`,
+			wantBody:       `{"error":"invalid_token","error_description":"The access token was issued by an untrusted issuer","error_code":"invalid_issuer"}`,
 		},
 		{
 			name: "it skips validation on OPTIONS if validateOnOptions is set to false",
