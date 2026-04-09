@@ -34,7 +34,11 @@ JWKS fetch to plaintext HTTP.
 
 Note: When using dynamic issuer resolution, callers must ensure that
 request-derived values (headers, host, etc.) are mapped to a fixed allowlist
-of trusted issuer domains rather than being passed through directly.
+of trusted issuer domains rather than being passed through directly. The
+unverified issuer from the token should only be used to check membership in
+a fixed allowlist. It must never be used as a trusted value for logging,
+database queries, metrics, or any operation with side effects, as it is
+attacker-controlled before signature verification.
 
 # Usage
 

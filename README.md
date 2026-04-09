@@ -718,6 +718,8 @@ Misconfiguring the issuer list or resolver is a critical security risk. It can c
 - Accept access tokens from unintended issuers
 - Make discovery or JWKS requests to unintended domains
 
+> **Note for Auth0 users:** The `WithIssuers` / `WithIssuersResolver` configuration for MCD is intended only for multiple custom domains that belong to the same Auth0 tenant. It is not a supported mechanism for connecting multiple Auth0 tenants to a single API. Each domain in your issuer list should resolve to the same underlying Auth0 tenant.
+
 **Dynamic Resolver Warning:**
 If your `WithIssuersResolver` function uses request-derived values (such as headers, query parameters, or path segments), do not trust those values directly. Use them only to map known and expected request values to a fixed allowlist of issuer domains that you control.
 
@@ -750,7 +752,9 @@ validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
 })
 ```
 
-For per-request filtering (e.g., tenant-scoped resolution), use trusted context values set by upstream middleware before the JWT middleware runs:
+The resolver's `context.Context` does not automatically include HTTP request information. If your resolver needs request-derived values (such as the host or tenant ID), an upstream middleware must explicitly set them in the context before the JWT middleware runs. Without that, the context will only contain the unverified `iss` claim via `validator.IssuerFromContext`.
+
+For per-request filtering (e.g., tenant-scoped resolution), use trusted context values set by upstream middleware:
 
 ```go
 validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
