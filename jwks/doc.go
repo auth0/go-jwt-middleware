@@ -424,6 +424,10 @@ Scaling guidelines:
 8. Use validator.WithIssuers() to explicitly allowlist issuers
 9. For dynamic issuers, implement proper authorization in your resolver
 10. Monitor provider count in multi-tenant apps to detect abuse
+11. Dynamic issuer resolvers must not trust request-derived values directly; map them
+to a fixed allowlist of known issuer domains instead
+12. If using reverse proxies or load balancers, ensure host-related headers are trusted
+only when they come from trusted infrastructure
 
 # Thread Safety
 

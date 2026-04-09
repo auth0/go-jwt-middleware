@@ -337,9 +337,9 @@ type CachingProvider struct {
 	// Uses mutex + discovered flag instead of sync.Once so that transient
 	// discovery failures (network blips, DNS timeouts, IdP 503s) can be
 	// retried on subsequent requests instead of permanently breaking the provider.
-	jwksURIMu   sync.Mutex
-	jwksURI     string
-	discovered  bool // true once discovery has succeeded
+	jwksURIMu  sync.Mutex
+	jwksURI    string
+	discovered bool // true once discovery has succeeded
 }
 
 // NewCachingProvider builds and returns a new CachingProvider.

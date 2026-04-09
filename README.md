@@ -625,7 +625,7 @@ jwtValidator, err := validator.New(
 | `WithMultiIssuerCacheTTL` | JWKS cache refresh interval | 15 minutes |
 | `WithMultiIssuerHTTPClient` | Custom HTTP client for JWKS fetching | 30s timeout |
 | `WithMultiIssuerCache` | Custom cache implementation (e.g., Redis) | In-memory |
-| `WithMaxProviders` | Maximum issuer providers to cache | Unlimited |
+| `WithMaxProviders` | Maximum issuer providers to cache | 100 |
 
 #### Large-Scale Multi-Tenant (100+ Tenants)
 
@@ -709,6 +709,73 @@ jwtValidator, err := validator.New(
 - Connected accounts from different identity providers
 
 See the [multi-issuer examples](./examples/http-multi-issuer-example) for complete working code.
+
+#### Security Requirements for Multiple Custom Domains (MCD)
+
+When using `WithIssuers` or `WithIssuersResolver` to support Multiple Custom Domains (MCD), you are responsible for ensuring that only trusted issuer domains are returned.
+
+Misconfiguring the issuer list or resolver is a critical security risk. It can cause the middleware to:
+- Accept access tokens from unintended issuers
+- Make discovery or JWKS requests to unintended domains
+
+**Dynamic Resolver Warning:**
+If your `WithIssuersResolver` function uses request-derived values (such as headers, query parameters, or path segments), do not trust those values directly. Use them only to map known and expected request values to a fixed allowlist of issuer domains that you control.
+
+In particular:
+- Request headers like `Host`, `X-Forwarded-Host`, or `Origin` may be influenced by clients, proxies, or load balancers depending on your deployment setup
+- The unverified `iss` claim from the token has not been signature-verified yet and must not be trusted by itself
+
+If your deployment relies on reverse proxies or load balancers, ensure that host-related request information is treated as trusted only when it comes from trusted infrastructure. Misconfigured proxy handling can cause the middleware to trust unintended issuer domains.
+
+**Example of a safe resolver pattern:**
+
+The resolver receives `context.Context` with the unverified `iss` claim available via `validator.IssuerFromContext`. Use this only to check membership in a fixed allowlist, never as a trusted value for logging, database queries, or external calls.
+
+```go
+// allowedIssuers is a fixed set of trusted issuer URLs.
+var allowedIssuers = map[string]bool{
+    "https://brand-a.auth.example.com/":    true,
+    "https://brand-a-jp.auth.example.com/": true,
+    "https://brand-b.auth.example.com/":    true,
+}
+
+validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+    // Return the full allowlist. The middleware will check the token's
+    // iss claim against this list before making any JWKS requests.
+    issuers := make([]string, 0, len(allowedIssuers))
+    for iss := range allowedIssuers {
+        issuers = append(issuers, iss)
+    }
+    return issuers, nil
+})
+```
+
+For per-request filtering (e.g., tenant-scoped resolution), use trusted context values set by upstream middleware before the JWT middleware runs:
+
+```go
+validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+    // tenantID must be set by a trusted upstream middleware,
+    // not derived from the token or untrusted request headers.
+    tenantID, ok := ctx.Value(tenantContextKey).(string)
+    if !ok {
+        return nil, fmt.Errorf("missing tenant in context")
+    }
+
+    switch tenantID {
+    case "brand-a":
+        return []string{
+            "https://brand-a.auth.example.com/",
+            "https://brand-a-jp.auth.example.com/",
+        }, nil
+    case "brand-b":
+        return []string{
+            "https://brand-b.auth.example.com/",
+        }, nil
+    default:
+        return nil, fmt.Errorf("unknown tenant: %s", tenantID)
+    }
+})
+```
 
 ## Examples
 

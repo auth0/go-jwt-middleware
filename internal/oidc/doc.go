@@ -32,6 +32,10 @@ a token from one issuer with JWKS from another issuer. The HTTPS enforcement
 on jwks_uri prevents a compromised discovery endpoint from downgrading the
 JWKS fetch to plaintext HTTP.
 
+Note: When using dynamic issuer resolution, callers must ensure that
+request-derived values (headers, host, etc.) are mapped to a fixed allowlist
+of trusted issuer domains rather than being passed through directly.
+
 # Usage
 
 	import (
@@ -55,15 +59,21 @@ JWKS fetch to plaintext HTTP.
 The expectedIssuer parameter must match the metadata's issuer field exactly,
 providing defense-in-depth against token substitution attacks.
 
+An optional DiscoveryOptions parameter can be passed to enable strict origin
+validation on the jwks_uri:
+
+	endpoints, err := oidc.GetWellKnownEndpointsFromIssuerURL(
+	    ctx, client, *issuerURL, expectedIssuer,
+	    oidc.DiscoveryOptions{StrictJWKSURIOrigin: true},
+	)
+
 # Endpoints Struct
 
-The WellKnownEndpoints struct contains commonly used OIDC endpoints:
+The WellKnownEndpoints struct contains the validated OIDC endpoints:
 
 	type WellKnownEndpoints struct {
-	    Issuer                string // Issuer identifier
-	    JWKSURI               string // JSON Web Key Set URI
-	    AuthorizationEndpoint string // OAuth 2.0 authorization endpoint
-	    TokenEndpoint         string // OAuth 2.0 token endpoint
+	    Issuer  string // Issuer identifier
+	    JWKSURI string // JSON Web Key Set URI
 	}
 
 # Error Handling
