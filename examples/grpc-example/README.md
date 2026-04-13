@@ -141,8 +141,34 @@ The interceptor supports several configuration options:
 
 - `WithValidator()` - Set the JWT validator (required)
 - `WithCredentialsOptional()` - Allow requests without tokens
-- `WithExcludedMethods()` - Skip auth for specific methods
+- `WithExcludedMethods()` - Skip auth for specific methods (static list)
+- `WithExclusionHandler()` - Skip auth with custom logic (prefix matching, regex, etc.)
 - `WithErrorHandler()` - Custom error handling
 - `WithLogger()` - Add logging
+
+### Interceptor Chaining
+
+In production, combine with other interceptors using `grpc.ChainUnaryInterceptor`:
+
+```go
+grpcServer := grpc.NewServer(
+    grpc.ChainUnaryInterceptor(
+        recoveryInterceptor,
+        loggingInterceptor,
+        jwtInterceptor.UnaryServerInterceptor(),
+    ),
+    grpc.ChainStreamInterceptor(
+        recoveryInterceptor,
+        loggingInterceptor,
+        jwtInterceptor.StreamServerInterceptor(),
+    ),
+)
+```
+
+### ConnectRPC
+
+This integration targets the standard `google.golang.org/grpc` server. If you are using
+[ConnectRPC](https://connectrpc.com), use the HTTP middleware instead since Connect
+services are served over standard `net/http` handlers.
 
 See the [gRPC integration documentation](../../integrations/grpc/doc.go) for more details.

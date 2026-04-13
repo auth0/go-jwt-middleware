@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -254,6 +255,67 @@ func TestUnaryServerInterceptor_ExcludedMethods(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "success", resp)
 	assert.True(t, handlerCalled)
+}
+
+func TestUnaryServerInterceptor_ExclusionHandler(t *testing.T) {
+	v := createTestValidator(t)
+	interceptor, err := New(
+		WithValidator(v),
+		WithExclusionHandler(func(method string) bool {
+			return strings.HasPrefix(method, "/test.Service/Public")
+		}),
+	)
+	require.NoError(t, err)
+
+	handlerCalled := false
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		handlerCalled = true
+		assert.False(t, HasClaims(ctx))
+		return "success", nil
+	}
+
+	ctx := context.Background()
+
+	resp, err := interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/PublicMethod"}, handler)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "success", resp)
+	assert.True(t, handlerCalled)
+}
+
+func TestUnaryServerInterceptor_ExclusionHandler_CombinedWithExcludedMethods(t *testing.T) {
+	v := createTestValidator(t)
+	interceptor, err := New(
+		WithValidator(v),
+		WithExcludedMethods("/test.Service/HealthCheck"),
+		WithExclusionHandler(func(method string) bool {
+			return strings.HasPrefix(method, "/test.Service/Public")
+		}),
+	)
+	require.NoError(t, err)
+
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "success", nil
+	}
+
+	ctx := context.Background()
+
+	// Static exclusion works
+	resp, err := interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/HealthCheck"}, handler)
+	assert.NoError(t, err)
+	assert.Equal(t, "success", resp)
+
+	// Dynamic exclusion works
+	resp, err = interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/PublicEndpoint"}, handler)
+	assert.NoError(t, err)
+	assert.Equal(t, "success", resp)
+
+	// Non-excluded method requires auth
+	resp, err = interceptor.UnaryServerInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/PrivateMethod"}, handler)
+	assert.Error(t, err)
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Unauthenticated, st.Code())
 }
 
 func TestUnaryServerInterceptor_ValidatorError(t *testing.T) {

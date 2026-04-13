@@ -82,6 +82,8 @@ grpcServer := grpc.NewServer(
 )
 ```
 
+The gRPC interceptor also supports Multiple Custom Domains (MCD) with `WithIssuers` or `WithIssuersResolver`, and automatic JWKS routing via `MultiIssuerProvider`. See the [gRPC integration docs](./integrations/grpc/doc.go) for details.
+
 ### 🎁 Type-Safe Claims with Generics
 Use Go 1.24+ generics for compile-time type safety:
 

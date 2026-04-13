@@ -52,6 +52,16 @@ func TestNew_InvalidConfiguration(t *testing.T) {
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrErrorHandlerNil)
 	})
+
+	t.Run("nil exclusion handler option", func(t *testing.T) {
+		jwtValidator := createTestValidator(t)
+		_, err := New(
+			WithValidator(jwtValidator),
+			WithExclusionHandler(nil),
+		)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrExclusionHandlerNil)
+	})
 }
 
 func TestOptions(t *testing.T) {
@@ -104,6 +114,17 @@ func TestOptions(t *testing.T) {
 		interceptor, err := New(
 			WithValidator(jwtValidator),
 			WithExcludedMethods("/health.Check", "/grpc.health.v1.Health/Check"),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, interceptor)
+	})
+
+	t.Run("WithExclusionHandler", func(t *testing.T) {
+		interceptor, err := New(
+			WithValidator(jwtValidator),
+			WithExclusionHandler(func(method string) bool {
+				return method == "/test.Service/Public"
+			}),
 		)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)

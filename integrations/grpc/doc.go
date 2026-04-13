@@ -55,6 +55,34 @@
 //	    server.Serve(listener)
 //	}
 //
+// # Multiple Custom Domains (MCD)
+//
+// The gRPC interceptor works with multi-issuer setups out of the box.
+// Configure the validator with multiple issuers and use MultiIssuerProvider
+// for automatic JWKS routing:
+//
+//	provider, err := jwks.NewMultiIssuerProvider()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	jwtValidator, err := validator.New(
+//	    validator.WithKeyFunc(provider.KeyFunc),
+//	    validator.WithAlgorithm(validator.RS256),
+//	    validator.WithIssuers([]string{
+//	        "https://tenant-a.us.auth0.com/",
+//	        "https://tenant-a.eu.auth0.com/",
+//	    }),
+//	    validator.WithAudience("my-grpc-api"),
+//	)
+//
+//	interceptor, err := jwtgrpc.New(
+//	    jwtgrpc.WithValidator(jwtValidator),
+//	)
+//
+// For dynamic issuer resolution (e.g., database-backed or per-tenant),
+// use WithIssuersResolver instead of WithIssuers.
+//
 // # Advanced Configuration
 //
 // Combine multiple options for advanced features:
@@ -72,10 +100,38 @@
 //
 //   - Unary and streaming interceptor support
 //   - Token extraction from gRPC metadata
-//   - Method exclusions for public endpoints
+//   - Static and dynamic method exclusions for public endpoints
 //   - Custom error handling with gRPC status codes
 //   - Optional logging
 //   - Type-safe claims retrieval with generics
+//
+// # Interceptor Chaining
+//
+// Most production gRPC servers use multiple interceptors (logging, tracing,
+// recovery, etc.). Use grpc.ChainUnaryInterceptor and grpc.ChainStreamInterceptor
+// to combine this interceptor with others:
+//
+//	grpcServer := grpc.NewServer(
+//	    grpc.ChainUnaryInterceptor(
+//	        recoveryInterceptor,
+//	        loggingInterceptor,
+//	        interceptor.UnaryServerInterceptor(), // JWT auth
+//	    ),
+//	    grpc.ChainStreamInterceptor(
+//	        recoveryInterceptor,
+//	        loggingInterceptor,
+//	        interceptor.StreamServerInterceptor(), // JWT auth
+//	    ),
+//	)
+//
+// Place recovery and logging interceptors before JWT auth so that panics are
+// caught and all requests are logged, including unauthenticated ones.
+//
+// # ConnectRPC
+//
+// This package targets the standard google.golang.org/grpc server. If you are using
+// ConnectRPC (connectrpc.com), use the HTTP middleware (github.com/auth0/go-jwt-middleware/v3)
+// instead, since Connect services are served over standard net/http handlers.
 //
 // # Claims Retrieval
 //

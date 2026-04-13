@@ -47,6 +47,9 @@ var (
 
 	// ErrLoggerNil is returned when a nil logger is provided.
 	ErrLoggerNil = errors.New("logger cannot be nil")
+
+	// ErrExclusionHandlerNil is returned when a nil exclusion handler is provided.
+	ErrExclusionHandlerNil = errors.New("exclusion handler cannot be nil")
 )
 
 // WithValidator sets the JWT validator (REQUIRED).
@@ -137,15 +140,49 @@ func WithErrorHandler(handler ErrorHandler) Option {
 
 // WithExcludedMethods excludes specific gRPC methods from JWT validation.
 // Methods should be provided in the format: "/package.Service/Method"
-// Example: "/myapp.MyService/PublicMethod", "/grpc.health.v1.Health/Check"
+//
+// For more advanced exclusion logic (prefix matching, regex, etc.),
+// use WithExclusionHandler instead.
+//
+// Example:
+//
+//	jwtgrpc.WithExcludedMethods(
+//	    "/myapp.MyService/PublicMethod",
+//	    "/grpc.health.v1.Health/Check",
+//	)
 func WithExcludedMethods(methods ...string) Option {
 	return func(i *JWTInterceptor) error {
 		if i.excludedMethods == nil {
-			i.excludedMethods = make(map[string]bool)
+			i.excludedMethods = make(map[string]struct{})
 		}
 		for _, method := range methods {
-			i.excludedMethods[method] = true
+			i.excludedMethods[method] = struct{}{}
 		}
+		return nil
+	}
+}
+
+// WithExclusionHandler sets a function that dynamically determines whether a gRPC
+// method should be excluded from JWT validation. The handler receives the full method
+// name (e.g., "/package.Service/Method") and returns true to skip validation.
+//
+// This is useful for prefix-based matching, regex patterns, or any custom logic
+// that goes beyond a static list of methods.
+//
+// Can be combined with WithExcludedMethods. The static list is checked first,
+// then the handler is called if no static match is found.
+//
+// Example (prefix matching):
+//
+//	jwtgrpc.WithExclusionHandler(func(method string) bool {
+//	    return strings.HasPrefix(method, "/grpc.health.")
+//	})
+func WithExclusionHandler(handler ExclusionHandler) Option {
+	return func(i *JWTInterceptor) error {
+		if handler == nil {
+			return ErrExclusionHandlerNil
+		}
+		i.exclusionHandler = handler
 		return nil
 	}
 }

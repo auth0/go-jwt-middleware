@@ -9,13 +9,19 @@ import (
 	"google.golang.org/grpc"
 )
 
+// ExclusionHandler is a function that determines whether a gRPC method should
+// be excluded from JWT validation. It receives the full method name
+// (e.g., "/package.Service/Method") and returns true if the method should be skipped.
+type ExclusionHandler func(fullMethod string) bool
+
 // JWTInterceptor provides JWT validation for gRPC servers.
 type JWTInterceptor struct {
-	core            *core.Core
-	tokenExtractor  TokenExtractor
-	errorHandler    ErrorHandler
-	excludedMethods map[string]bool
-	logger          Logger
+	core             *core.Core
+	tokenExtractor   TokenExtractor
+	errorHandler     ErrorHandler
+	excludedMethods  map[string]struct{}
+	exclusionHandler ExclusionHandler
+	logger           Logger
 
 	// Temporary fields used during construction
 	validator           *validator.Validator
@@ -36,7 +42,7 @@ type JWTInterceptor struct {
 //	}
 func New(opts ...Option) (*JWTInterceptor, error) {
 	interceptor := &JWTInterceptor{
-		excludedMethods:     make(map[string]bool),
+		excludedMethods:     make(map[string]struct{}),
 		credentialsOptional: false, // Credentials required by default
 	}
 
@@ -108,7 +114,7 @@ func (i *JWTInterceptor) UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
 		// Check if method is excluded
-		if i.excludedMethods[info.FullMethod] {
+		if i.isExcluded(info.FullMethod) {
 			if i.logger != nil {
 				i.logger.Debug("skipping JWT validation for excluded method",
 					"method", info.FullMethod)
@@ -138,7 +144,7 @@ func (i *JWTInterceptor) StreamServerInterceptor() grpc.StreamServerInterceptor 
 		handler grpc.StreamHandler,
 	) error {
 		// Check if method is excluded
-		if i.excludedMethods[info.FullMethod] {
+		if i.isExcluded(info.FullMethod) {
 			if i.logger != nil {
 				i.logger.Debug("skipping JWT validation for excluded method",
 					"method", info.FullMethod)
@@ -160,6 +166,18 @@ func (i *JWTInterceptor) StreamServerInterceptor() grpc.StreamServerInterceptor 
 
 		return handler(srv, wrappedStream)
 	}
+}
+
+// isExcluded checks if a gRPC method should skip JWT validation.
+// It checks the static excluded methods set first, then the dynamic exclusion handler.
+func (i *JWTInterceptor) isExcluded(fullMethod string) bool {
+	if _, ok := i.excludedMethods[fullMethod]; ok {
+		return true
+	}
+	if i.exclusionHandler != nil {
+		return i.exclusionHandler(fullMethod)
+	}
+	return false
 }
 
 // validateRequest extracts and validates the JWT from the context.

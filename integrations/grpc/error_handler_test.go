@@ -20,16 +20,6 @@ func TestDefaultErrorHandler_JWTMissing(t *testing.T) {
 	assert.Equal(t, "missing credentials", st.Message())
 }
 
-func TestDefaultErrorHandler_TokenMissing(t *testing.T) {
-	validationErr := core.NewValidationError(core.ErrorCodeTokenMissing, "token is missing", nil)
-	err := DefaultErrorHandler(validationErr)
-
-	st, ok := status.FromError(err)
-	assert.True(t, ok)
-	assert.Equal(t, codes.Unauthenticated, st.Code())
-	assert.Equal(t, "missing credentials", st.Message())
-}
-
 func TestDefaultErrorHandler_TokenExpired(t *testing.T) {
 	validationErr := core.NewValidationError(core.ErrorCodeTokenExpired, "token has expired", nil)
 	err := DefaultErrorHandler(validationErr)
@@ -56,7 +46,7 @@ func TestDefaultErrorHandler_InvalidIssuer(t *testing.T) {
 
 	st, ok := status.FromError(err)
 	assert.True(t, ok)
-	assert.Equal(t, codes.PermissionDenied, st.Code())
+	assert.Equal(t, codes.Unauthenticated, st.Code())
 	assert.Equal(t, "invalid issuer", st.Message())
 }
 
@@ -66,7 +56,7 @@ func TestDefaultErrorHandler_InvalidAudience(t *testing.T) {
 
 	st, ok := status.FromError(err)
 	assert.True(t, ok)
-	assert.Equal(t, codes.PermissionDenied, st.Code())
+	assert.Equal(t, codes.Unauthenticated, st.Code())
 	assert.Equal(t, "invalid audience", st.Message())
 }
 

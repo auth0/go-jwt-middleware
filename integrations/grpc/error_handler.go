@@ -15,8 +15,7 @@ type ErrorHandler func(error) error
 // It returns gRPC status errors that follow standard gRPC error handling conventions.
 //
 // Error mapping:
-//   - Token missing/expired/invalid signature → Unauthenticated
-//   - Invalid issuer/audience → PermissionDenied
+//   - Token expired/invalid signature/issuer/audience → Unauthenticated
 //   - Extractor errors (malformed header) → InvalidArgument
 //   - JWKS/infrastructure errors → Internal
 //   - Unknown errors → Unauthenticated (secure default)
@@ -53,16 +52,14 @@ func DefaultErrorHandler(err error) error {
 // This function relies on error codes from core package for reliable error classification.
 func mapValidationError(err *core.ValidationError) error {
 	switch err.Code {
-	case core.ErrorCodeTokenMissing:
-		return status.Error(codes.Unauthenticated, "missing credentials")
 	case core.ErrorCodeTokenExpired:
 		return status.Error(codes.Unauthenticated, "token expired")
 	case core.ErrorCodeTokenNotYetValid:
 		return status.Error(codes.Unauthenticated, "token not yet valid")
 	case core.ErrorCodeInvalidIssuer:
-		return status.Error(codes.PermissionDenied, "invalid issuer")
+		return status.Error(codes.Unauthenticated, "invalid issuer")
 	case core.ErrorCodeInvalidAudience:
-		return status.Error(codes.PermissionDenied, "invalid audience")
+		return status.Error(codes.Unauthenticated, "invalid audience")
 	case core.ErrorCodeInvalidSignature:
 		return status.Error(codes.Unauthenticated, "invalid signature")
 	case core.ErrorCodeTokenMalformed:
