@@ -57,7 +57,6 @@ func (e *ValidationError) Is(target error) bool {
 
 // Common error codes
 const (
-	ErrorCodeTokenMissing     = "token_missing" //nolint:gosec // False positive: this is not a credential
 	ErrorCodeTokenMalformed   = "token_malformed"
 	ErrorCodeTokenExpired     = "token_expired"
 	ErrorCodeTokenNotYetValid = "token_not_yet_valid" //nolint:gosec // False positive: this is not a credential

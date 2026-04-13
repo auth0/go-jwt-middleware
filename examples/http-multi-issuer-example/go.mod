@@ -1,4 +1,4 @@
-module example.com/http-dpop
+module example.com/http-jwks
 
 go 1.24.0
 

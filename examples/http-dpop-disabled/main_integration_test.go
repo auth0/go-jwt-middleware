@@ -414,7 +414,7 @@ func TestDPoPDisabled_EmptyBearer_WithProof(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer ") // Empty token
-	req.Header.Set("DPoP", dpopProof)           // Proof is ignored in DISABLED mode
+	req.Header.Set("DPoP", dpopProof)          // Proof is ignored in DISABLED mode
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

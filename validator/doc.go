@@ -8,7 +8,8 @@ registered claims validation, and custom claims support.
 # Features
 
   - Signature verification using multiple algorithms (RS256, HS256, ES256, EdDSA, etc.)
-  - Validation of registered claims (iss, aud, exp, nbf, iat)
+  - Automatic validation of registered claims (iss, aud, exp, nbf, iat)
+  - exp (expiration time) and nbf (not before) validated automatically - secure by default
   - Support for custom claims with validation logic
   - Clock skew tolerance for time-based claims
   - JWKS (JSON Web Key Set) support via key functions
@@ -69,13 +70,9 @@ EdDSA:
 	// Type assert to ValidatedClaims
 	validatedClaims := claims.(*validator.ValidatedClaims)
 
-# Custom Claims
+Note: The validator automatically checks exp (expiration time) and nbf (not before)
+claims - you don't need to validate these yourself. This is secure by default.
 
-Define custom claims by implementing the CustomClaims interface:
-
-	type MyCustomClaims struct {
-	    Scope       string   `json:"scope"`
-	    Permissions []string `json:"permissions"`
 	}
 
 	func (c *MyCustomClaims) Validate(ctx context.Context) error {
@@ -102,10 +99,37 @@ Define custom claims by implementing the CustomClaims interface:
 	customClaims := validatedClaims.CustomClaims.(*MyCustomClaims)
 	fmt.Println(customClaims.Scope)
 
+# Multiple Algorithms
+
+For mixed-algorithm environments (e.g., MCD with RS256 + HS256 issuers),
+use WithAlgorithms to allow multiple algorithms:
+
+	v, err := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    validator.WithAlgorithms([]validator.SignatureAlgorithm{
+	        validator.RS256,
+	        validator.HS256,
+	    }),
+	    validator.WithIssuer("https://issuer.example.com/"),
+	    validator.WithAudience("my-api"),
+	)
+
+Algorithm enforcement: The validator extracts the alg header from incoming
+tokens and rejects any token whose algorithm is not in the allowed list.
+This check happens before JWKS fetch and signature verification (fail-fast),
+preventing algorithm confusion attacks (e.g., an attacker sending an HS256
+token when only RS256 is expected).
+
+Note: When using WithAlgorithms with multiple algorithms, the key provider
+must return jwk.Set (not raw keys). Use MultiIssuerProvider with
+WithIssuerKeyConfig for symmetric issuers, or a CachingProvider for
+asymmetric issuers.
+
 # Multiple Issuers and Audiences
 
 Support tokens from multiple issuers or for multiple audiences:
 
+	// Static issuer list
 	v, err := validator.New(
 	    validator.WithKeyFunc(keyFunc),
 	    validator.WithAlgorithm(validator.RS256),
@@ -117,6 +141,17 @@ Support tokens from multiple issuers or for multiple audiences:
 	        "api1",
 	        "api2",
 	    }),
+	)
+
+	// Dynamic issuer resolution (multi-tenant)
+	v, err := validator.New(
+	    validator.WithKeyFunc(keyFunc),
+	    validator.WithAlgorithm(validator.RS256),
+	    validator.WithIssuersResolver(func(ctx context.Context) ([]string, error) {
+	        tenant := ctx.Value("tenant").(string)
+	        return db.GetIssuersForTenant(ctx, tenant)
+	    }),
+	    validator.WithAudience("my-api"),
 	)
 
 # Clock Skew Tolerance

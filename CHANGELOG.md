@@ -1,5 +1,11 @@
 # Change Log
 
+## [v3.1.0](https://github.com/auth0/go-jwt-middleware/tree/v3.1.0) (2026-04-09)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v3.0.0...v3.1.0)
+
+**Added**
+- feat(MCD): implement multiple custom domains support [\#368](https://github.com/auth0/go-jwt-middleware/pull/368) ([developerkunal](https://github.com/developerkunal))
+
 ## [v3.0.0](https://github.com/auth0/go-jwt-middleware/tree/v3.0.0) (2026-01-19)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v2.3.1...v3.0.0)
 

@@ -21,6 +21,47 @@ var (
 	ErrJWTInvalid = core.ErrJWTInvalid
 )
 
+// ValidationError is a structured JWT validation error with a machine-readable code.
+// Use errors.As to extract it from errors returned to custom ErrorHandler functions:
+//
+//	var validationErr *jwtmiddleware.ValidationError
+//	if errors.As(err, &validationErr) {
+//	    switch validationErr.Code {
+//	    case jwtmiddleware.ErrorCodeTokenExpired:
+//	        // handle expired token
+//	    }
+//	}
+type ValidationError = core.ValidationError
+
+// Error codes for ValidationError.Code.
+// These identify the specific reason a JWT was rejected.
+const (
+	// Token validation error codes.
+	ErrorCodeTokenMalformed   = core.ErrorCodeTokenMalformed   // Token could not be parsed
+	ErrorCodeTokenExpired     = core.ErrorCodeTokenExpired     // Token exp claim is in the past
+	ErrorCodeTokenNotYetValid = core.ErrorCodeTokenNotYetValid // Token nbf/iat claim is in the future
+	ErrorCodeInvalidSignature = core.ErrorCodeInvalidSignature // Token signature verification failed
+	ErrorCodeInvalidAlgorithm = core.ErrorCodeInvalidAlgorithm // Token uses a disallowed algorithm
+	ErrorCodeInvalidIssuer    = core.ErrorCodeInvalidIssuer    // Token issuer is not trusted
+	ErrorCodeInvalidAudience  = core.ErrorCodeInvalidAudience  // Token audience does not match
+	ErrorCodeInvalidClaims    = core.ErrorCodeInvalidClaims    // Custom claims validation failed
+	ErrorCodeJWKSFetchFailed  = core.ErrorCodeJWKSFetchFailed  // Failed to fetch signing keys
+	ErrorCodeJWKSKeyNotFound  = core.ErrorCodeJWKSKeyNotFound  // No matching key found in JWKS
+	ErrorCodeInvalidToken     = core.ErrorCodeInvalidToken     // Access token is invalid (e.g., DPoP scheme without cnf claim)
+	ErrorCodeInvalidRequest   = core.ErrorCodeInvalidRequest   // Request format is invalid (e.g., Bearer + DPoP proof)
+
+	// DPoP proof validation error codes (RFC 9449).
+	ErrorCodeDPoPProofMissing    = core.ErrorCodeDPoPProofMissing    // DPoP proof header is missing
+	ErrorCodeDPoPProofInvalid    = core.ErrorCodeDPoPProofInvalid    // DPoP proof is malformed or has invalid signature
+	ErrorCodeDPoPBindingMismatch = core.ErrorCodeDPoPBindingMismatch // DPoP proof thumbprint does not match token cnf/jkt
+	ErrorCodeDPoPHTMMismatch     = core.ErrorCodeDPoPHTMMismatch     // DPoP proof htm claim does not match HTTP method
+	ErrorCodeDPoPHTUMismatch     = core.ErrorCodeDPoPHTUMismatch     // DPoP proof htu claim does not match request URI
+	ErrorCodeDPoPATHMismatch     = core.ErrorCodeDPoPATHMismatch     // DPoP proof ath claim does not match access token hash
+	ErrorCodeDPoPProofExpired    = core.ErrorCodeDPoPProofExpired    // DPoP proof iat is too far in the past
+	ErrorCodeDPoPProofTooNew     = core.ErrorCodeDPoPProofTooNew     // DPoP proof iat is too far in the future
+	ErrorCodeDPoPNotAllowed      = core.ErrorCodeDPoPNotAllowed      // DPoP scheme used when DPoP is disabled
+)
+
 // ErrorHandler is a handler which is called when an error occurs in the
 // JWTMiddleware. The handler determines the HTTP response when a token is
 // not found, is invalid, or other errors occur.
@@ -155,34 +196,45 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 
 	case core.ErrorCodeTokenMalformed:
 		headers := buildWWWAuthenticateHeaders(
-			"invalid_request", "The access token is malformed",
-			authScheme, dpopMode, false, // Bearer error
+			"invalid_token", "The access token is malformed",
+			authScheme, dpopMode, true, // ambiguous - malformed token affects all schemes
 		)
-		return http.StatusBadRequest, ErrorResponse{
-			Error:            "invalid_request",
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
 			ErrorDescription: "The access token is malformed",
 			ErrorCode:        err.Code,
 		}, headers
 
 	case core.ErrorCodeInvalidIssuer:
 		headers := buildWWWAuthenticateHeaders(
-			"insufficient_scope", "The access token was issued by an untrusted issuer",
+			"invalid_token", "The access token was issued by an untrusted issuer",
 			authScheme, dpopMode, false, // Bearer error
 		)
-		return http.StatusForbidden, ErrorResponse{
-			Error:            "insufficient_scope",
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
 			ErrorDescription: "The access token was issued by an untrusted issuer",
 			ErrorCode:        err.Code,
 		}, headers
 
 	case core.ErrorCodeInvalidAudience:
 		headers := buildWWWAuthenticateHeaders(
-			"insufficient_scope", "The access token audience does not match",
+			"invalid_token", "The access token audience does not match",
 			authScheme, dpopMode, false, // Bearer error
 		)
-		return http.StatusForbidden, ErrorResponse{
-			Error:            "insufficient_scope",
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
 			ErrorDescription: "The access token audience does not match",
+			ErrorCode:        err.Code,
+		}, headers
+
+	case core.ErrorCodeInvalidClaims:
+		headers := buildWWWAuthenticateHeaders(
+			"invalid_token", "The access token claims are invalid",
+			authScheme, dpopMode, false, // Bearer error
+		)
+		return http.StatusUnauthorized, ErrorResponse{
+			Error:            "invalid_token",
+			ErrorDescription: "The access token claims are invalid",
 			ErrorCode:        err.Code,
 		}, headers
 
@@ -236,16 +288,6 @@ func mapValidationError(err *core.ValidationError, authScheme AuthScheme, dpopMo
 		return http.StatusUnauthorized, ErrorResponse{
 			Error:            "invalid_token",
 			ErrorDescription: err.Message,
-			ErrorCode:        err.Code,
-		}, headers
-
-	case core.ErrorCodeBearerNotAllowed:
-		headers := []string{
-			fmt.Sprintf(`DPoP algs="%s", error="invalid_request", error_description="Bearer tokens are not allowed (DPoP required)"`, validator.DPoPSupportedAlgorithms),
-		}
-		return http.StatusBadRequest, ErrorResponse{
-			Error:            "invalid_request",
-			ErrorDescription: "Bearer tokens are not allowed (DPoP required)",
 			ErrorCode:        err.Code,
 		}, headers
 

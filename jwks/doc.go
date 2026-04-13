@@ -14,18 +14,28 @@ JWKS providers handle the complexity of:
   - Thread-safe concurrent access
   - Automatic cache refresh
 
-# Provider vs CachingProvider
+# Choosing the Right Provider
 
 Provider: Simple JWKS fetcher without caching
   - Fetches JWKS on every request
   - Suitable for development/testing
   - No memory overhead
+  - Use for: Testing, single-use scenarios
 
 CachingProvider: Production-ready with intelligent caching
   - Caches JWKS with configurable TTL (default: 15 minutes)
   - Thread-safe with proper locking
-  - Prevents thundering herd on cache refresh
-  - Recommended for production use
+  - Proactive background refresh at 80% TTL
+  - OIDC discovery cached after first successful fetch (retries on transient failure)
+  - Use for: Single issuer production applications
+
+MultiIssuerProvider: Multi-tenant with dynamic JWKS routing
+  - Automatically routes JWKS requests per issuer
+  - Lazy loading - creates providers on-demand
+  - LRU eviction for memory management (optional)
+  - Custom cache support (e.g., Redis)
+  - OIDC discovery cached per issuer after first successful fetch (retries on transient failure)
+  - Use for: Multi-tenant SaaS, multiple Auth0 tenants, dynamic issuers
 
 # Basic Usage with Provider
 
@@ -87,6 +97,63 @@ Skip OIDC discovery and use a custom JWKS URI:
 	    jwks.WithCacheTTL(10*time.Minute),
 	)
 
+Note: OIDC discovery (fetching .well-known/openid-configuration) is performed
+once per provider after the first successful fetch. If discovery fails transiently
+(network blip, DNS timeout, IdP 503), it will be retried on the next request.
+The discovered JWKS URI is cached for the lifetime of the provider.
+If you need dynamic JWKS URI updates, use WithCustomJWKSURI or restart the application.
+
+# Custom HTTP Client
+
+Configure timeouts, proxies, or custom transport:
+
+	customClient := &http.Client{
+	    Timeout: 10 * time.Second,
+	    Transport: myCustomTransport,
+	}
+
+	provider, _ := jwks.NewCachingProvider(
+	    jwks.WithIssuerURL(issuerURL),
+	    jwks.WithCustomClient(customClient),
+	)
+
+# Cache-Control Header Support
+
+The SDK respects HTTP Cache-Control headers from JWKS responses only when the
+configured TTL is shorter than the max-age value. This allows extending cache
+time when the provider permits longer caching.
+
+Behavior:
+  - Uses Cache-Control max-age only when configured TTL < max-age
+  - Allows providers to extend cache time for stable keys
+  - Configured TTL acts as a minimum refresh interval
+  - Validates max-age is reasonable (1 second to 7 days)
+
+Example:
+
+	// Configure 15-minute default TTL
+	provider, _ := jwks.NewCachingProvider(
+	    jwks.WithIssuerURL(issuerURL),
+	    jwks.WithCacheTTL(15*time.Minute),
+	)
+
+	// Case 1: JWKS response "Cache-Control: max-age=3600" (1 hour)
+	// → Uses 1 hour (configured TTL 15 min < max-age 1 hour, so uses max-age)
+
+	// Case 2: JWKS response "Cache-Control: max-age=300" (5 minutes)
+	// → Uses 15 minutes (configured TTL 15 min > max-age 5 min, so uses configured TTL)
+
+	// Case 3: JWKS response "Cache-Control: max-age=86400000"
+	// → Rejects (exceeds 7-day max), uses 15 min configured TTL
+
+	// Case 4: No Cache-Control header
+	// → Uses 15-minute configured TTL
+
+Security limits:
+  - Minimum: 1 second (prevents rapid refresh attacks)
+  - Maximum: 7 days (prevents indefinite caching)
+  - Final TTL: max-age if (configured TTL < max-age), otherwise configured TTL
+
 # Custom HTTP Client
 
 Configure timeouts, proxies, or custom transport:
@@ -120,6 +187,164 @@ Implement your own cache (e.g., Redis-backed):
 	    jwks.WithIssuerURL(issuerURL),
 	    jwks.WithCache(customCache),
 	)
+
+# Multi-Issuer Support
+
+For applications accepting JWTs from multiple issuers (multi-tenant SaaS,
+multiple Auth0 tenants, or domain migrations):
+
+Basic multi-issuer setup:
+
+	// Create multi-issuer provider
+	provider, err := jwks.NewMultiIssuerProvider(
+	    jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+	)
+
+	// Use with multiple issuers
+	v, err := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    validator.WithAlgorithm(validator.RS256),
+	    validator.WithIssuers([]string{
+	        "https://tenant1.auth0.com/",
+	        "https://tenant2.auth0.com/",
+	        "https://tenant3.auth0.com/",
+	    }),
+	    validator.WithAudience("my-api"),
+	)
+
+The MultiIssuerProvider:
+  - Extracts validated issuer from request context
+  - Routes JWKS requests to the correct issuer-specific provider
+  - Creates providers lazily (on first request per issuer)
+  - Caches providers for future requests
+  - Thread-safe with double-checked locking
+
+# Large-Scale Multi-Tenant (100+ Tenants)
+
+For applications with many tenants, use Redis and LRU eviction:
+
+	// Create Redis cache
+	redisCache := &RedisCache{
+	    client: redis.NewClient(&redis.Options{
+	        Addr: "localhost:6379",
+	    }),
+	    ttl: 5 * time.Minute,
+	}
+
+	// Configure with Redis and LRU
+	provider, err := jwks.NewMultiIssuerProvider(
+	    jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+	    jwks.WithMultiIssuerCache(redisCache),  // Share JWKS across instances
+	    jwks.WithMaxProviders(1000),            // Limit to 1000 providers in memory
+	)
+
+Benefits of Redis + LRU for large scale:
+  - JWKS data shared across multiple application instances
+  - Reduced memory footprint per instance
+  - Automatic TTL management via Redis
+  - LRU eviction prevents unbounded memory growth
+  - Handles thousands of tenants efficiently
+
+# MultiIssuerProvider Options
+
+Available configuration options:
+
+	WithMultiIssuerCacheTTL(ttl time.Duration)
+	    - JWKS cache refresh interval for all issuers
+	    - Default: 15 minutes
+	    - Recommended: 5-15 minutes
+
+	WithMultiIssuerHTTPClient(client *http.Client)
+	    - Custom HTTP client for all JWKS fetching
+	    - Default: 30s timeout
+	    - Use for: Custom timeouts, proxies, instrumentation
+
+	WithMultiIssuerCache(cache Cache)
+	    - Custom cache implementation (e.g., Redis)
+	    - Default: In-memory per provider
+	    - Use for: 100+ tenants, distributed caching
+
+	WithMaxProviders(max int)
+	    - Maximum number of issuer providers to cache
+	    - Default: 100 (recommended for MCD scenarios)
+	    - Passing 0 resets to default (100)
+	    - Recommended: 500-1000 for large-scale apps
+	    - LRU eviction removes least-recently-used providers
+
+	WithIssuerKeyConfig(issuer string, config IssuerKeyConfig)
+	    - Configure a symmetric key for a single issuer
+	    - Requires Secret (shared secret) and Algorithm (HS256/HS384/HS512)
+	    - Optional KeyID for kid-based token matching
+	    - Symmetric issuers bypass OIDC discovery entirely
+	    - Use for: Single symmetric issuer in mixed MCD
+
+	WithIssuerKeyConfigs(configs map[string]IssuerKeyConfig)
+	    - Batch configure symmetric keys for multiple issuers
+	    - Same validation as WithIssuerKeyConfig, applied to each entry
+	    - Can be combined with singular WithIssuerKeyConfig
+	    - Use for: Multiple symmetric issuers in mixed MCD
+
+	WithMultiIssuerStrictJWKSURIOrigin()
+	    - Requires jwks_uri to share scheme+host with issuer (opt-in)
+	    - Enable for Auth0, Okta, Azure AD (JWKS on same origin as issuer)
+	    - Do not enable for Google/Firebase (JWKS on different host)
+	    - HTTPS on jwks_uri is always enforced when issuer uses HTTPS
+
+# Mixed-Algorithm MCD (Symmetric + Asymmetric Issuers)
+
+For MCD scenarios where some issuers use symmetric algorithms (HS256) and
+others use asymmetric algorithms (RS256 via OIDC discovery):
+
+	provider, err := jwks.NewMultiIssuerProvider(
+	    jwks.WithMultiIssuerCacheTTL(5*time.Minute),
+	    // Configure symmetric issuers with pre-shared secrets (batch)
+	    jwks.WithIssuerKeyConfigs(map[string]jwks.IssuerKeyConfig{
+	        "https://service-a.example.com/": {Secret: []byte("secret-a"), Algorithm: validator.HS256},
+	        "https://service-b.example.com/": {Secret: []byte("secret-b"), Algorithm: validator.HS256},
+	    }),
+	    // Asymmetric issuers (RS256) use OIDC discovery automatically
+	)
+
+	v, err := validator.New(
+	    validator.WithKeyFunc(provider.KeyFunc),
+	    // Allow both RS256 and HS256 tokens
+	    validator.WithAlgorithms([]validator.SignatureAlgorithm{
+	        validator.RS256,
+	        validator.HS256,
+	    }),
+	    validator.WithIssuers([]string{
+	        "https://tenant1.auth0.com/",       // RS256 via OIDC discovery
+	        "https://symmetric-issuer.com/",     // HS256 via pre-shared secret
+	    }),
+	    validator.WithAudience("my-api"),
+	)
+
+The MultiIssuerProvider handles symmetric issuers by:
+  - Wrapping the secret in a jwk.Set with the algorithm embedded
+  - Returning the static key set directly (no OIDC discovery needed)
+  - Falling through to OIDC discovery for non-symmetric issuers
+
+The validator enforces algorithm policy by:
+  - Checking the token's alg header before JWKS fetch (fail-fast)
+  - Rejecting tokens with algorithms not in the allowed list
+
+# When to Use MultiIssuerProvider vs CachingProvider
+
+Use CachingProvider when:
+  - You have a single OIDC issuer
+  - All tokens come from one Auth0 tenant
+  - Simpler configuration is preferred
+
+Use MultiIssuerProvider when:
+  - Multi-tenant SaaS application (each tenant has own issuer)
+  - Multiple Auth0 tenants to support
+  - Domain migration (old + new domains)
+  - Dynamic issuer list from database
+  - Enterprise with multiple identity providers
+
+IMPORTANT: Always pair with correct validator option:
+  - MultiIssuerProvider → validator.WithIssuers() or WithIssuersResolver()
+  - CachingProvider → validator.WithIssuer() (single issuer only)
 
 # Cache Behavior
 
@@ -166,17 +391,59 @@ CachingProvider with default settings (15-minute TTL):
   - First request: ~100-500ms (OIDC discovery + JWKS fetch)
   - Cached requests: <1ms (memory lookup)
   - Cache refresh: ~50-200ms (JWKS fetch only, no discovery)
+  - Proactive refresh: Triggered at 80% TTL, users experience <1ms
+
+MultiIssuerProvider performance:
+  - First request per issuer: ~100-500ms (creates provider + JWKS fetch)
+  - Subsequent requests (same issuer): <1ms (cached provider)
+  - Provider creation: Thread-safe with double-checked locking
+  - With Redis cache: +1-5ms per request (Redis round-trip)
+  - LRU eviction: O(1) operation, no performance impact
 
 Recommended TTL values:
   - Development: 1-5 minutes (faster key rotation testing)
   - Production: 15-60 minutes (balance between freshness and performance)
   - High-security: 5-15 minutes (faster revocation detection)
+  - Multi-tenant: 5-15 minutes (good balance for many issuers)
+
+Scaling guidelines:
+  - < 10 issuers: Use MultiIssuerProvider with default in-memory cache
+  - 10-100 issuers: Default settings (maxProviders=100) are optimal
+  - 100-1000 issuers: Use Redis cache, consider WithMaxProviders(500)
+  - 1000+ issuers: Use Redis cache + WithMaxProviders(1000), monitor metrics
 
 # Security Notes
 
 1. Always use HTTPS URLs for issuerURL and JWKS URIs
-2. Consider shorter TTLs for high-security applications
-3. The cache does not validate key expiration (jwx handles this)
-4. Provider fetches all keys in the JWKS (jwx selects the right one)
+2. HTTPS is enforced on jwks_uri when the issuer uses HTTPS (prevents MITM downgrade)
+3. Use WithStrictJWKSURIOrigin/WithMultiIssuerStrictJWKSURIOrigin for same-origin validation
+4. Consider shorter TTLs for high-security applications
+5. The cache does not validate key expiration (jwx handles this)
+6. Provider fetches all keys in the JWKS (jwx selects the right one)
+7. MultiIssuerProvider validates issuer BEFORE fetching JWKS (prevents SSRF)
+8. Use validator.WithIssuers() to explicitly allowlist issuers
+9. For dynamic issuers, implement proper authorization in your resolver
+10. Monitor provider count in multi-tenant apps to detect abuse
+11. Dynamic issuer resolvers must not trust request-derived values directly; map them
+to a fixed allowlist of known issuer domains instead
+12. If using reverse proxies or load balancers, ensure host-related headers are trusted
+only when they come from trusted infrastructure
+
+# Thread Safety
+
+All providers are thread-safe and can be shared across goroutines:
+  - Provider: Thread-safe, no shared state
+  - CachingProvider: Thread-safe with RWMutex, proactive refresh prevents contention
+  - MultiIssuerProvider: Thread-safe with double-checked locking pattern
+
+Safe to use the same provider instance across all requests.
+
+# Examples
+
+See the examples directory for complete working code:
+  - examples/http-jwks-example: Basic CachingProvider setup
+  - examples/http-multi-issuer-example: MultiIssuerProvider with static list
+  - examples/http-multi-issuer-redis-example: Large-scale with Redis + LRU
+  - examples/http-dynamic-issuer-example: Dynamic issuer resolution
 */
 package jwks

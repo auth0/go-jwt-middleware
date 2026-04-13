@@ -355,7 +355,7 @@ func TestValidationError(t *testing.T) {
 	})
 
 	t.Run("error message without details", func(t *testing.T) {
-		err := NewValidationError(ErrorCodeTokenMissing, "token is missing", nil)
+		err := NewValidationError(ErrorCodeTokenMalformed, "token is missing", nil)
 
 		assert.Equal(t, "token is missing", err.Error())
 	})

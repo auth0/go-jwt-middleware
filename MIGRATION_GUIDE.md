@@ -122,7 +122,69 @@ type ExclusionUrlHandler func(r *http.Request) bool
 type ExclusionURLHandler func(r *http.Request) bool
 ```
 
-### 5. TokenExtractor Signature Change
+### 5. Structured Error Responses
+
+v3 returns specific HTTP status codes and error bodies for each validation failure instead of a generic 401 for everything.
+
+**v2:** All validation failures returned the same response:
+```
+HTTP 401 Unauthorized
+{"error":"invalid_token","error_description":"JWT is invalid"}
+```
+
+**v3:** Each failure type returns a specific response:
+
+| Failure | HTTP Status | `error` | `error_code` |
+|---------|------------|---------|-------------|
+| Malformed token | 401 | `invalid_token` | `token_malformed` |
+| Invalid algorithm | 401 | `invalid_token` | `invalid_algorithm` |
+| Invalid signature | 401 | `invalid_token` | `invalid_signature` |
+| Expired token | 401 | `invalid_token` | `token_expired` |
+| Not yet valid | 401 | `invalid_token` | `token_not_yet_valid` |
+| Invalid issuer | 401 | `invalid_token` | `invalid_issuer` |
+| Invalid audience | 401 | `invalid_token` | `invalid_audience` |
+| Invalid claims | 401 | `invalid_token` | `invalid_claims` |
+| JWKS fetch failed | 401 | `invalid_token` | `jwks_fetch_failed` |
+| JWKS key not found | 401 | `invalid_token` | `jwks_key_not_found` |
+
+**Custom error handlers** can now inspect specific error codes without importing `core`:
+
+```go
+func myErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+    var validationErr *jwtmiddleware.ValidationError
+    if errors.As(err, &validationErr) {
+        switch validationErr.Code {
+        case jwtmiddleware.ErrorCodeTokenExpired:
+            // handle expired token
+        case jwtmiddleware.ErrorCodeInvalidIssuer:
+            // handle untrusted issuer
+        default:
+            // handle other validation errors
+        }
+        return
+    }
+    if errors.Is(err, jwtmiddleware.ErrJWTMissing) {
+        // handle missing token
+        return
+    }
+    // handle unexpected errors
+}
+```
+
+Available error code constants on the `jwtmiddleware` package:
+
+- `ErrorCodeTokenMalformed` — token could not be parsed
+- `ErrorCodeTokenExpired` — token `exp` claim is in the past
+- `ErrorCodeTokenNotYetValid` — token `nbf`/`iat` claim is in the future
+- `ErrorCodeInvalidSignature` — signature verification failed
+- `ErrorCodeInvalidAlgorithm` — token uses a disallowed algorithm
+- `ErrorCodeInvalidIssuer` — token issuer is not trusted
+- `ErrorCodeInvalidAudience` — token audience does not match
+- `ErrorCodeInvalidClaims` — custom claims validation failed
+- `ErrorCodeJWKSFetchFailed` — failed to fetch signing keys
+- `ErrorCodeJWKSKeyNotFound` — no matching key found in JWKS
+
+### 6. TokenExtractor Signature Change
 
 `TokenExtractor` now returns `ExtractedToken` (with scheme) instead of `string`:
 
@@ -582,14 +644,14 @@ middleware, err := jwtmiddleware.New(
 )
 ```
 
-### 2. Enhanced Error Responses
+### 2. Structured Error Responses
 
-v3 provides RFC 6750 compliant error responses with structured JSON:
+v3 provides RFC 6750 compliant error responses with specific status codes, error types, and machine-readable error codes for each validation failure:
 
 ```json
 {
   "error": "invalid_token",
-  "error_description": "Token has expired",
+  "error_description": "The access token expired",
   "error_code": "token_expired"
 }
 ```
@@ -597,8 +659,10 @@ v3 provides RFC 6750 compliant error responses with structured JSON:
 With proper `WWW-Authenticate` headers:
 
 ```
-WWW-Authenticate: Bearer error="invalid_token", error_description="Token has expired"
+WWW-Authenticate: Bearer realm="api", error="invalid_token", error_description="The access token expired"
 ```
+
+Custom error handlers can inspect the specific failure using `errors.As` with `*jwtmiddleware.ValidationError` — no need to import the `core` package. See [Structured Error Responses (Breaking)](#5-structured-error-responses-breaking) for the full error code reference.
 
 ### 3. More Algorithms
 
