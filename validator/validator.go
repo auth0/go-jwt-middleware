@@ -67,14 +67,14 @@ const (
 
 // Validator validates JWTs using the jwx v3 library.
 type Validator struct {
-	keyFunc                    func(context.Context) (any, error)                    // Required.
-	allowedAlgorithms          []SignatureAlgorithm                                  // Required.
-	expectedIssuers            []string                                              // Required (unless issuersResolver is set).
-	expectedAudiences          []string                                              // Required.
-	customClaims               func() CustomClaims                                   // Optional.
-	allowedClockSkew           time.Duration                                         // Optional.
-	issuersResolver            func(ctx context.Context) ([]string, error)           // Optional: dynamic issuer resolution.
-	registeredClaimsValidator func(claims RegisteredClaims) error // Optional: custom registered claims validation.
+	keyFunc                   func(context.Context) (any, error)          // Required.
+	allowedAlgorithms         []SignatureAlgorithm                        // Required.
+	expectedIssuers           []string                                    // Required (unless issuersResolver is set).
+	expectedAudiences         []string                                    // Required.
+	customClaims              func() CustomClaims                         // Optional.
+	allowedClockSkew          time.Duration                               // Optional.
+	issuersResolver           func(ctx context.Context) ([]string, error) // Optional: dynamic issuer resolution.
+	registeredClaimsValidator func(claims RegisteredClaims) error         // Optional: custom registered claims validation.
 }
 
 // SignatureAlgorithm is a signature algorithm.
