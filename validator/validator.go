@@ -67,13 +67,14 @@ const (
 
 // Validator validates JWTs using the jwx v3 library.
 type Validator struct {
-	keyFunc           func(context.Context) (any, error)          // Required.
-	allowedAlgorithms []SignatureAlgorithm                        // Required.
-	expectedIssuers   []string                                    // Required (unless issuersResolver is set).
-	expectedAudiences []string                                    // Required.
-	customClaims      func() CustomClaims                         // Optional.
-	allowedClockSkew  time.Duration                               // Optional.
-	issuersResolver   func(ctx context.Context) ([]string, error) // Optional: dynamic issuer resolution.
+	keyFunc                    func(context.Context) (any, error)                    // Required.
+	allowedAlgorithms          []SignatureAlgorithm                                  // Required.
+	expectedIssuers            []string                                              // Required (unless issuersResolver is set).
+	expectedAudiences          []string                                              // Required.
+	customClaims               func() CustomClaims                                   // Optional.
+	allowedClockSkew           time.Duration                                         // Optional.
+	issuersResolver            func(ctx context.Context) ([]string, error)           // Optional: dynamic issuer resolution.
+	registeredClaimsValidator func(claims RegisteredClaims) error // Optional: custom registered claims validation.
 }
 
 // SignatureAlgorithm is a signature algorithm.
@@ -127,6 +128,7 @@ const DPoPSupportedAlgorithms = "ES256 ES384 ES512 RS256 RS384 RS512 PS256 PS384
 //   - WithAudience or WithAudiences: Expected audience claim(s) (aud)
 //
 // Optional options:
+//   - WithRegisteredClaimsValidator: Custom validation of registered claims (sub, exp, jti, etc.)
 //   - WithCustomClaims: Custom claims validation
 //   - WithAllowedClockSkew: Clock skew tolerance for time-based claims (default: 0)
 //
@@ -347,6 +349,13 @@ func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Toke
 		Expiry:    timeToUnix(expiration),
 		NotBefore: timeToUnix(notBefore),
 		IssuedAt:  timeToUnix(issuedAt),
+	}
+
+	// Run registered claims validator
+	if v.registeredClaimsValidator != nil {
+		if err := v.registeredClaimsValidator(registeredClaims); err != nil {
+			return nil, core.NewValidationError(core.ErrorCodeInvalidClaims, "registered claims validation failed", err)
+		}
 	}
 
 	// Handle custom claims if configured

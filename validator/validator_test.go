@@ -1402,3 +1402,162 @@ func generateTestTokenWithKid(t *testing.T, issuer, audience string, secret []by
 
 	return string(signed)
 }
+
+func TestWithRegisteredClaimsValidator(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+	)
+
+	keyFunc := func(context.Context) (any, error) {
+		return []byte("secret"), nil
+	}
+
+	t.Run("successfully creates validator with registered claims validator", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithRegisteredClaimsValidator(func(claims RegisteredClaims) error {
+				return nil
+			}),
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+		assert.NotNil(t, v.registeredClaimsValidator)
+	})
+
+	t.Run("returns error when validator function is nil", func(t *testing.T) {
+		_, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithRegisteredClaimsValidator(nil),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "registered claims validator function cannot be nil")
+	})
+}
+
+func TestValidateToken_WithRegisteredClaimsValidator(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+	)
+
+	secret := []byte("secret")
+	keyFunc := func(context.Context) (any, error) {
+		return secret, nil
+	}
+
+	t.Run("passes when registered claims validator succeeds", func(t *testing.T) {
+		token := generateTestToken(t, issuer, audience, secret)
+
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithRegisteredClaimsValidator(func(claims RegisteredClaims) error {
+				if claims.Subject == "" {
+					return errors.New("subject is required")
+				}
+				return nil
+			}),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), token)
+		assert.NoError(t, err)
+		assert.NotNil(t, claims)
+
+		validated := claims.(*ValidatedClaims)
+		assert.Equal(t, "1234567890", validated.RegisteredClaims.Subject)
+	})
+
+	t.Run("fails when registered claims validator rejects token", func(t *testing.T) {
+		token := generateTestToken(t, issuer, audience, secret)
+
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithRegisteredClaimsValidator(func(claims RegisteredClaims) error {
+				if claims.ID == "" {
+					return errors.New("jti is required")
+				}
+				return nil
+			}),
+		)
+		require.NoError(t, err)
+
+		// generateTestToken does not include jti
+		claims, err := v.ValidateToken(context.Background(), token)
+		assert.Error(t, err)
+		assert.Nil(t, claims)
+		assert.Contains(t, err.Error(), "registered claims validation failed")
+		assert.Contains(t, err.Error(), "jti is required")
+
+		var validationErr *core.ValidationError
+		assert.True(t, errors.As(err, &validationErr))
+		assert.Equal(t, core.ErrorCodeInvalidClaims, validationErr.Code)
+	})
+
+	t.Run("validator receives correct claims values", func(t *testing.T) {
+		token := generateTestToken(t, issuer, audience, secret)
+
+		var receivedClaims RegisteredClaims
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithRegisteredClaimsValidator(func(claims RegisteredClaims) error {
+				receivedClaims = claims
+				return nil
+			}),
+		)
+		require.NoError(t, err)
+
+		_, err = v.ValidateToken(context.Background(), token)
+		require.NoError(t, err)
+
+		assert.Equal(t, issuer, receivedClaims.Issuer)
+		assert.Equal(t, "1234567890", receivedClaims.Subject)
+		assert.Equal(t, []string{audience}, receivedClaims.Audience)
+		assert.NotZero(t, receivedClaims.Expiry)
+	})
+
+	t.Run("works alongside custom claims", func(t *testing.T) {
+		// Token with scope claim
+		token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dvLWp3dC1taWRkbGV3YXJlLmV1LmF1dGgwLmNvbS8iLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXVkIjpbImh0dHBzOi8vZ28tand0LW1pZGRsZXdhcmUtYXBpLyJdLCJzY29wZSI6InJlYWQ6bWVzc2FnZXMifQ.oqtUZQ-Q8un4CPduUBdGVq5gXpQVIFT_QSQjkOXFT5I"
+
+		v, err := New(
+			WithKeyFunc(keyFunc),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+			WithRegisteredClaimsValidator(func(claims RegisteredClaims) error {
+				if claims.Subject == "" {
+					return errors.New("subject is required")
+				}
+				return nil
+			}),
+			WithCustomClaims(func() *testClaims {
+				return &testClaims{}
+			}),
+		)
+		require.NoError(t, err)
+
+		claims, err := v.ValidateToken(context.Background(), token)
+		assert.NoError(t, err)
+		assert.NotNil(t, claims)
+
+		validated := claims.(*ValidatedClaims)
+		assert.Equal(t, "1234567890", validated.RegisteredClaims.Subject)
+		assert.Equal(t, "read:messages", validated.CustomClaims.(*testClaims).Scope)
+	})
+}

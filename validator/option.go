@@ -233,6 +233,41 @@ func WithAllowedClockSkew(skew time.Duration) Option {
 	}
 }
 
+// WithRegisteredClaimsValidator sets a validation function that runs against the
+// registered claims (iss, sub, aud, exp, nbf, iat, jti) after standard validation
+// (issuer and audience checks) has passed.
+//
+// Use this for enforcing constraints on registered claims beyond the built-in
+// issuer and audience checks. For example: requiring subject presence, validating
+// subject format, requiring expiry, or checking JTI against a revocation list.
+//
+// Only one registered claims validator can be set. If called multiple times,
+// the last one wins.
+//
+// Example:
+//
+//	validator.New(
+//	    // ... other options
+//	    validator.WithRegisteredClaimsValidator(func(claims validator.RegisteredClaims) error {
+//	        if claims.Subject == "" {
+//	            return errors.New("subject is required")
+//	        }
+//	        if claims.Expiry == 0 {
+//	            return errors.New("expiry is required")
+//	        }
+//	        return nil
+//	    }),
+//	)
+func WithRegisteredClaimsValidator(fn func(claims RegisteredClaims) error) Option {
+	return func(v *Validator) error {
+		if fn == nil {
+			return errors.New("registered claims validator function cannot be nil")
+		}
+		v.registeredClaimsValidator = fn
+		return nil
+	}
+}
+
 // WithCustomClaims sets a function that returns a CustomClaims object
 // for unmarshalling and validation.
 //
