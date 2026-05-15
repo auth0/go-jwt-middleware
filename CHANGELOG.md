@@ -1,5 +1,12 @@
 # Change Log
 
+## [v3.2.0](https://github.com/auth0/go-jwt-middleware/tree/v3.2.0) (2026-05-15)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v3.1.0...v3.2.0)
+
+**Added**
+- feat(validator): add WithRegisteredClaimsValidator option [\#394](https://github.com/auth0/go-jwt-middleware/pull/394) ([developerkunal](https://github.com/developerkunal))
+- feat: Add native gRPC integration support [\#377](https://github.com/auth0/go-jwt-middleware/pull/377) ([developerkunal](https://github.com/developerkunal))
+
 ## [v3.1.0](https://github.com/auth0/go-jwt-middleware/tree/v3.1.0) (2026-04-09)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v3.0.0...v3.1.0)
 
