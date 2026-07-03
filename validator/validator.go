@@ -351,6 +351,22 @@ func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Toke
 		IssuedAt:  timeToUnix(issuedAt),
 	}
 
+	// Extract supplementary claims (cnf, act, azp, org_id, org_name) in a
+	// single payload decode. These are not surfaced by the JWT library's typed
+	// accessors, so they are read directly from the payload.
+	supplementary, err := v.extractSupplementaryClaims(tokenString)
+	if err != nil {
+		return nil, err
+	}
+
+	// Populate On-Behalf-Of / Token Exchange (RFC 8693) and organization claims
+	// before running the registered claims validator so that custom validators
+	// can inspect the actor and organization context.
+	registeredClaims.AuthorizedParty = supplementary.AuthorizedParty
+	registeredClaims.OrgID = supplementary.OrgID
+	registeredClaims.OrgName = supplementary.OrgName
+	registeredClaims.Act = supplementary.Act
+
 	// Run registered claims validator
 	if v.registeredClaimsValidator != nil {
 		if err := v.registeredClaimsValidator(registeredClaims); err != nil {
@@ -368,22 +384,17 @@ func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Toke
 		}
 	}
 
-	// Extract cnf (confirmation) claim for DPoP binding if present
-	var confirmationClaim *ConfirmationClaim
-	cnf, err := v.extractConfirmationClaim(tokenString)
-	if err != nil {
-		// Don't fail if cnf extraction fails - it's optional
-		// The cnf claim may not be present for Bearer tokens
-	} else if cnf != nil {
-		confirmationClaim = cnf
-	}
-
 	return &ValidatedClaims{
 		RegisteredClaims:  registeredClaims,
 		CustomClaims:      customClaims,
-		ConfirmationClaim: confirmationClaim,
+		ConfirmationClaim: supplementary.Cnf,
 	}, nil
 }
+
+// maxActorChainDepth is the maximum number of nested actors allowed in an act
+// claim. Auth0 limits On-Behalf-Of delegation chains to 5 levels (RFC 8693),
+// so a token presenting more than this is rejected as malformed.
+const maxActorChainDepth = 5
 
 // extractCustomClaims extracts and validates custom claims from the token string.
 // SDK-agnostic approach: Manually decodes JWT payload for maximum portability and performance.
@@ -447,6 +458,82 @@ func (v *Validator) extractConfirmationClaim(tokenString string) (*ConfirmationC
 
 	// Return nil if cnf claim is not present (normal for Bearer tokens)
 	return payload.Cnf, nil
+}
+
+// supplementaryClaims holds claims that are not exposed by the JWT library's
+// typed accessors and are read directly from the token payload: the DPoP
+// confirmation claim plus the On-Behalf-Of / Token Exchange (RFC 8693) and
+// organization claims.
+type supplementaryClaims struct {
+	Cnf             *ConfirmationClaim
+	Act             *Actor
+	AuthorizedParty string
+	OrgID           string
+	OrgName         string
+}
+
+// extractSupplementaryClaims decodes the token payload once and extracts the
+// cnf, act, azp, org_id, and org_name claims. All of these are optional and
+// absent from ordinary Bearer tokens, so a token that lacks them yields a
+// zero-valued result rather than an error.
+//
+// The token has already been signature-verified by the time this is called, so
+// a malformed payload is not expected; decode/unmarshal failures are treated as
+// "claims not present" to preserve the previous lenient behavior for the
+// optional cnf claim. The one hard failure is an act claim whose delegation
+// chain exceeds maxActorChainDepth, which is rejected as malformed.
+func (v *Validator) extractSupplementaryClaims(tokenString string) (supplementaryClaims, error) {
+	var result supplementaryClaims
+
+	// JWT format: header.payload.signature
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return result, nil
+	}
+
+	// Decode the payload using base64url encoding.
+	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return result, nil
+	}
+
+	var payload struct {
+		Cnf             *ConfirmationClaim `json:"cnf,omitempty"`
+		Act             *Actor             `json:"act,omitempty"`
+		AuthorizedParty string             `json:"azp,omitempty"`
+		OrgID           string             `json:"org_id,omitempty"`
+		OrgName         string             `json:"org_name,omitempty"`
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return result, nil
+	}
+
+	// Enforce the RFC 8693 delegation chain depth limit. Depth counts the
+	// number of nested actors; a chain deeper than the limit is malformed.
+	if actorChainDepth(payload.Act) > maxActorChainDepth {
+		return result, core.NewValidationError(
+			core.ErrorCodeInvalidClaims,
+			fmt.Sprintf("act claim delegation chain exceeds maximum depth of %d", maxActorChainDepth),
+			nil,
+		)
+	}
+
+	result.Cnf = payload.Cnf
+	result.Act = payload.Act
+	result.AuthorizedParty = payload.AuthorizedParty
+	result.OrgID = payload.OrgID
+	result.OrgName = payload.OrgName
+	return result, nil
+}
+
+// actorChainDepth returns the number of actors in the delegation chain rooted
+// at the given actor (0 when nil).
+func actorChainDepth(a *Actor) int {
+	depth := 0
+	for ; a != nil; a = a.Act {
+		depth++
+	}
+	return depth
 }
 
 // validateIssuer checks if the token issuer matches one of the expected issuers.

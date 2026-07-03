@@ -2,6 +2,8 @@ package validator
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -1560,4 +1562,145 @@ func TestValidateToken_WithRegisteredClaimsValidator(t *testing.T) {
 		assert.Equal(t, "1234567890", validated.RegisteredClaims.Subject)
 		assert.Equal(t, "read:messages", validated.CustomClaims.(*testClaims).Scope)
 	})
+}
+
+// makeUnsignedToken builds a header.payload.signature string from the given
+// payload. Supplementary-claims extraction reads the payload directly without
+// verifying the signature, so a fake signature is sufficient here.
+func makeUnsignedToken(t *testing.T, payload map[string]any) string {
+	t.Helper()
+
+	payloadJSON, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signature := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))
+
+	return header + "." + payloadB64 + "." + signature
+}
+
+func TestValidator_extractSupplementaryClaims(t *testing.T) {
+	v := &Validator{}
+
+	t.Run("bearer token leaves all OBO fields empty", func(t *testing.T) {
+		token := makeUnsignedToken(t, map[string]any{
+			"iss": "https://issuer.example.com",
+			"sub": "user123",
+			"aud": "https://api.example.com",
+		})
+
+		got, err := v.extractSupplementaryClaims(token)
+		require.NoError(t, err)
+		assert.Nil(t, got.Act)
+		assert.Empty(t, got.AuthorizedParty)
+		assert.Empty(t, got.OrgID)
+		assert.Empty(t, got.OrgName)
+		assert.Nil(t, got.Cnf)
+	})
+
+	t.Run("single exchange token", func(t *testing.T) {
+		token := makeUnsignedToken(t, map[string]any{
+			"sub": "auth0|user123",
+			"aud": "https://calendar-api.acme.com",
+			"azp": "mcp_server_client_id",
+			"act": map[string]any{
+				"sub": "mcp_server_client_id",
+				"act": map[string]any{"sub": "spa_client_id"},
+			},
+		})
+
+		got, err := v.extractSupplementaryClaims(token)
+		require.NoError(t, err)
+		assert.Equal(t, "mcp_server_client_id", got.AuthorizedParty)
+		require.NotNil(t, got.Act)
+		assert.Equal(t, "mcp_server_client_id", got.Act.Subject)
+		require.NotNil(t, got.Act.Act)
+		assert.Equal(t, "spa_client_id", got.Act.Act.Subject)
+	})
+
+	t.Run("organization claims", func(t *testing.T) {
+		token := makeUnsignedToken(t, map[string]any{
+			"sub":      "auth0|user123",
+			"aud":      "https://api.example.com",
+			"org_id":   "org_abc123",
+			"org_name": "acme",
+		})
+
+		got, err := v.extractSupplementaryClaims(token)
+		require.NoError(t, err)
+		assert.Equal(t, "org_abc123", got.OrgID)
+		assert.Equal(t, "acme", got.OrgName)
+	})
+
+	t.Run("chain at the maximum depth is accepted", func(t *testing.T) {
+		// 5 nested actors is the limit and must be allowed.
+		token := makeUnsignedToken(t, map[string]any{
+			"sub": "auth0|user123",
+			"aud": "https://api.example.com",
+			"act": map[string]any{
+				"sub": "a1",
+				"act": map[string]any{
+					"sub": "a2",
+					"act": map[string]any{
+						"sub": "a3",
+						"act": map[string]any{
+							"sub": "a4",
+							"act": map[string]any{"sub": "a5"},
+						},
+					},
+				},
+			},
+		})
+
+		got, err := v.extractSupplementaryClaims(token)
+		require.NoError(t, err)
+		require.NotNil(t, got.Act)
+		assert.Equal(t, 5, actorChainDepth(got.Act))
+	})
+
+	t.Run("chain exceeding the maximum depth is rejected", func(t *testing.T) {
+		// 6 nested actors exceeds the RFC 8693 delegation limit.
+		token := makeUnsignedToken(t, map[string]any{
+			"sub": "auth0|user123",
+			"aud": "https://api.example.com",
+			"act": map[string]any{
+				"sub": "a1",
+				"act": map[string]any{
+					"sub": "a2",
+					"act": map[string]any{
+						"sub": "a3",
+						"act": map[string]any{
+							"sub": "a4",
+							"act": map[string]any{
+								"sub": "a5",
+								"act": map[string]any{"sub": "a6"},
+							},
+						},
+					},
+				},
+			},
+		})
+
+		got, err := v.extractSupplementaryClaims(token)
+		require.Error(t, err)
+		assert.Nil(t, got.Act)
+
+		var validationErr *core.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, core.ErrorCodeInvalidClaims, validationErr.Code)
+	})
+
+	t.Run("malformed token is treated as no supplementary claims", func(t *testing.T) {
+		got, err := v.extractSupplementaryClaims("not-a-jwt")
+		require.NoError(t, err)
+		assert.Nil(t, got.Act)
+		assert.Nil(t, got.Cnf)
+	})
+}
+
+func TestActorChainDepth(t *testing.T) {
+	assert.Equal(t, 0, actorChainDepth(nil))
+	assert.Equal(t, 1, actorChainDepth(&Actor{Subject: "a"}))
+	assert.Equal(t, 2, actorChainDepth(&Actor{Subject: "a", Act: &Actor{Subject: "b"}}))
 }

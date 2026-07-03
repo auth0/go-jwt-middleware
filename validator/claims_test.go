@@ -58,6 +58,58 @@ func TestValidatedClaims_DPoPMethods(t *testing.T) {
 	})
 }
 
+func TestValidatedClaims_ActorHelpers(t *testing.T) {
+	t.Run("no actor", func(t *testing.T) {
+		claims := &ValidatedClaims{}
+		assert.False(t, claims.HasActor())
+		assert.Empty(t, claims.CurrentActor())
+		assert.Nil(t, claims.DelegationChain())
+	})
+
+	t.Run("actor with empty subject is not considered present", func(t *testing.T) {
+		claims := &ValidatedClaims{
+			RegisteredClaims: RegisteredClaims{Act: &Actor{}},
+		}
+		assert.False(t, claims.HasActor())
+		assert.Empty(t, claims.CurrentActor())
+	})
+
+	t.Run("single exchange", func(t *testing.T) {
+		claims := &ValidatedClaims{
+			RegisteredClaims: RegisteredClaims{
+				Act: &Actor{
+					Subject: "mcp_server_client_id",
+					Act:     &Actor{Subject: "spa_client_id"},
+				},
+			},
+		}
+
+		assert.True(t, claims.HasActor())
+		assert.Equal(t, "mcp_server_client_id", claims.CurrentActor())
+		assert.Equal(t, []string{"mcp_server_client_id", "spa_client_id"}, claims.DelegationChain())
+	})
+
+	t.Run("chained exchange preserves order from current to original", func(t *testing.T) {
+		claims := &ValidatedClaims{
+			RegisteredClaims: RegisteredClaims{
+				Act: &Actor{
+					Subject: "mcp_server_2_client_id",
+					Act: &Actor{
+						Subject: "mcp_server_1_client_id",
+						Act:     &Actor{Subject: "spa_client_id"},
+					},
+				},
+			},
+		}
+
+		assert.Equal(t, "mcp_server_2_client_id", claims.CurrentActor())
+		assert.Equal(t,
+			[]string{"mcp_server_2_client_id", "mcp_server_1_client_id", "spa_client_id"},
+			claims.DelegationChain(),
+		)
+	})
+}
+
 func TestDPoPProofClaims_GetterMethods(t *testing.T) {
 	t.Run("GetJTI returns the jti claim", func(t *testing.T) {
 		claims := &DPoPProofClaims{

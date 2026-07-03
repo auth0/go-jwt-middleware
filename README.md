@@ -574,6 +574,39 @@ middleware, err := jwtmiddleware.New(
 
 See the [DPoP examples](./examples/http-dpop-example) for complete working code.
 
+### On-Behalf-Of / Token Exchange (RFC 8693)
+
+When an access token is issued through [On-Behalf-Of Token Exchange (RFC 8693)](https://www.rfc-editor.org/rfc/rfc8693.html), for example an MCP server exchanging an incoming user token for one scoped to a downstream API, it carries an `act` (actor) claim describing who is acting on behalf of the user, along with `azp` and, for organization-bound tokens, `org_id`/`org_name`. These claims are parsed automatically during validation, so there is nothing extra to configure. This SDK validates and inspects such tokens; performing the exchange itself is done by your authorization server, not this middleware.
+
+Per RFC 8693 §4.1, only the **current actor** (the outermost `act.sub`, the client that performed the most recent exchange) may be used for access-control decisions. The nested actors form a delegation chain that is informational only and intended for audit and logging. `ValidatedClaims` exposes helpers that keep this distinction clear:
+
+```go
+claims, err := jwtValidator.ValidateToken(ctx, tokenString)
+if err != nil {
+    // handle validation error
+}
+validated := claims.(*validator.ValidatedClaims)
+
+// The user the request is being made on behalf of.
+userID := validated.RegisteredClaims.Subject // "auth0|user123"
+
+// The current actor: the client that performed the token exchange.
+// Use ONLY this for authorization decisions.
+if actor := validated.CurrentActor(); actor != "" && !authorizedActors[actor] {
+    http.Error(w, "actor not authorized", http.StatusForbidden)
+    return
+}
+
+// The full delegation chain, ordered from current actor to the original
+// client. For audit/logging only; never use nested actors for authorization.
+chain := validated.DelegationChain() // ["mcp_server_client_id", "spa_client_id"]
+
+// Organization context is preserved on org-bound exchanged tokens.
+orgID := validated.RegisteredClaims.OrgID
+```
+
+Delegation chains are limited to 5 levels; a token whose `act` claim nests more than 5 actors is rejected as malformed.
+
 ### Multiple Issuers (Multi-Tenant Support)
 
 Accept JWTs from multiple issuers simultaneously - perfect for multi-tenant SaaS applications, domain migrations, or enterprise deployments.

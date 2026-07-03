@@ -1,5 +1,10 @@
 # Change Log
 
+## [Unreleased]
+
+**Added**
+- feat(validator): parse and expose On-Behalf-Of / Token Exchange claims per RFC 8693. `RegisteredClaims` now includes `Act` (actor chain), `AuthorizedParty` (`azp`), `OrgID`, and `OrgName`. New `ValidatedClaims` helpers `CurrentActor()`, `DelegationChain()`, and `HasActor()` distinguish the current actor (for authorization) from the informational delegation chain (for audit), and delegation chains deeper than 5 levels are rejected.
+
 ## [v3.2.0](https://github.com/auth0/go-jwt-middleware/tree/v3.2.0) (2026-05-15)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v3.1.0...v3.2.0)
 
