@@ -491,81 +491,6 @@ func Test_calculateJKT_MatchesSpec(t *testing.T) {
 	assert.Equal(t, expectedJKT, jkt)
 }
 
-// Test_extractConfirmationClaim tests cnf claim extraction from access tokens
-func Test_extractConfirmationClaim(t *testing.T) {
-	v := &Validator{}
-
-	t.Run("extract cnf claim successfully", func(t *testing.T) {
-		// Create a token with cnf claim
-		payload := map[string]any{
-			"iss": "https://issuer.example.com",
-			"sub": "user123",
-			"aud": "https://api.example.com",
-			"exp": time.Now().Add(time.Hour).Unix(),
-			"iat": time.Now().Unix(),
-			"cnf": map[string]any{
-				"jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I",
-			},
-		}
-
-		payloadJSON, err := json.Marshal(payload)
-		require.NoError(t, err)
-
-		// Build a fake JWT (header.payload.signature)
-		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-		payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
-		signature := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))
-
-		tokenString := header + "." + payloadB64 + "." + signature
-
-		cnf, err := v.extractConfirmationClaim(tokenString)
-
-		require.NoError(t, err)
-		require.NotNil(t, cnf)
-		assert.Equal(t, "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I", cnf.JKT)
-	})
-
-	t.Run("return nil when cnf claim not present", func(t *testing.T) {
-		// Create a token WITHOUT cnf claim
-		payload := map[string]any{
-			"iss": "https://issuer.example.com",
-			"sub": "user123",
-			"aud": "https://api.example.com",
-			"exp": time.Now().Add(time.Hour).Unix(),
-			"iat": time.Now().Unix(),
-		}
-
-		payloadJSON, err := json.Marshal(payload)
-		require.NoError(t, err)
-
-		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-		payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
-		signature := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))
-
-		tokenString := header + "." + payloadB64 + "." + signature
-
-		cnf, err := v.extractConfirmationClaim(tokenString)
-
-		require.NoError(t, err)
-		assert.Nil(t, cnf, "cnf should be nil for Bearer tokens")
-	})
-
-	t.Run("error on malformed JWT", func(t *testing.T) {
-		cnf, err := v.extractConfirmationClaim("invalid-jwt")
-
-		assert.Error(t, err)
-		assert.Nil(t, cnf)
-		assert.Contains(t, err.Error(), "invalid JWT format")
-	})
-
-	t.Run("error on invalid base64", func(t *testing.T) {
-		cnf, err := v.extractConfirmationClaim("header.not-valid-base64.signature")
-
-		assert.Error(t, err)
-		assert.Nil(t, cnf)
-	})
-}
-
 // Test_ValidateDPoPProof_InvalidHeaderJSON tests validation with malformed header JSON
 func Test_ValidateDPoPProof_InvalidHeaderJSON(t *testing.T) {
 	v := &Validator{}
@@ -664,24 +589,6 @@ func Test_extractDPoPClaims_InvalidPayloadJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to unmarshal DPoP proof claims")
 }
 
-// Test_extractConfirmationClaim_InvalidPayloadJSON tests extraction with malformed payload
-func Test_extractConfirmationClaim_InvalidPayloadJSON(t *testing.T) {
-	v := &Validator{}
-
-	// Create a JWT with invalid JSON in payload
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	invalidPayload := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"test","sub":`)) // Truncated JSON
-	signature := base64.RawURLEncoding.EncodeToString([]byte("fake-sig"))
-
-	tokenString := header + "." + invalidPayload + "." + signature
-
-	cnf, err := v.extractConfirmationClaim(tokenString)
-
-	assert.Error(t, err)
-	assert.Nil(t, cnf)
-	assert.Contains(t, err.Error(), "failed to unmarshal payload")
-}
-
 // Test_extractDPoPClaims_InvalidBase64Payload tests extraction with invalid base64 in payload
 func Test_extractDPoPClaims_InvalidBase64Payload(t *testing.T) {
 	v := &Validator{}
@@ -698,24 +605,6 @@ func Test_extractDPoPClaims_InvalidBase64Payload(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, claims)
 	assert.Contains(t, err.Error(), "failed to decode DPoP proof payload")
-}
-
-// Test_extractConfirmationClaim_InvalidBase64Payload tests extraction with invalid base64
-func Test_extractConfirmationClaim_InvalidBase64Payload(t *testing.T) {
-	v := &Validator{}
-
-	// Create a JWT with invalid base64 in payload
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	invalidPayload := "!!!invalid-base64!!!"
-	signature := base64.RawURLEncoding.EncodeToString([]byte("fake-sig"))
-
-	tokenString := header + "." + invalidPayload + "." + signature
-
-	cnf, err := v.extractConfirmationClaim(tokenString)
-
-	assert.Error(t, err)
-	assert.Nil(t, cnf)
-	assert.Contains(t, err.Error(), "failed to decode JWT payload")
 }
 
 // Test_calculateJKT_EdgeCases tests edge cases for calculateJKT

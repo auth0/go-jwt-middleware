@@ -1619,6 +1619,19 @@ func TestValidator_extractSupplementaryClaims(t *testing.T) {
 		assert.Equal(t, "spa_client_id", got.Act.Act.Subject)
 	})
 
+	t.Run("cnf claim is extracted", func(t *testing.T) {
+		token := makeUnsignedToken(t, map[string]any{
+			"sub": "user123",
+			"aud": "https://api.example.com",
+			"cnf": map[string]any{"jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"},
+		})
+
+		got, err := v.extractSupplementaryClaims(token)
+		require.NoError(t, err)
+		require.NotNil(t, got.Cnf)
+		assert.Equal(t, "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I", got.Cnf.JKT)
+	})
+
 	t.Run("organization claims", func(t *testing.T) {
 		token := makeUnsignedToken(t, map[string]any{
 			"sub":      "auth0|user123",

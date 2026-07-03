@@ -432,34 +432,6 @@ func (v *Validator) customClaimsExist() bool {
 	return v.customClaims != nil && v.customClaims() != nil
 }
 
-// extractConfirmationClaim extracts the cnf (confirmation) claim from the token string.
-// This claim is used for DPoP (Demonstrating Proof-of-Possession) token binding per RFC 7800 and RFC 9449.
-// Returns nil if the cnf claim is not present (which is normal for Bearer tokens).
-func (v *Validator) extractConfirmationClaim(tokenString string) (*ConfirmationClaim, error) {
-	// JWT format: header.payload.signature
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
-	}
-
-	// Decode the payload using base64url encoding
-	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode JWT payload: %w", err)
-	}
-
-	// Unmarshal only the cnf claim from the payload
-	var payload struct {
-		Cnf *ConfirmationClaim `json:"cnf,omitempty"`
-	}
-	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
-	}
-
-	// Return nil if cnf claim is not present (normal for Bearer tokens)
-	return payload.Cnf, nil
-}
-
 // supplementaryClaims holds claims that are not exposed by the JWT library's
 // typed accessors and are read directly from the token payload: the DPoP
 // confirmation claim plus the On-Behalf-Of / Token Exchange (RFC 8693) and
