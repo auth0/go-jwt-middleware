@@ -131,13 +131,14 @@ func (v *ValidatedClaims) CurrentActor() string {
 // This is intended for audit and logging only. Do NOT use nested actors for
 // authorization decisions; per RFC 8693 §4.1 only CurrentActor may drive
 // access control. It returns nil when the token has no actor.
+//
+// An actor with an empty subject is treated as the end of the chain, so the
+// result stays consistent with HasActor and CurrentActor, which also treat an
+// empty subject as "no actor". A chain is therefore never padded with empty
+// entries.
 func (v *ValidatedClaims) DelegationChain() []string {
-	if v.RegisteredClaims.Act == nil {
-		return nil
-	}
-
 	var chain []string
-	for a := v.RegisteredClaims.Act; a != nil; a = a.Act {
+	for a := v.RegisteredClaims.Act; a != nil && a.Subject != ""; a = a.Act {
 		chain = append(chain, a.Subject)
 	}
 	return chain

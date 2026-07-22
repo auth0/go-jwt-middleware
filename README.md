@@ -605,7 +605,7 @@ chain := validated.DelegationChain() // ["mcp_server_client_id", "spa_client_id"
 orgID := validated.RegisteredClaims.OrgID
 ```
 
-Delegation chains are limited to 5 levels; a token whose `act` claim nests more than 5 actors is rejected as malformed.
+Delegation chains are limited to 5 levels by default; a token whose `act` claim nests more actors than the limit is rejected with an `invalid_claims` validation error. You can change the limit with `validator.WithMaxActorChainDepth`.
 
 ### Multiple Issuers (Multi-Tenant Support)
 

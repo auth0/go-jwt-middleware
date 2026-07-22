@@ -72,6 +72,24 @@ func TestValidatedClaims_ActorHelpers(t *testing.T) {
 		}
 		assert.False(t, claims.HasActor())
 		assert.Empty(t, claims.CurrentActor())
+		// DelegationChain must agree: an empty subject means no actor, so the
+		// chain is empty rather than [""].
+		assert.Empty(t, claims.DelegationChain())
+	})
+
+	t.Run("chain stops at the first empty subject", func(t *testing.T) {
+		// An empty subject terminates the chain so DelegationChain stays
+		// consistent with HasActor and CurrentActor and is never padded with
+		// empty entries.
+		claims := &ValidatedClaims{
+			RegisteredClaims: RegisteredClaims{
+				Act: &Actor{
+					Subject: "mcp_server_client_id",
+					Act:     &Actor{Subject: "", Act: &Actor{Subject: "spa_client_id"}},
+				},
+			},
+		}
+		assert.Equal(t, []string{"mcp_server_client_id"}, claims.DelegationChain())
 	})
 
 	t.Run("single exchange", func(t *testing.T) {

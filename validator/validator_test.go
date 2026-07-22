@@ -1710,10 +1710,225 @@ func TestValidator_extractSupplementaryClaims(t *testing.T) {
 		assert.Nil(t, got.Act)
 		assert.Nil(t, got.Cnf)
 	})
+
+	t.Run("malformed act is ignored and does not drop cnf", func(t *testing.T) {
+		// act sent as a string rather than an object. This must not suppress
+		// the cnf claim, which would silently downgrade a DPoP-bound token to
+		// a Bearer token.
+		token := makeUnsignedToken(t, map[string]any{
+			"sub": "auth0|user123",
+			"aud": "https://api.example.com",
+			"act": "not-an-object",
+			"cnf": map[string]any{"jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"},
+		})
+
+		got, err := v.extractSupplementaryClaims(token)
+		require.NoError(t, err)
+		assert.Nil(t, got.Act)
+		require.NotNil(t, got.Cnf)
+		assert.Equal(t, "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I", got.Cnf.JKT)
+	})
+
+	t.Run("configured depth overrides the default", func(t *testing.T) {
+		// A validator configured to allow only 2 levels rejects a 3-level chain.
+		shallow := &Validator{maxActorChainDepth: 2}
+		token := makeUnsignedToken(t, map[string]any{
+			"sub": "auth0|user123",
+			"aud": "https://api.example.com",
+			"act": map[string]any{
+				"sub": "a1",
+				"act": map[string]any{
+					"sub": "a2",
+					"act": map[string]any{"sub": "a3"},
+				},
+			},
+		})
+
+		got, err := shallow.extractSupplementaryClaims(token)
+		require.Error(t, err)
+		assert.Nil(t, got.Act)
+
+		var validationErr *core.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, core.ErrorCodeInvalidClaims, validationErr.Code)
+	})
 }
 
 func TestActorChainDepth(t *testing.T) {
 	assert.Equal(t, 0, actorChainDepth(nil))
 	assert.Equal(t, 1, actorChainDepth(&Actor{Subject: "a"}))
 	assert.Equal(t, 2, actorChainDepth(&Actor{Subject: "a", Act: &Actor{Subject: "b"}}))
+}
+
+// signTokenHS256 signs the given payload with HS256 using the shared secret so
+// the resulting token verifies through the public ValidateToken path.
+func signTokenHS256(t *testing.T, secret []byte, payload map[string]any) string {
+	t.Helper()
+
+	token := jwt.New()
+	for k, val := range payload {
+		require.NoError(t, token.Set(k, val))
+	}
+
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
+	require.NoError(t, err)
+
+	return string(signed)
+}
+
+// TestValidateToken_OnBehalfOfClaims exercises the RFC 8693 On-Behalf-Of claims
+// end to end through the public ValidateToken entry point, rather than through
+// extractSupplementaryClaims directly.
+func TestValidateToken_OnBehalfOfClaims(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+	)
+	secret := []byte("secret")
+
+	newValidator := func(t *testing.T, opts ...Option) *Validator {
+		t.Helper()
+		base := []Option{
+			WithKeyFunc(func(context.Context) (any, error) { return secret, nil }),
+			WithAlgorithm(HS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		}
+		v, err := New(append(base, opts...)...)
+		require.NoError(t, err)
+		return v
+	}
+
+	t.Run("actor, org, and azp land on the returned claims", func(t *testing.T) {
+		token := signTokenHS256(t, secret, map[string]any{
+			"iss":      issuer,
+			"sub":      "auth0|user123",
+			"aud":      audience,
+			"azp":      "mcp_server_client_id",
+			"org_id":   "org_abc123",
+			"org_name": "acme",
+			"act": map[string]any{
+				"sub": "mcp_server_client_id",
+				"act": map[string]any{"sub": "spa_client_id"},
+			},
+		})
+
+		claims, err := newValidator(t).ValidateToken(context.Background(), token)
+		require.NoError(t, err)
+
+		validated, ok := claims.(*ValidatedClaims)
+		require.True(t, ok)
+		assert.Equal(t, "mcp_server_client_id", validated.RegisteredClaims.AuthorizedParty)
+		assert.Equal(t, "org_abc123", validated.RegisteredClaims.OrgID)
+		assert.Equal(t, "acme", validated.RegisteredClaims.OrgName)
+		assert.True(t, validated.HasActor())
+		assert.Equal(t, "mcp_server_client_id", validated.CurrentActor())
+		assert.Equal(t, []string{"mcp_server_client_id", "spa_client_id"}, validated.DelegationChain())
+	})
+
+	t.Run("over-depth chain surfaces an invalid_claims error", func(t *testing.T) {
+		token := signTokenHS256(t, secret, map[string]any{
+			"iss": issuer,
+			"sub": "auth0|user123",
+			"aud": audience,
+			"act": map[string]any{
+				"sub": "a1",
+				"act": map[string]any{
+					"sub": "a2",
+					"act": map[string]any{
+						"sub": "a3",
+						"act": map[string]any{
+							"sub": "a4",
+							"act": map[string]any{
+								"sub": "a5",
+								"act": map[string]any{"sub": "a6"},
+							},
+						},
+					},
+				},
+			},
+		})
+
+		claims, err := newValidator(t).ValidateToken(context.Background(), token)
+		require.Error(t, err)
+		assert.Nil(t, claims)
+
+		var validationErr *core.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, core.ErrorCodeInvalidClaims, validationErr.Code)
+	})
+
+	t.Run("malformed act does not drop cnf", func(t *testing.T) {
+		// A DPoP-bound token whose act is malformed must keep its cnf claim so
+		// the DPoP binding is not silently lost.
+		token := signTokenHS256(t, secret, map[string]any{
+			"iss": issuer,
+			"sub": "auth0|user123",
+			"aud": audience,
+			"act": "not-an-object",
+			"cnf": map[string]any{"jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"},
+		})
+
+		claims, err := newValidator(t).ValidateToken(context.Background(), token)
+		require.NoError(t, err)
+
+		validated, ok := claims.(*ValidatedClaims)
+		require.True(t, ok)
+		assert.False(t, validated.HasActor())
+		assert.True(t, validated.HasConfirmation())
+		assert.Equal(t, "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I", validated.GetConfirmationJKT())
+	})
+
+	t.Run("configured depth is enforced end to end", func(t *testing.T) {
+		token := signTokenHS256(t, secret, map[string]any{
+			"iss": issuer,
+			"sub": "auth0|user123",
+			"aud": audience,
+			"act": map[string]any{
+				"sub": "a1",
+				"act": map[string]any{
+					"sub": "a2",
+					"act": map[string]any{"sub": "a3"},
+				},
+			},
+		})
+
+		claims, err := newValidator(t, WithMaxActorChainDepth(2)).ValidateToken(context.Background(), token)
+		require.Error(t, err)
+		assert.Nil(t, claims)
+
+		var validationErr *core.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, core.ErrorCodeInvalidClaims, validationErr.Code)
+	})
+}
+
+// TestWithMaxActorChainDepth covers option validation.
+func TestWithMaxActorChainDepth(t *testing.T) {
+	t.Run("positive value is accepted", func(t *testing.T) {
+		v := &Validator{}
+		require.NoError(t, WithMaxActorChainDepth(3)(v))
+		assert.Equal(t, 3, v.maxActorChainDepth)
+	})
+
+	t.Run("zero is rejected", func(t *testing.T) {
+		v := &Validator{}
+		require.Error(t, WithMaxActorChainDepth(0)(v))
+	})
+
+	t.Run("negative is rejected", func(t *testing.T) {
+		v := &Validator{}
+		require.Error(t, WithMaxActorChainDepth(-1)(v))
+	})
+
+	t.Run("New applies the default when the option is not used", func(t *testing.T) {
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return []byte("secret"), nil }),
+			WithAlgorithm(HS256),
+			WithIssuer("https://issuer.example.com/"),
+			WithAudience("https://api.example.com/"),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, defaultMaxActorChainDepth, v.maxActorChainDepth)
+	})
 }

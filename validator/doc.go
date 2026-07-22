@@ -270,8 +270,9 @@ right side of this rule:
 	// Organization context is preserved on org-bound tokens.
 	orgID := validated.RegisteredClaims.OrgID
 
-Delegation chains are limited to 5 levels; a token whose act claim nests more
-than 5 actors is rejected as malformed.
+Delegation chains are limited to 5 levels by default; a token whose act claim
+nests more actors than the limit is rejected with an invalid_claims validation
+error. The limit is configurable via WithMaxActorChainDepth.
 
 # Error Handling
 

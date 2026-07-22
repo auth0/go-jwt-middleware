@@ -268,6 +268,28 @@ func WithRegisteredClaimsValidator(fn func(claims RegisteredClaims) error) Optio
 	}
 }
 
+// WithMaxActorChainDepth sets the maximum number of nested actors allowed in an
+// act (actor) claim for tokens issued via On-Behalf-Of / Token Exchange
+// (RFC 8693). A token whose delegation chain nests more actors than this is
+// rejected with an invalid_claims validation error.
+//
+// The depth limit is primarily enforced by the authorization server at issuance
+// time. This option lets you re-check it during verification as a defensive
+// measure. If not set, the default is defaultMaxActorChainDepth (5), matching
+// the Auth0 issuer limit.
+//
+// The depth must be a positive value. Passing zero or a negative value returns
+// an error during construction.
+func WithMaxActorChainDepth(depth int) Option {
+	return func(v *Validator) error {
+		if depth <= 0 {
+			return errors.New("max actor chain depth must be a positive value")
+		}
+		v.maxActorChainDepth = depth
+		return nil
+	}
+}
+
 // WithCustomClaims sets a function that returns a CustomClaims object
 // for unmarshalling and validation.
 //

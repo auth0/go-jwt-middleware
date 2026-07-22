@@ -75,6 +75,7 @@ type Validator struct {
 	allowedClockSkew          time.Duration                               // Optional.
 	issuersResolver           func(ctx context.Context) ([]string, error) // Optional: dynamic issuer resolution.
 	registeredClaimsValidator func(claims RegisteredClaims) error         // Optional: custom registered claims validation.
+	maxActorChainDepth        int                                         // Optional: max act delegation chain depth (default defaultMaxActorChainDepth).
 }
 
 // SignatureAlgorithm is a signature algorithm.
@@ -131,6 +132,7 @@ const DPoPSupportedAlgorithms = "ES256 ES384 ES512 RS256 RS384 RS512 PS256 PS384
 //   - WithRegisteredClaimsValidator: Custom validation of registered claims (sub, exp, jti, etc.)
 //   - WithCustomClaims: Custom claims validation
 //   - WithAllowedClockSkew: Clock skew tolerance for time-based claims (default: 0)
+//   - WithMaxActorChainDepth: Max act delegation chain depth for RFC 8693 tokens (default: 5)
 //
 // Example:
 //
@@ -146,7 +148,8 @@ const DPoPSupportedAlgorithms = "ES256 ES384 ES512 RS256 RS384 RS512 PS256 PS384
 //	}
 func New(opts ...Option) (*Validator, error) {
 	v := &Validator{
-		allowedClockSkew: 0, // Secure default: no clock skew
+		allowedClockSkew:   0,                         // Secure default: no clock skew
+		maxActorChainDepth: defaultMaxActorChainDepth, // Default cap on act delegation chain depth.
 	}
 
 	// Apply all options
@@ -391,10 +394,12 @@ func (v *Validator) extractAndValidateClaims(ctx context.Context, token jwt.Toke
 	}, nil
 }
 
-// maxActorChainDepth is the maximum number of nested actors allowed in an act
-// claim. Auth0 limits On-Behalf-Of delegation chains to 5 levels (RFC 8693),
-// so a token presenting more than this is rejected as malformed.
-const maxActorChainDepth = 5
+// defaultMaxActorChainDepth is the default maximum number of nested actors
+// allowed in an act claim. Auth0 limits On-Behalf-Of delegation chains to 5
+// levels (RFC 8693). The limit is configurable via WithMaxActorChainDepth; a
+// token whose chain exceeds the configured depth is rejected with an
+// invalid_claims validation error.
+const defaultMaxActorChainDepth = 5
 
 // extractCustomClaims extracts and validates custom claims from the token string.
 // SDK-agnostic approach: Manually decodes JWT payload for maximum portability and performance.
@@ -452,8 +457,12 @@ type supplementaryClaims struct {
 // The token has already been signature-verified by the time this is called, so
 // a malformed payload is not expected; decode/unmarshal failures are treated as
 // "claims not present" to preserve the previous lenient behavior for the
-// optional cnf claim. The one hard failure is an act claim whose delegation
-// chain exceeds maxActorChainDepth, which is rejected as malformed.
+// optional cnf claim. The act claim is decoded independently of the others so
+// that a structurally broken act (for example, act sent as a string) is simply
+// ignored and cannot suppress the security-relevant cnf claim. The one hard
+// failure is an act claim whose delegation chain exceeds the configured depth
+// (see WithMaxActorChainDepth), which is rejected with an invalid_claims
+// validation error.
 func (v *Validator) extractSupplementaryClaims(tokenString string) (supplementaryClaims, error) {
 	var result supplementaryClaims
 
@@ -469,29 +478,54 @@ func (v *Validator) extractSupplementaryClaims(tokenString string) (supplementar
 		return result, nil
 	}
 
+	// Decode each claim into its own raw message so that a malformed value in
+	// one claim cannot take the others down with it. In particular, a broken
+	// act must not drop the cnf claim, which would silently downgrade a
+	// DPoP-bound token to a Bearer token.
 	var payload struct {
-		Cnf             *ConfirmationClaim `json:"cnf,omitempty"`
-		Act             *Actor             `json:"act,omitempty"`
-		AuthorizedParty string             `json:"azp,omitempty"`
-		OrgID           string             `json:"org_id,omitempty"`
-		OrgName         string             `json:"org_name,omitempty"`
+		Cnf             json.RawMessage `json:"cnf,omitempty"`
+		Act             json.RawMessage `json:"act,omitempty"`
+		AuthorizedParty string          `json:"azp,omitempty"`
+		OrgID           string          `json:"org_id,omitempty"`
+		OrgName         string          `json:"org_name,omitempty"`
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return result, nil
 	}
 
-	// Enforce the RFC 8693 delegation chain depth limit. Depth counts the
-	// number of nested actors; a chain deeper than the limit is malformed.
-	if actorChainDepth(payload.Act) > maxActorChainDepth {
-		return result, core.NewValidationError(
-			core.ErrorCodeInvalidClaims,
-			fmt.Sprintf("act claim delegation chain exceeds maximum depth of %d", maxActorChainDepth),
-			nil,
-		)
+	// cnf is decoded on its own; a malformed cnf is ignored, matching the
+	// previous lenient behavior for the optional claim.
+	if len(payload.Cnf) > 0 {
+		var cnf ConfirmationClaim
+		if err := json.Unmarshal(payload.Cnf, &cnf); err == nil {
+			result.Cnf = &cnf
+		}
 	}
 
-	result.Cnf = payload.Cnf
-	result.Act = payload.Act
+	// act is decoded independently. A structurally broken act is ignored
+	// rather than surfaced as an error, per the RFC 8693 guidance that generic
+	// verification should not fail on the actor claim.
+	if len(payload.Act) > 0 {
+		var act Actor
+		if err := json.Unmarshal(payload.Act, &act); err == nil {
+			// Enforce the RFC 8693 delegation chain depth limit. Depth counts
+			// the number of nested actors; a chain deeper than the configured
+			// limit is rejected as invalid.
+			maxDepth := v.maxActorChainDepth
+			if maxDepth <= 0 {
+				maxDepth = defaultMaxActorChainDepth
+			}
+			if actorChainDepth(&act) > maxDepth {
+				return result, core.NewValidationError(
+					core.ErrorCodeInvalidClaims,
+					fmt.Sprintf("act claim delegation chain exceeds maximum depth of %d", maxDepth),
+					nil,
+				)
+			}
+			result.Act = &act
+		}
+	}
+
 	result.AuthorizedParty = payload.AuthorizedParty
 	result.OrgID = payload.OrgID
 	result.OrgName = payload.OrgName
