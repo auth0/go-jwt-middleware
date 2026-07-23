@@ -1823,7 +1823,10 @@ func TestValidateToken_OnBehalfOfClaims(t *testing.T) {
 		assert.Equal(t, "acme", validated.RegisteredClaims.OrgName)
 		assert.True(t, validated.HasActor())
 		assert.Equal(t, "mcp_server_client_id", validated.CurrentActor())
-		assert.Equal(t, []string{"mcp_server_client_id", "spa_client_id"}, validated.DelegationChain())
+
+		chain, err := validated.DelegationChain()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"mcp_server_client_id", "spa_client_id"}, chain)
 	})
 
 	t.Run("over-depth chain surfaces an invalid_claims error", func(t *testing.T) {
@@ -1856,6 +1859,37 @@ func TestValidateToken_OnBehalfOfClaims(t *testing.T) {
 		var validationErr *core.ValidationError
 		require.ErrorAs(t, err, &validationErr)
 		assert.Equal(t, core.ErrorCodeInvalidClaims, validationErr.Code)
+	})
+
+	t.Run("empty-sub actor does not fail verification but surfaces on the chain", func(t *testing.T) {
+		// Per RFC 8693 §4.1 generic verification does not fail on the actor
+		// claim, so a token whose act chain contains an empty sub still
+		// validates. The malformed chain is surfaced only when the caller walks
+		// it via DelegationChain.
+		token := signTokenHS256(t, secret, map[string]any{
+			"iss": issuer,
+			"sub": "auth0|user123",
+			"aud": audience,
+			"act": map[string]any{
+				"sub": "mcp_server_client_id",
+				"act": map[string]any{
+					"sub": "",
+					"act": map[string]any{"sub": "spa_client_id"},
+				},
+			},
+		})
+
+		claims, err := newValidator(t).ValidateToken(context.Background(), token)
+		require.NoError(t, err)
+
+		validated, ok := claims.(*ValidatedClaims)
+		require.True(t, ok)
+		assert.True(t, validated.HasActor())
+		assert.Equal(t, "mcp_server_client_id", validated.CurrentActor())
+
+		chain, err := validated.DelegationChain()
+		require.ErrorIs(t, err, ErrMalformedDelegationChain)
+		assert.Equal(t, []string{"mcp_server_client_id"}, chain)
 	})
 
 	t.Run("malformed act does not drop cnf", func(t *testing.T) {

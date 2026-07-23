@@ -264,8 +264,14 @@ right side of this rule:
 	}
 
 	// The full delegation chain, current-to-original, for audit logging only.
-	// Never use nested actors for authorization.
-	chain := validated.DelegationChain()
+	// Never use nested actors for authorization. Per RFC 8693 §4.1 verification
+	// does not fail on the actor claim, so a malformed chain (an actor with an
+	// empty sub) is surfaced here as ErrMalformedDelegationChain rather than at
+	// ValidateToken; the subjects gathered before the break are still returned.
+	chain, err := validated.DelegationChain()
+	if err != nil {
+	    // audit: the chain was truncated at a malformed actor
+	}
 
 	// Organization context is preserved on org-bound tokens.
 	orgID := validated.RegisteredClaims.OrgID

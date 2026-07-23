@@ -599,7 +599,14 @@ if actor := validated.CurrentActor(); actor != "" && !authorizedActors[actor] {
 
 // The full delegation chain, ordered from current actor to the original
 // client. For audit/logging only; never use nested actors for authorization.
-chain := validated.DelegationChain() // ["mcp_server_client_id", "spa_client_id"]
+// Per RFC 8693 §4.1 verification does not fail on the actor claim, so a
+// malformed chain (an actor with an empty sub) is reported here as
+// validator.ErrMalformedDelegationChain rather than at ValidateToken. The
+// subjects gathered before the break are still returned.
+chain, err := validated.DelegationChain() // ["mcp_server_client_id", "spa_client_id"]
+if err != nil {
+    // audit: the delegation chain was truncated at a malformed actor
+}
 
 // Organization context is preserved on org-bound exchanged tokens.
 orgID := validated.RegisteredClaims.OrgID

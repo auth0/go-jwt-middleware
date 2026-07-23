@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidatedClaims_DPoPMethods(t *testing.T) {
@@ -63,7 +64,10 @@ func TestValidatedClaims_ActorHelpers(t *testing.T) {
 		claims := &ValidatedClaims{}
 		assert.False(t, claims.HasActor())
 		assert.Empty(t, claims.CurrentActor())
-		assert.Nil(t, claims.DelegationChain())
+
+		chain, err := claims.DelegationChain()
+		require.NoError(t, err)
+		assert.Nil(t, chain)
 	})
 
 	t.Run("actor with empty subject is not considered present", func(t *testing.T) {
@@ -72,15 +76,19 @@ func TestValidatedClaims_ActorHelpers(t *testing.T) {
 		}
 		assert.False(t, claims.HasActor())
 		assert.Empty(t, claims.CurrentActor())
-		// DelegationChain must agree: an empty subject means no actor, so the
-		// chain is empty rather than [""].
-		assert.Empty(t, claims.DelegationChain())
+
+		// An empty subject at the head of the chain is malformed: DelegationChain
+		// surfaces the error instead of silently returning an empty chain.
+		chain, err := claims.DelegationChain()
+		require.ErrorIs(t, err, ErrMalformedDelegationChain)
+		assert.Empty(t, chain)
 	})
 
-	t.Run("chain stops at the first empty subject", func(t *testing.T) {
-		// An empty subject terminates the chain so DelegationChain stays
-		// consistent with HasActor and CurrentActor and is never padded with
-		// empty entries.
+	t.Run("empty subject in the middle of the chain surfaces an error", func(t *testing.T) {
+		// Per RFC 8693 §4.1 verification does not fail on the actor claim, so the
+		// malformed chain is caught here rather than at ValidateToken. The
+		// subjects collected before the empty sub are returned alongside the error
+		// so a caller learns the chain was truncated.
 		claims := &ValidatedClaims{
 			RegisteredClaims: RegisteredClaims{
 				Act: &Actor{
@@ -89,7 +97,10 @@ func TestValidatedClaims_ActorHelpers(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, []string{"mcp_server_client_id"}, claims.DelegationChain())
+
+		chain, err := claims.DelegationChain()
+		require.ErrorIs(t, err, ErrMalformedDelegationChain)
+		assert.Equal(t, []string{"mcp_server_client_id"}, chain)
 	})
 
 	t.Run("single exchange", func(t *testing.T) {
@@ -104,7 +115,10 @@ func TestValidatedClaims_ActorHelpers(t *testing.T) {
 
 		assert.True(t, claims.HasActor())
 		assert.Equal(t, "mcp_server_client_id", claims.CurrentActor())
-		assert.Equal(t, []string{"mcp_server_client_id", "spa_client_id"}, claims.DelegationChain())
+
+		chain, err := claims.DelegationChain()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"mcp_server_client_id", "spa_client_id"}, chain)
 	})
 
 	t.Run("chained exchange preserves order from current to original", func(t *testing.T) {
@@ -121,9 +135,12 @@ func TestValidatedClaims_ActorHelpers(t *testing.T) {
 		}
 
 		assert.Equal(t, "mcp_server_2_client_id", claims.CurrentActor())
+
+		chain, err := claims.DelegationChain()
+		require.NoError(t, err)
 		assert.Equal(t,
 			[]string{"mcp_server_2_client_id", "mcp_server_1_client_id", "spa_client_id"},
-			claims.DelegationChain(),
+			chain,
 		)
 	})
 }

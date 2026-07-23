@@ -2,7 +2,15 @@ package validator
 
 import (
 	"context"
+	"errors"
 )
+
+// ErrMalformedDelegationChain is returned by ValidatedClaims.DelegationChain
+// when the act (actor) claim contains an actor with an empty sub. Per RFC 8693
+// §4.1, generic token verification does not fail on the actor claim, so this
+// surfaces only when a caller walks the chain for audit rather than during
+// ValidateToken. Match it with errors.Is.
+var ErrMalformedDelegationChain = errors.New("validator: delegation chain contains an actor with an empty sub")
 
 // ValidatedClaims is the struct that will be inserted into
 // the context for the user. CustomClaims will be nil
@@ -100,8 +108,9 @@ func (v *ValidatedClaims) HasConfirmation() bool {
 	return v.ConfirmationClaim != nil && v.ConfirmationClaim.JKT != ""
 }
 
-// HasActor reports whether the token carries an act (actor) claim, which is
-// the case for tokens issued via On-Behalf-Of / Token Exchange (RFC 8693).
+// HasActor reports whether the token carries a usable act (actor) claim, which
+// is the case for tokens issued via On-Behalf-Of / Token Exchange (RFC 8693).
+// An actor whose sub is empty is treated as no actor, matching CurrentActor.
 func (v *ValidatedClaims) HasActor() bool {
 	return v.RegisteredClaims.Act != nil && v.RegisteredClaims.Act.Subject != ""
 }
@@ -130,16 +139,24 @@ func (v *ValidatedClaims) CurrentActor() string {
 //
 // This is intended for audit and logging only. Do NOT use nested actors for
 // authorization decisions; per RFC 8693 §4.1 only CurrentActor may drive
-// access control. It returns nil when the token has no actor.
+// access control. It returns a nil chain and nil error when the token has no
+// actor.
 //
-// An actor with an empty subject is treated as the end of the chain, so the
-// result stays consistent with HasActor and CurrentActor, which also treat an
-// empty subject as "no actor". A chain is therefore never padded with empty
-// entries.
-func (v *ValidatedClaims) DelegationChain() []string {
+// Per RFC 8693 §4.1, generic token verification does not fail on the actor
+// claim, so a malformed chain is not rejected during ValidateToken. Instead it
+// is surfaced here: if any actor in the chain has an empty sub, DelegationChain
+// returns the subjects collected up to that point along with
+// ErrMalformedDelegationChain, so a caller walking the chain for audit learns
+// the chain was truncated rather than silently receiving a short chain. Callers
+// that only need the current actor for authorization should use CurrentActor
+// and can ignore this error.
+func (v *ValidatedClaims) DelegationChain() ([]string, error) {
 	var chain []string
-	for a := v.RegisteredClaims.Act; a != nil && a.Subject != ""; a = a.Act {
+	for a := v.RegisteredClaims.Act; a != nil; a = a.Act {
+		if a.Subject == "" {
+			return chain, ErrMalformedDelegationChain
+		}
 		chain = append(chain, a.Subject)
 	}
-	return chain
+	return chain, nil
 }
