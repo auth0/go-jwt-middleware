@@ -1,6 +1,6 @@
 module github.com/auth0/go-jwt-middleware/v3/examples/http-multi-issuer-redis-example
 
-go 1.24.0
+go 1.25.0
 
 replace github.com/auth0/go-jwt-middleware/v3 => ../..
 
@@ -26,7 +26,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/valyala/fastjson v1.6.7 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
