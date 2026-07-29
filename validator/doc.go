@@ -223,14 +223,62 @@ The ValidatedClaims struct contains both registered and custom claims:
 	}
 
 	type RegisteredClaims struct {
-	    Issuer    string   // iss
-	    Subject   string   // sub
-	    Audience  []string // aud
-	    ID        string   // jti
-	    Expiry    int64    // exp (Unix timestamp)
-	    NotBefore int64    // nbf (Unix timestamp)
-	    IssuedAt  int64    // iat (Unix timestamp)
+	    Issuer          string   // iss
+	    Subject         string   // sub
+	    Audience        []string // aud
+	    ID              string   // jti
+	    Expiry          int64    // exp (Unix timestamp)
+	    NotBefore       int64    // nbf (Unix timestamp)
+	    IssuedAt        int64    // iat (Unix timestamp)
+	    AuthorizedParty string   // azp
+	    OrgID           string   // org_id
+	    OrgName         string   // org_name
+	    Act             *Actor   // act (RFC 8693 actor chain)
 	}
+
+# On-Behalf-Of / Token Exchange (RFC 8693)
+
+Tokens issued via On-Behalf-Of Token Exchange carry an act (actor) claim that
+identifies the party acting on behalf of the subject, plus azp and, for
+organization-bound tokens, org_id/org_name. These are populated automatically
+during validation; no extra configuration is required.
+
+Per RFC 8693 §4.1, only the current actor (the outermost act.sub) may be used
+for access-control decisions. The nested chain is informational and intended
+for audit and logging only. Use the helpers on ValidatedClaims to stay on the
+right side of this rule:
+
+	claims, err := v.ValidateToken(ctx, tokenString)
+	if err != nil {
+	    // handle validation error
+	}
+	validated := claims.(*validator.ValidatedClaims)
+
+	// The user the request is on behalf of.
+	userID := validated.RegisteredClaims.Subject
+
+	// The current actor: the client that performed the exchange.
+	// Use ONLY this for authorization decisions.
+	if actor := validated.CurrentActor(); actor != "" && !authorizedActors[actor] {
+	    // reject: acting client is not permitted
+	}
+
+	// The full delegation chain, current-to-original, for audit logging only.
+	// Never use nested actors for authorization. Per RFC 8693 §4.1 verification
+	// does not fail on the actor claim, so a malformed chain (an actor with an
+	// empty sub) is surfaced here as ErrMalformedDelegationChain rather than at
+	// ValidateToken; the subjects gathered before the break are still returned.
+	chain, err := validated.DelegationChain()
+	if err != nil {
+	    // audit: the chain was truncated at a malformed actor
+	}
+
+	// Organization context is preserved on org-bound tokens.
+	orgID := validated.RegisteredClaims.OrgID
+
+Delegation chains are limited to 5 levels by default; a token whose act claim
+nests more actors than the limit is rejected with an invalid_claims validation
+error. The limit is configurable via WithMaxActorChainDepth.
 
 # Error Handling
 
