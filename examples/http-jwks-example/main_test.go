@@ -31,28 +31,43 @@ func TestHandler(t *testing.T) {
 		},
 	}
 
-	jwk := generateJWK(t)
+	// The JWKS is exercised in both shapes allowed by RFC 7517 §4.4: keys that
+	// publish the optional "alg" member and keys that omit it. Tokens verify the
+	// same way in both cases; the token header always carries alg=RS256.
+	jwksCases := []struct {
+		name       string
+		publishAlg bool
+	}{
+		{name: "JWKS with alg", publishAlg: true},
+		{name: "JWKS without alg", publishAlg: false},
+	}
 
-	testServer := setupTestServer(t, jwk)
-	defer testServer.Close()
+	for _, jwksCase := range jwksCases {
+		t.Run(jwksCase.name, func(t *testing.T) {
+			jwk := generateJWK(t)
 
-	for _, test := range testCases {
-		t.Run(test.name, func(t *testing.T) {
-			request, err := http.NewRequest(http.MethodGet, "", nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			testServer := setupTestServer(t, jwk, jwksCase.publishAlg)
+			defer testServer.Close()
 
-			token := buildJWTForTesting(t, jwk, testServer.URL, test.subject, []string{"my-audience"})
-			request.Header.Set("Authorization", "Bearer "+token)
+			for _, test := range testCases {
+				t.Run(test.name, func(t *testing.T) {
+					request, err := http.NewRequest(http.MethodGet, "", nil)
+					if err != nil {
+						t.Fatal(err)
+					}
 
-			responseRecorder := httptest.NewRecorder()
+					token := buildJWTForTesting(t, jwk, testServer.URL, test.subject, []string{"my-audience"})
+					request.Header.Set("Authorization", "Bearer "+token)
 
-			mainHandler := setupHandler(testServer.URL, []string{"my-audience"})
-			mainHandler.ServeHTTP(responseRecorder, request)
+					responseRecorder := httptest.NewRecorder()
 
-			if want, got := test.wantStatusCode, responseRecorder.Code; want != got {
-				t.Fatalf("wanted status code %d, but got status code %d", want, got)
+					mainHandler := setupHandler(testServer.URL, []string{"my-audience"})
+					mainHandler.ServeHTTP(responseRecorder, request)
+
+					if want, got := test.wantStatusCode, responseRecorder.Code; want != got {
+						t.Fatalf("wanted status code %d, but got status code %d", want, got)
+					}
+				})
 			}
 		})
 	}
@@ -74,7 +89,7 @@ func generateJWK(t *testing.T) *jose.JSONWebKey {
 	}
 }
 
-func setupTestServer(t *testing.T, jwk *jose.JSONWebKey) (server *httptest.Server) {
+func setupTestServer(t *testing.T, jwk *jose.JSONWebKey, publishAlg bool) (server *httptest.Server) {
 	t.Helper()
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,8 +106,16 @@ func setupTestServer(t *testing.T, jwk *jose.JSONWebKey) (server *httptest.Serve
 				t.Fatal(err)
 			}
 		case "/.well-known/jwks.json":
+			// "alg" is an optional JWK member (RFC 7517 §4.4). When publishAlg is
+			// false the key omits it, so both shapes a provider may serve are
+			// exercised. The signing key keeps its algorithm either way, so the
+			// token header still carries alg=RS256.
+			publicKey := jwk.Public()
+			if !publishAlg {
+				publicKey.Algorithm = ""
+			}
 			jwks := jose.JSONWebKeySet{
-				Keys: []jose.JSONWebKey{jwk.Public()},
+				Keys: []jose.JSONWebKey{publicKey},
 			}
 			jsonData, err := json.Marshal(jwks)
 			if err != nil {
