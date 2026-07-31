@@ -284,10 +284,21 @@ func (v *Validator) parseToken(_ context.Context, tokenString string, key any) (
 	// token has no kid header, that key is used. This is required for symmetric MCD
 	// (HS256 keys typically don't use kid) and is safe because algorithm enforcement
 	// already happened in ValidateToken before reaching this point.
+	// WithInferAlgorithmFromKey(true) lets keys that omit the optional "alg" member
+	// (RFC 7517 §4.4 makes it optional, and some providers/configurations do not emit it)
+	// still be selected: jwx derives the algorithm from the key type and then matches it
+	// against the token's alg header. This cannot widen the algorithm policy - the header was already checked
+	// against v.allowedAlgorithms in ValidateToken, and inference only considers algorithms
+	// compatible with the key type, so alg-confusion (e.g. an HS256 token against an RSA
+	// key) is still rejected. Without this, alg-less keys contribute no verification
+	// candidate and every token fails as an "unverifiable signature".
 	// For single keys (byte slices, etc.), use WithKey with the configured algorithm.
 	switch k := key.(type) {
 	case jwk.Set:
-		parseOpts = append(parseOpts, jwt.WithKeySet(k, jws.WithUseDefault(true)))
+		parseOpts = append(parseOpts, jwt.WithKeySet(k,
+			jws.WithUseDefault(true),
+			jws.WithInferAlgorithmFromKey(true),
+		))
 	default:
 		if len(v.allowedAlgorithms) != 1 {
 			return nil, fmt.Errorf(

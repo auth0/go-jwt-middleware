@@ -368,6 +368,17 @@ provider, err := jwks.NewCachingProvider(
 )
 ```
 
+#### Signing keys without an `alg` member
+
+In v2, go-jose derived the signing algorithm from the token's JWS protected
+header, so a JWKS whose keys omitted the optional `alg` member (which RFC 7517
+§4.4 allows) verified without any extra configuration. v3 uses jwx, which derives
+the algorithm from the key type when a key has no `alg`, and the middleware
+enables this automatically. You do not need to change anything: the algorithm you
+pass to `WithAlgorithm`/`WithAlgorithms` is still enforced against the token
+header before any key is selected, so an alg-less JWKS verifies exactly as it did
+under v2.
+
 ### 4. Update Middleware
 
 #### Basic Middleware

@@ -2,6 +2,8 @@ package validator
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -1964,5 +1966,118 @@ func TestWithMaxActorChainDepth(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, defaultMaxActorChainDepth, v.maxActorChainDepth)
+	})
+}
+
+// TestValidator_JWKSWithoutAlg is a regression test for the case where a JWKS
+// key omits the optional "alg" member (RFC 7517 §4.4 makes it optional). Before
+// jws.WithInferAlgorithmFromKey was wired into parseToken, alg-less keys
+// contributed no verification candidate and every RS256 token verified against
+// such a key set failed with an unverifiable-signature error.
+func TestValidator_JWKSWithoutAlg(t *testing.T) {
+	const (
+		issuer   = "https://go-jwt-middleware.eu.auth0.com/"
+		audience = "https://go-jwt-middleware-api/"
+		kid      = "test-rsa-kid"
+	)
+
+	rsaPrivate, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	// buildSet returns a jwk.Set holding the RSA public key with the given kid.
+	// When withAlg is false the key omits the "alg" member, mirroring Auth0.
+	buildSet := func(t *testing.T, withAlg bool) jwk.Set {
+		t.Helper()
+
+		pubKey, err := jwk.Import(rsaPrivate.Public())
+		require.NoError(t, err)
+		require.NoError(t, pubKey.Set(jwk.KeyIDKey, kid))
+		require.NoError(t, pubKey.Set(jwk.KeyUsageKey, "sig"))
+		if withAlg {
+			require.NoError(t, pubKey.Set(jwk.AlgorithmKey, jwa.RS256()))
+		}
+
+		set := jwk.NewSet()
+		require.NoError(t, set.AddKey(pubKey))
+
+		return set
+	}
+
+	// signRS256 produces a valid RS256 token carrying the matching kid header.
+	signRS256 := func(t *testing.T) string {
+		t.Helper()
+
+		token, err := jwt.NewBuilder().
+			Issuer(issuer).
+			Audience([]string{audience}).
+			Subject("1234567890").
+			Expiration(time.Now().Add(1 * time.Hour)).
+			Build()
+		require.NoError(t, err)
+
+		signKey, err := jwk.Import(rsaPrivate)
+		require.NoError(t, err)
+		require.NoError(t, signKey.Set(jwk.KeyIDKey, kid))
+
+		headers := jws.NewHeaders()
+		require.NoError(t, headers.Set(jws.KeyIDKey, kid))
+
+		signed, err := jwt.Sign(token, jwt.WithKey(jwa.RS256(), signKey, jws.WithProtectedHeaders(headers)))
+		require.NoError(t, err)
+
+		return string(signed)
+	}
+
+	newValidator := func(t *testing.T, set jwk.Set) *Validator {
+		t.Helper()
+
+		v, err := New(
+			WithKeyFunc(func(context.Context) (any, error) { return set, nil }),
+			WithAlgorithm(RS256),
+			WithIssuer(issuer),
+			WithAudience(audience),
+		)
+		require.NoError(t, err)
+
+		return v
+	}
+
+	t.Run("validates RS256 token when JWKS key omits alg", func(t *testing.T) {
+		v := newValidator(t, buildSet(t, false))
+
+		claims, err := v.ValidateToken(context.Background(), signRS256(t))
+		require.NoError(t, err)
+		assert.NotNil(t, claims)
+	})
+
+	t.Run("still validates RS256 token when JWKS key includes alg", func(t *testing.T) {
+		v := newValidator(t, buildSet(t, true))
+
+		claims, err := v.ValidateToken(context.Background(), signRS256(t))
+		require.NoError(t, err)
+		assert.NotNil(t, claims)
+	})
+
+	t.Run("rejects HS256 token forged against the alg-less RSA key", func(t *testing.T) {
+		// Classic algorithm-confusion payload: an HS256 token keyed on the RSA
+		// public key bytes. The header-alg allowlist rejects it before key
+		// selection, so inference never gets the chance to misuse the RSA key.
+		token, err := jwt.NewBuilder().
+			Issuer(issuer).
+			Audience([]string{audience}).
+			Subject("1234567890").
+			Expiration(time.Now().Add(1 * time.Hour)).
+			Build()
+		require.NoError(t, err)
+
+		headers := jws.NewHeaders()
+		require.NoError(t, headers.Set(jws.KeyIDKey, kid))
+		forged, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), rsaPrivate.PublicKey.N.Bytes(), jws.WithProtectedHeaders(headers)))
+		require.NoError(t, err)
+
+		v := newValidator(t, buildSet(t, false))
+
+		_, err = v.ValidateToken(context.Background(), string(forged))
+		require.Error(t, err)
 	})
 }
