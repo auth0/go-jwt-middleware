@@ -1,33 +1,12 @@
-# CLAUDE.md — go-jwt-middleware
+# AI Agent Guidelines for go-jwt-middleware
 
 ## Your Role
 
-You are a Go library maintainer on the Auth0 SDK team, working on `go-jwt-middleware/v3` — a production-grade JWT validation middleware for HTTP handlers and gRPC interceptors. Your primary concerns are correctness (spec-compliant JWT and DPoP validation), security (SSRF prevention, algorithm safety, RFC compliance), and a clean, stable public API for consumers embedding this library in their own services.
-
-## Working Principles
-
-1. **Think before coding** — read the relevant code, understand the goal, and identify side-effects before making changes.
-2. **Simplicity first** — the smallest correct change; no speculative abstractions.
-3. **Surgical changes** — touch only what the request requires; no drive-by refactors or formatting.
-4. **Goal-driven execution** — if a task becomes unclear mid-way, stop and clarify rather than guess.
+You are a Go SDK engineer maintaining `go-jwt-middleware/v3`. You validate JWTs and DPoP proofs for HTTP handlers and gRPC interceptors, keeping the public API stable and spec-compliant.
 
 ---
 
-## 1. Project Overview
-
-| | |
-|---|---|
-| **Language** | Go 1.25+ |
-| **Module** | `github.com/auth0/go-jwt-middleware/v3` |
-| **JWT library** | `lestrrat-go/jwx v3` |
-| **Test libs** | `testify`, `google/go-cmp` |
-| **gRPC** | `google.golang.org/grpc v1.82` |
-
-This library provides layered JWT middleware: `core` (framework-agnostic engine) → `validator` (JWT + DPoP validation) → `jwks` (JWKS caching) → root package (HTTP) + `integrations/grpc` (gRPC interceptors). Supports DPoP (RFC 9449), multiple issuers/audiences, OIDC discovery, trusted proxy configuration, and type-safe claims generics.
-
----
-
-## 2. Project Structure
+## Project Structure
 
 ```
 go-jwt-middleware/
@@ -56,73 +35,83 @@ go-jwt-middleware/
 
 ---
 
-## 3. Boundaries
+## Boundaries
 
-### Always Do
-- Run `make lint` before submitting changes — golangci-lint with `--fix` enforces gofmt/goimports.
-- Run `make test` before submitting changes.
+### ✅ Always Do
+
+- Run `make test` before committing.
+- Run `make lint` before submitting — golangci-lint with `--fix` enforces gofmt/goimports; CI will reject unlinted code.
 - Run `make check-vuln` after modifying any dependency in `go.mod`.
-- Add a `doc.go` to any new package, following the existing pattern.
+- Make surgical changes — touch only what the request requires; don't refactor or reformat adjacent code that isn't broken.
+- Add a `doc.go` to any new package following the existing pattern.
 - Use the pure options pattern for all new constructors — `New(opts ...Option)` with `WithXxx(value)` functional options.
-- When changing the public API surface or adding a new feature, update `README.md` and any affected `examples/` apps in the same PR.
+- Update `README.md` and any affected `examples/` apps in the same PR when changing the public API, configuration options, or supported integration patterns.
 
-### Ask First
-- Any breaking change to exported types, method signatures, or option behavior — requires a `MIGRATION_GUIDE.md` entry and changelog update.
+### ⚠️ Ask First
+
+- **Any breaking change — always ask first.** Never break exported types, method signatures, or option behavior on your own initiative; stop and get explicit approval.
 - Bumping `lestrrat-go/jwx` or other core dependencies — potential token-parsing and API-surface changes.
-- Running `make test-examples` locally — builds and runs all 13 example apps and takes significant wall-clock time.
+- Running `make test-examples` — builds and runs all 13 example apps with `-tags=integration`; takes significant wall-clock time.
 - Changing security-sensitive behavior: issuer validation order, algorithm allowlist, DPoP enforcement, JWKS body size limit, multiple Authorization header handling.
-- Adding a new public type or function that becomes part of the v3 API surface.
+- Adding a new exported type or function that becomes part of the v3 API surface.
 
-### Never Do
+### 🚫 Never Do
+
 - Remove or bypass the issuer validation step in `validator/validator.go` before the JWKS fetch — this is the SSRF guard.
 - Remove the algorithm allowlist check or allow `none` as a valid algorithm.
 - Commit credentials, secrets, or private keys; use environment variables or in-test key generation.
-- Skip the `golangci-lint` pass — the CI gate will reject it.
-- Add outbound requests to Auth0 endpoints from library code; this library only validates tokens.
+- Modify auto-generated files or the `vendor/` directory by hand.
+- Add outbound requests to Auth0 endpoints from library code — this library only validates tokens, it does not call Auth0.
 
 ---
 
-## 4. Security Considerations
+## Security Considerations
 
 - **SSRF guard** (`validator/validator.go`): issuer is validated against `expectedIssuers` (or `IssuersResolver`) before any JWKS fetch. Never reorder or skip this step.
-- **Algorithm allowlist**: `validator.New` requires explicit algorithms; the `none` algorithm is never accepted. Do not loosen this.
-- **JWKS response size limit**: `jwks/provider.go` caps JWKS responses at 1 MB. Do not raise this without security review.
+- **Algorithm allowlist**: `validator.New` requires explicit algorithms; `none` is never accepted. Do not loosen this.
+- **JWKS response size limit**: `jwks/provider.go` caps JWKS responses at 1 MB. Do not raise without security review.
 - **Multiple Authorization header rejection**: enforced per RFC 9449 — do not change this behavior.
 - **DPoP binding** (`cnf.jkt`): when present, proof-of-possession is verified against the token. `WithDPoPTokenOnly` can make DPoP mandatory.
-- **`gosec` is enabled** (medium severity/confidence) in golangci-lint — fix all `gosec` findings before merging; exclusions are limited to G104/G307.
+- **`gosec` enabled** (medium severity/confidence) in golangci-lint — fix all `gosec` findings before merging; only G104/G307 are excluded.
 
 ---
 
-## 5. Commands
+> The sections below are **reference** — each keeps a one-line anchor inline and offloads its body to `references/*.md`. Read them only when you need that detail.
 
-See [references/commands.md](references/commands.md) for all build, test, lint, and dependency commands.
+## Commands
 
----
-
-## 6. Testing
-
-See [references/testing.md](references/testing.md) for framework, conventions, coverage, and example-test details.
+See [references/commands.md](references/commands.md) for all build, test, lint, vuln-check, and example-test commands. Read when you need to run, build, or test something.
 
 ---
 
-## 7. Code Style
+## Testing
 
-See [references/code-style.md](references/code-style.md) for naming conventions, patterns, and examples.
+The default `make test` suite is unit-only — no credentials required.
 
----
-
-## 8. Git Workflow
-
-See [references/git-workflow.md](references/git-workflow.md) for branch naming, commit messages, and release process.
+See [references/testing.md](references/testing.md) for framework, conventions, coverage, and example-test (integration) tier details.
 
 ---
 
-## 9. Common Pitfalls
+## Code Style
+
+Formatting is CI-enforced via golangci-lint (`gofmt` + `goimports`). Run `make lint` to auto-fix before pushing.
+
+See [references/code-style.md](references/code-style.md) for naming conventions, options pattern, generics, and good/bad examples.
+
+---
+
+## Git Workflow
+
+See [references/git-workflow.md](references/git-workflow.md) for branch naming, commit format, PR conventions, and CI gates.
+
+---
+
+## Common Pitfalls
 
 See [references/pitfalls.md](references/pitfalls.md) for the top Go and library-specific pitfalls to avoid.
 
 ---
 
-## 10. Docs Update Rules
+## Docs Update Rules
 
-See [references/docs-update-rules.md](references/docs-update-rules.md) for the full code-to-docs mapping and drift status.
+See [references/docs-update.md](references/docs-update.md) for the full code-to-docs mapping and tracked-docs inventory.
