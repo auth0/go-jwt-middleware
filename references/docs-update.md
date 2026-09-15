@@ -23,6 +23,3 @@
 
 ## Notes on `examples/` apps
 Each example has its own `go.mod`. When the public API changes, update both the example source and its `go.mod`. `make test-examples` catches broken examples before merge.
-
-## On `EXAMPLES.md`
-No standalone `EXAMPLES.md` exists. If inline quick-start snippets beyond the `examples/` apps are needed, create `EXAMPLES.md` and add it to the tracking table above.
