@@ -729,7 +729,7 @@ DPoP validates:
 - HTTP method and URL binding (`htm` and `htu` claims)
 - Token binding via thumbprint (`jkt` claim in access token's `cnf`)
 - Access token hash (`ath` claim) matching
-- Replay protection via `jti` and `iat` claims
+- Proof freshness via the `iat` claim
 
 See the [DPoP examples](./examples/http-dpop-example) for complete working code.
 
