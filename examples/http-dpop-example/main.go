@@ -58,6 +58,7 @@ var handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response["token_type"] = dpopCtx.TokenType
 		response["public_key_thumbprint"] = dpopCtx.PublicKeyThumbprint
 		response["dpop_issued_at"] = dpopCtx.IssuedAt.Format(time.RFC3339)
+		response["dpop_jti"] = dpopCtx.JTI
 	} else {
 		response["dpop_enabled"] = false
 		response["token_type"] = "Bearer"

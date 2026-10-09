@@ -572,6 +572,21 @@ middleware, err := jwtmiddleware.New(
 )
 ```
 
+#### Accessing DPoP Details in Handlers
+
+After a DPoP proof is validated, its details are available from the request context:
+
+```go
+if jwtmiddleware.HasDPoPContext(r.Context()) {
+	dpopCtx := jwtmiddleware.GetDPoPContext(r.Context())
+	fmt.Println(dpopCtx.PublicKeyThumbprint) // jkt of the proof key
+	fmt.Println(dpopCtx.IssuedAt)            // iat of the proof
+	fmt.Println(dpopCtx.JTI)                 // jti of the proof
+}
+```
+
+The `JTI` value can be used to build replay detection in your application. The middleware itself does not track `jti` values.
+
 See the [DPoP examples](./examples/http-dpop-example) for complete working code.
 
 ### On-Behalf-Of / Token Exchange (RFC 8693)
