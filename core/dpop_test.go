@@ -239,6 +239,7 @@ func TestCheckTokenWithDPoP_DPoPToken_Success(t *testing.T) {
 	assert.Equal(t, expectedJKT, dpopCtx.PublicKeyThumbprint)
 	assert.Equal(t, "DPoP", dpopCtx.TokenType)
 	assert.Equal(t, time.Unix(now, 0), dpopCtx.IssuedAt)
+	assert.Equal(t, "unique-jti", dpopCtx.JTI)
 }
 
 func TestCheckTokenWithDPoP_DPoPToken_NoCnfClaim(t *testing.T) {

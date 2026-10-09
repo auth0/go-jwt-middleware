@@ -572,11 +572,28 @@ middleware, err := jwtmiddleware.New(
 )
 ```
 
+#### Accessing DPoP Details in Handlers
+
+After a DPoP proof is validated, its details are available from the request context:
+
+```go
+if jwtmiddleware.HasDPoPContext(r.Context()) {
+	dpopCtx := jwtmiddleware.GetDPoPContext(r.Context())
+	fmt.Println(dpopCtx.PublicKeyThumbprint) // jkt of the proof key
+	fmt.Println(dpopCtx.IssuedAt)            // iat of the proof
+	fmt.Println(dpopCtx.JTI)                 // jti of the proof
+}
+```
+
+The `JTI` value can be used to build replay detection in your application. The middleware itself does not track `jti` values.
+
 #### Known Limitation: Proof Replay
 
 The middleware requires every DPoP proof to include a `jti` claim, but it does not yet track `jti` values to reject a proof that has already been used. This means a captured proof can be replayed against the same HTTP method and URL until it expires (by default, up to 5 minutes after its `iat`, plus 30 seconds of clock skew leeway).
 
-To reduce this window, shorten the maximum proof age:
+You can close this gap in your application by recording `DPoPContext.JTI` (see above) and rejecting a request whose `jti` was already seen. Keep each value for slightly longer than the maximum proof age.
+
+To reduce the window, shorten the maximum proof age:
 
 ```go
 middleware, err := jwtmiddleware.New(

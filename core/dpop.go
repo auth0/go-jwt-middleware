@@ -137,6 +137,11 @@ type DPoPContext struct {
 	// Useful for audit trails and debugging.
 	IssuedAt time.Time
 
+	// JTI is the unique identifier (jti) of the validated DPoP proof.
+	// Can be used to build application-level replay detection. The middleware
+	// itself does not track jti values.
+	JTI string
+
 	// TokenType is always "DPoP" when this context exists.
 	// Helps distinguish DPoP tokens from Bearer tokens.
 	TokenType string
@@ -435,6 +440,7 @@ func (c *Core) validateDPoPToken(
 	dpopCtx := &DPoPContext{
 		PublicKeyThumbprint: actualJKT,
 		IssuedAt:            time.Unix(proofIAT, 0),
+		JTI:                 proofClaims.GetJTI(),
 		TokenType:           "DPoP",
 		PublicKey:           proofClaims.GetPublicKey(),
 		DPoPProof:           dpopProof,
