@@ -532,7 +532,7 @@ jwtValidator, err := validator.New(
 
 ### DPoP (Demonstrating Proof-of-Possession)
 
-v3 adds support for [DPoP (RFC 9449)](https://datatracker.ietf.org/doc/html/rfc9449), which provides proof-of-possession for access tokens. This prevents token theft and replay attacks.
+v3 adds support for [DPoP (RFC 9449)](https://datatracker.ietf.org/doc/html/rfc9449), which provides proof-of-possession for access tokens. Tokens are bound to a key held by the client, so a stolen token cannot be used without the matching private key.
 
 #### DPoP Modes
 
@@ -586,6 +586,22 @@ if jwtmiddleware.HasDPoPContext(r.Context()) {
 ```
 
 The `JTI` value can be used to build replay detection in your application. The middleware itself does not track `jti` values.
+
+#### Known Limitation: Proof Replay
+
+The middleware requires every DPoP proof to include a `jti` claim, but it does not yet track `jti` values to reject a proof that has already been used. This means a captured proof can be replayed against the same HTTP method and URL until it expires (by default, up to 5 minutes after its `iat`, plus 30 seconds of clock skew leeway).
+
+You can close this gap in your application by recording `DPoPContext.JTI` (see above) and rejecting a request whose `jti` was already seen. Keep each value for slightly longer than the maximum proof age.
+
+To reduce the window, shorten the maximum proof age:
+
+```go
+middleware, err := jwtmiddleware.New(
+	jwtmiddleware.WithValidator(jwtValidator),
+	jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
+	jwtmiddleware.WithDPoPProofOffset(60 * time.Second), // Accept proofs up to 60s old
+)
+```
 
 See the [DPoP examples](./examples/http-dpop-example) for complete working code.
 
