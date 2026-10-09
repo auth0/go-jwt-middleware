@@ -1,0 +1,109 @@
+name: API Compatibility
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-compat-${{ github.event.pull_request.number }}-${{ (github.event.action == 'edited' && github.event.changes.base == null) && github.run_id || 'analyze' }}
+  cancel-in-progress: true
+
+jobs:
+  apidiff:
+    name: Check for breaking API changes
+    runs-on: ubuntu-latest
+    if: github.event.action != 'edited' || github.event.changes.base != null
+    steps:
+      - name: Record the pull request
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          out="$RUNNER_TEMP/api-compat"
+          mkdir -p "$out"
+          printf '%s\n' "$PR_NUMBER" > "$out/pr-number"
+          echo failed > "$out/status"
+
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          check-latest: true
+
+      - name: Install apidiff
+        run: go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260908205506-85c1c2202aba
+
+      - name: Compare exported API with the base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          out="$RUNNER_TEMP/api-compat"
+          mkdir -p "$out"
+
+          # Export the API of the base branch.
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          base_module=$(cd "$RUNNER_TEMP/base" && go list -m)
+          (cd "$RUNNER_TEMP/base" && apidiff -m -w "$RUNNER_TEMP/base.export" "$base_module")
+
+          # Compare it with the API of the merge commit.
+          head_module=$(go list -m)
+          apidiff -m "$RUNNER_TEMP/base.export" "$head_module" > "$RUNNER_TEMP/apidiff.txt"
+
+          # Split the report into incompatible and compatible changes, ignoring test packages.
+          parse() {
+            awk -v header="$1" '
+              /^[A-Za-z].*:$/ { section = ($0 == header) ; next }
+              section && /^- / { print }
+            ' "$RUNNER_TEMP/apidiff.txt" | { grep -Ev '_test[.:]' || true; }
+          }
+          parse "Incompatible changes:" > "$out/incompatible.txt"
+          parse "Compatible changes:" > "$out/compatible.txt"
+
+          incompatible=$(grep -c '^- ' "$out/incompatible.txt" || true)
+          compatible=$(grep -c '^- ' "$out/compatible.txt" || true)
+
+          {
+            echo "## API compatibility"
+            echo
+            echo "- Base branch: \`$BASE_REF\`"
+            echo "- Incompatible changes: **$incompatible**"
+            echo "- Compatible changes: **$compatible**"
+            echo
+            echo "### Incompatible changes"
+            echo
+            echo '```text'
+            cat "$out/incompatible.txt"
+            echo '```'
+            echo
+            echo "### Compatible changes"
+            echo
+            echo '```text'
+            cat "$out/compatible.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$incompatible" -gt 0 ]; then
+            echo "::warning title=Breaking API changes::$incompatible incompatible change(s) to the exported API compared with $BASE_REF"
+          fi
+
+          echo ok > "$out/status"
+
+      - name: Upload the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-compat-report
+          path: ${{ runner.temp }}/api-compat/
+          retention-days: 7
+          if-no-files-found: error
