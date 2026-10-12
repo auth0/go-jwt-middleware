@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/github/license/auth0/go-jwt-middleware.svg?logo=fossa&style=flat-square)](https://github.com/auth0/go-jwt-middleware/blob/master/LICENSE)
 [![Release](https://img.shields.io/github/v/release/auth0/go-jwt-middleware?include_prereleases&style=flat-square)](https://github.com/auth0/go-jwt-middleware/releases)
 [![Codecov](https://img.shields.io/codecov/c/github/auth0/go-jwt-middleware?logo=codecov&style=flat-square&token=fs2WrOXe9H)](https://codecov.io/gh/auth0/go-jwt-middleware)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/auth0/go-jwt-middleware/badge?style=flat-square)](https://securityscorecards.dev/viewer/?uri=github.com/auth0/go-jwt-middleware)
 [![Tests](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fauth0%2Fgo-jwt-middleware%2Fbadge%3Fref%3Dmaster&style=flat-square)](https://github.com/auth0/go-jwt-middleware/actions?query=branch%3Amaster)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/auth0/go-jwt-middleware)
 
