@@ -43,5 +43,4 @@ runs:
         prerelease: ${{ inputs.prerelease }}
         fail_on_unmatched_files: ${{ inputs.fail_on_unmatched_files }}
         files: ${{ inputs.files }}
-      env:
-        GITHUB_TOKEN: ${{ inputs.token }}
+        token: ${{ inputs.token }}

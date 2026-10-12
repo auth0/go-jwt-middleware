@@ -27,6 +27,7 @@ runs:
       id: get_release_notes
       with:
         result-encoding: string
+        github-token: ${{ inputs.token }}
         script: |
           const { data: pulls } = await github.rest.pulls.list({
             owner: process.env.REPO_OWNER,
@@ -36,7 +37,6 @@ runs:
           });
           core.setOutput('RELEASE_NOTES', pulls[0].body);
       env:
-        GITHUB_TOKEN: ${{ inputs.token }}
         REPO_OWNER: ${{ inputs.repo_owner }}
         REPO_NAME: ${{ inputs.repo_name }}
         VERSION: ${{ inputs.version }}
