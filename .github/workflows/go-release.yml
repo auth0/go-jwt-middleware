@@ -8,11 +8,16 @@ on:
 
 ### TODO: Replace instances of './.github/actions/' with reference to the `dx-sdk-actions` repo is made public and this file is transferred over
 
+permissions:
+  contents: read
+
 jobs:
   release:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'release/'))
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      contents: write
 
     steps:
       # Checkout the code
