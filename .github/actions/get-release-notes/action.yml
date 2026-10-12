@@ -1,4 +1,5 @@
 name: Return the release notes extracted from the PR body
+description: Returns the release notes from the PR linked to a release branch.
 
 #
 # Returns the release notes from the content of a pull request linked to a release branch. It expects the branch name to be in the format release/vX.Y.Z, release/X.Y.Z, release/vX.Y.Z-beta.N. etc.

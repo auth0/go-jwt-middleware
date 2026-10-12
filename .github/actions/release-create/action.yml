@@ -1,4 +1,5 @@
 name: Create a GitHub release
+description: Creates a GitHub release with the given version.
 
 #
 # Creates a GitHub release with the given version.

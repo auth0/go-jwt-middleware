@@ -1,4 +1,5 @@
 name: Return the version extracted from the branch name
+description: Returns the version from the .version file.
 
 #
 # Returns the version from the .version file.
