@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [v3.4.0](https://github.com/auth0/go-jwt-middleware/tree/v3.4.0) (2026-10-14)
+[Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v3.3.0...v3.4.0)
+
+**Added**
+- feat(core): expose DPoP proof jti in DPoPContext [\#453](https://github.com/auth0/go-jwt-middleware/pull/453) ([developerkunal](https://github.com/developerkunal))
+
 ## [v3.3.0](https://github.com/auth0/go-jwt-middleware/tree/v3.3.0) (2026-07-31)
 [Full Changelog](https://github.com/auth0/go-jwt-middleware/compare/v3.2.0...v3.3.0)
 
