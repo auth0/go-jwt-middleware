@@ -13,6 +13,15 @@ permissions:
 ### TODO: Also remove `get-prerelease`, `get-version`, `release-create`, `tag-create` and `tag-exists` actions from this repo's .github/actions folder and `go-release` from `./github/workflows` once the repo is public.
 
 jobs:
+  # Scan the source archive alongside the release. A failed scan fails this run but does not block the release job.
+  rl-scan:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'release/'))
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/rl.yml
+    secrets: inherit
+
   release:
     permissions:
       contents: write
