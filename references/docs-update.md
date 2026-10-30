@@ -5,7 +5,7 @@
 | Doc | Covers | Status |
 |-----|--------|--------|
 | `README.md` | Installation, quick-start, usage, configuration, error handling, examples index | present |
-| `examples/` (13 apps) | Runnable sample apps: echo, gin, iris, grpc, DPoP variants, multi-issuer, dynamic issuer | present |
+| `examples/` | Runnable sample apps: echo, gin, iris, grpc, DPoP variants, multi-issuer, dynamic issuer | present |
 | `EXAMPLES.md` | Standalone inline code samples | ❌ missing |
 
 ## Code-to-Docs Mapping (library)

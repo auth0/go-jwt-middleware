@@ -1,7 +1,7 @@
 # Code Style
 
 ## Options pattern
-All constructors use pure functional options — no exported config struct passed by value:
+Use functional options for constructors that take multiple optional configuration parameters — don't expose a config struct passed by value. Constructors with only required arguments can take plain parameters instead:
 ```go
 // Good
 func New(opts ...Option) (*JWTMiddleware, error) { ... }

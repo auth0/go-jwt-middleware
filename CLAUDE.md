@@ -44,7 +44,7 @@ go-jwt-middleware/
 - Run `make check-vuln` after modifying any dependency in `go.mod`.
 - Make surgical changes — touch only what the request requires; don't refactor or reformat adjacent code that isn't broken.
 - Add a `doc.go` to any new package following the existing pattern.
-- Use the pure options pattern for all new constructors — `New(opts ...Option)` with `WithXxx(value)` functional options.
+- Use the functional options pattern — `New(opts ...Option)` with `WithXxx(value)` options — for new constructors that take multiple optional configuration parameters. Constructors with only required arguments can take them as plain parameters.
 - Update `README.md` and any affected `examples/` apps in the same PR when changing the public API, configuration options, or supported integration patterns.
 
 ### ⚠️ Ask First
