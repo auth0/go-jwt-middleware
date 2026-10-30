@@ -3,7 +3,7 @@
 ## Branches
 - **Main branch**: `master`
 - **Feature / fix branches**: descriptive kebab-case names, e.g. `add-token-exchange-support`, `fix-jwks-cache-race`
-- **Release branches**: `release/<version>` — merging to `master` triggers the release workflow
+- **Release branches**: `release/<version>` — the release workflow (`go-release.yml`) runs when a merged PR's head branch starts with `release/`, or via manual `workflow_dispatch`
 
 ## Version
 The version string lives in the `.version` file at the repo root. The release CI reads this to tag the GitHub release. Update `.version` when preparing a release branch.

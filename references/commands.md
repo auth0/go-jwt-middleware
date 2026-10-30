@@ -45,5 +45,5 @@ make deps
 make test-examples
 # For each examples/*/ directory:
 #   cd <dir> && go mod tidy && go test -v -tags=integration ./...
-# Runs all 13 example apps; exits non-zero on first failure.
+# Runs all example apps; exits non-zero on first failure.
 ```

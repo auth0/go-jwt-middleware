@@ -30,7 +30,7 @@ go-jwt-middleware/
 │   └── multi_issuer_provider.go
 ├── internal/oidc/         # OIDC discovery endpoint parsing (unexported)
 ├── integrations/grpc/     # gRPC unary/stream interceptors + extractors
-└── examples/              # 13 runnable example apps (echo, gin, iris, grpc, DPoP variants, …)
+└── examples/              # Runnable example apps (echo, gin, iris, grpc, DPoP variants, …)
 ```
 
 ---
@@ -51,7 +51,7 @@ go-jwt-middleware/
 
 - **Any breaking change — always ask first.** Never break exported types, method signatures, or option behavior on your own initiative; stop and get explicit approval.
 - Bumping `lestrrat-go/jwx` or other core dependencies — potential token-parsing and API-surface changes.
-- Running `make test-examples` — builds and runs all 13 example apps with `-tags=integration`; takes significant wall-clock time.
+- Running `make test-examples` — builds and runs all example apps with `-tags=integration`; takes significant wall-clock time.
 - Changing security-sensitive behavior: issuer validation order, algorithm allowlist, DPoP enforcement, JWKS body size limit, multiple Authorization header handling.
 - Adding a new exported type or function that becomes part of the v3 API surface.
 
@@ -71,7 +71,7 @@ go-jwt-middleware/
 - **Algorithm allowlist**: `validator.New` requires explicit algorithms; `none` is never accepted. Do not loosen this.
 - **JWKS response size limit**: `jwks/provider.go` caps JWKS responses at 1 MB. Do not raise without security review.
 - **Multiple Authorization header rejection**: enforced per RFC 9449 — do not change this behavior.
-- **DPoP binding** (`cnf.jkt`): when present, proof-of-possession is verified against the token. `WithDPoPTokenOnly` can make DPoP mandatory.
+- **DPoP binding** (`cnf.jkt`): when present, proof-of-possession is verified against the token. `WithDPoPMode(core.DPoPRequired)` makes DPoP mandatory.
 - **`gosec` enabled** (medium severity/confidence) in golangci-lint — fix all `gosec` findings before merging; only G104/G307 are excluded.
 
 ---
