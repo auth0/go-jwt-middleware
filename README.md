@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/github/license/auth0/go-jwt-middleware.svg?logo=fossa&style=flat-square)](https://github.com/auth0/go-jwt-middleware/blob/master/LICENSE)
 [![Release](https://img.shields.io/github/v/release/auth0/go-jwt-middleware?include_prereleases&style=flat-square)](https://github.com/auth0/go-jwt-middleware/releases)
 [![Codecov](https://img.shields.io/codecov/c/github/auth0/go-jwt-middleware?logo=codecov&style=flat-square&token=fs2WrOXe9H)](https://codecov.io/gh/auth0/go-jwt-middleware)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/auth0/go-jwt-middleware/badge?style=flat-square)](https://securityscorecards.dev/viewer/?uri=github.com/auth0/go-jwt-middleware)
 [![Tests](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fauth0%2Fgo-jwt-middleware%2Fbadge%3Fref%3Dmaster&style=flat-square)](https://github.com/auth0/go-jwt-middleware/actions?query=branch%3Amaster)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/auth0/go-jwt-middleware)
 
@@ -532,7 +533,7 @@ jwtValidator, err := validator.New(
 
 ### DPoP (Demonstrating Proof-of-Possession)
 
-v3 adds support for [DPoP (RFC 9449)](https://datatracker.ietf.org/doc/html/rfc9449), which provides proof-of-possession for access tokens. This prevents token theft and replay attacks.
+v3 adds support for [DPoP (RFC 9449)](https://datatracker.ietf.org/doc/html/rfc9449), which provides proof-of-possession for access tokens. Tokens are bound to a key held by the client, so a stolen token cannot be used without the matching private key.
 
 #### DPoP Modes
 
@@ -569,6 +570,37 @@ middleware, err := jwtmiddleware.New(
 	jwtmiddleware.WithValidator(jwtValidator),
 	jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
 	jwtmiddleware.WithStandardProxy(),  // Trust X-Forwarded-* headers
+)
+```
+
+#### Accessing DPoP Details in Handlers
+
+After a DPoP proof is validated, its details are available from the request context:
+
+```go
+if jwtmiddleware.HasDPoPContext(r.Context()) {
+	dpopCtx := jwtmiddleware.GetDPoPContext(r.Context())
+	fmt.Println(dpopCtx.PublicKeyThumbprint) // jkt of the proof key
+	fmt.Println(dpopCtx.IssuedAt)            // iat of the proof
+	fmt.Println(dpopCtx.JTI)                 // jti of the proof
+}
+```
+
+The `JTI` value can be used to build replay detection in your application. The middleware itself does not track `jti` values.
+
+#### Known Limitation: Proof Replay
+
+The middleware requires every DPoP proof to include a `jti` claim, but it does not yet track `jti` values to reject a proof that has already been used. This means a captured proof can be replayed against the same HTTP method and URL until it expires (by default, up to 5 minutes after its `iat`, plus 30 seconds of clock skew leeway).
+
+You can close this gap in your application by recording `DPoPContext.JTI` (see above) and rejecting a request whose `jti` was already seen. Keep each value for slightly longer than the maximum proof age.
+
+To reduce the window, shorten the maximum proof age:
+
+```go
+middleware, err := jwtmiddleware.New(
+	jwtmiddleware.WithValidator(jwtValidator),
+	jwtmiddleware.WithDPoPMode(jwtmiddleware.DPoPRequired),
+	jwtmiddleware.WithDPoPProofOffset(60 * time.Second), // Accept proofs up to 60s old
 )
 ```
 

@@ -4,7 +4,7 @@ package validator
 // These claims are extracted from the JWT sent in the DPoP HTTP header.
 type DPoPProofClaims struct {
 	// JTI is a unique identifier for the DPoP proof JWT.
-	// Used for replay protection if nonce tracking is enabled.
+	// It must be present, but its uniqueness is not tracked by this library.
 	JTI string `json:"jti"`
 
 	// HTM is the HTTP method (GET, POST, PUT, DELETE, etc.).

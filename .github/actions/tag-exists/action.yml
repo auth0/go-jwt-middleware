@@ -1,4 +1,5 @@
 name: Return a boolean indicating if a tag already exists for the repository
+description: Returns a boolean indicating whether the tag exists for the repository.
 
 #
 # Returns a simple true/false boolean indicating whether the tag exists or not.

@@ -1,0 +1,107 @@
+name: RL Scan
+run-name: rl-scan
+
+# Reusable malware-scan workflow for the release pipeline. It packages the tracked
+# source tree as a tar.gz with git archive, then scans that file with the
+# ReversingLabs rl-scan action from auth0/devsecops-tooling.
+#
+# Caller pattern:
+#   jobs:
+#     rl-scan:
+#       permissions:
+#         contents: read
+#         id-token: write
+#       uses: ./.github/workflows/rl.yml
+#       secrets: inherit
+#
+# The calling job must grant id-token: write, because this workflow requests it for
+# AWS OIDC federation (PRODSEC_TOOLS_ARN).
+#
+# Required org secrets (configured at org level in auth0/):
+#   RLSECURE_LICENSE            — ReversingLabs license key
+#   RLSECURE_SITE_KEY           — ReversingLabs site key
+#   SIGNAL_HANDLER_TOKEN        — scan-service telemetry auth
+#   SIGNAL_HANDLER_DOMAIN       — scan-service endpoint domain
+#   PRODSEC_TOOLS_ARN           — AWS role ARN for ProdSec tools
+#   PRODSEC_TOOLS_USER          — ProdSec Python tools repo user
+#   PRODSEC_TOOLS_TOKEN         — ProdSec Python tools repo token
+#   PRODSEC_PYTHON_TOOLS_REPO   — ProdSec Python tools repo URL
+
+on:
+  workflow_call:
+    secrets:
+      RLSECURE_LICENSE:
+        required: true
+      RLSECURE_SITE_KEY:
+        required: true
+      SIGNAL_HANDLER_TOKEN:
+        required: true
+      SIGNAL_HANDLER_DOMAIN:
+        required: true
+      PRODSEC_TOOLS_ARN:
+        required: true
+      PRODSEC_TOOLS_USER:
+        required: true
+      PRODSEC_TOOLS_TOKEN:
+        required: true
+      PRODSEC_PYTHON_TOOLS_REPO:
+        required: true
+
+jobs:
+  # ── Malware scan via ReversingLabs composite action ─────────────────────────
+  rl-scan:
+    name: RL Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write   # required for AWS OIDC federation (PRODSEC_TOOLS_ARN)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Get version
+        id: get_version
+        uses: ./.github/actions/get-version
+
+      # ── Build the artifact ────────────────────────────────────────────────────
+      # This library has no compiled output, so the scanned artifact is a source
+      # archive of the tracked files. git archive only includes committed files, so
+      # the scan covers exactly what is released.
+      - name: Build source archive
+        env:
+          VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="go-jwt-middleware-${VERSION}/" \
+            --output="dist/go-jwt-middleware-${VERSION}.tar.gz" HEAD
+
+      - name: Run RL malware scan
+        id: rl-scan-conclusion
+        uses: auth0/devsecops-tooling/.github/actions/rl-scan@e29f26478db18ff0bcbe4bc447a8fbd54fbeec9e # main
+        with:
+          # ── Artifact inputs ─────────────────────────────────────────────────
+          artifact-name: go-jwt-middleware
+          artifact-path: dist/go-jwt-middleware-${{ steps.get_version.outputs.version }}.tar.gz
+          version: ${{ steps.get_version.outputs.version }}
+          # ── Required secrets ────────────────────────────────────────────────
+          RLSECURE_LICENSE:          ${{ secrets.RLSECURE_LICENSE }}
+          RLSECURE_SITE_KEY:         ${{ secrets.RLSECURE_SITE_KEY }}
+          SIGNAL_HANDLER_TOKEN:      ${{ secrets.SIGNAL_HANDLER_TOKEN }}
+          SIGNAL_HANDLER_DOMAIN:     ${{ secrets.SIGNAL_HANDLER_DOMAIN }}
+          PRODSEC_TOOLS_ARN:         ${{ secrets.PRODSEC_TOOLS_ARN }}
+          PRODSEC_TOOLS_USER:        ${{ secrets.PRODSEC_TOOLS_USER }}
+          PRODSEC_TOOLS_TOKEN:       ${{ secrets.PRODSEC_TOOLS_TOKEN }}
+          PRODSEC_PYTHON_TOOLS_REPO: ${{ secrets.PRODSEC_PYTHON_TOOLS_REPO }}
+
+      - name: Gate on scan result
+        if: always()
+        env:
+          SCAN_STATUS: ${{ steps.rl-scan-conclusion.outputs.scan-status }}
+        run: |
+          if [ "$SCAN_STATUS" != "success" ]; then
+            echo "::error title=Malware::RL scan did not pass (status: ${SCAN_STATUS:-none})"
+            exit 1
+          fi

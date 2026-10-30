@@ -1,4 +1,5 @@
 name: Return a boolean indicating if the version contains prerelease identifiers
+description: Returns a boolean indicating whether the version is a prerelease.
 
 #
 # Returns a simple true/false boolean indicating whether the version indicates it's a prerelease or not.

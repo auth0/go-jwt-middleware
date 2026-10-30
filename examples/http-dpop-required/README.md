@@ -86,7 +86,7 @@ middleware := jwtmiddleware.New(
 
 1. **Enforced Security**: All requests must provide proof of possession
 2. **Token Binding**: Tokens are cryptographically bound to client keys
-3. **Replay Protection**: DPoP proofs include timestamp and are single-use
+3. **Proof Freshness**: DPoP proofs are rejected once they are older than the configured max age
 4. **Clear Error Messages**: Clients receive helpful error responses
 
 ## Use Cases
@@ -100,7 +100,7 @@ middleware := jwtmiddleware.New(
 ## Security Benefits
 
 ✅ **Token Theft Protection**: Stolen tokens are useless without private key  
-✅ **Replay Attack Prevention**: Each request requires fresh proof  
+✅ **Short-Lived Proofs**: Proofs expire after a short window (5 minutes by default)  
 ✅ **Man-in-the-Middle Protection**: Proof includes request URL/method  
 ✅ **Key Binding**: Token bound to specific cryptographic key pair  
 
