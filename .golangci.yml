@@ -1,5 +1,5 @@
 # golangci-lint configuration for go-jwt-middleware v3
-# golangci-lint v2.6.2
+# golangci-lint v2.15.0
 # https://golangci-lint.run/usage/configuration/
 
 version: "2"
@@ -59,16 +59,11 @@ linters:
       threshold: 100
 
     gocritic:
+      # appendAssign, assignOp, badCond, dupArg, dupBranchBody, dupCase and
+      # elseif are enabled by default, so only the extra checks are listed here.
       enabled-checks:
-        - appendAssign
-        - assignOp
-        - badCond
         - boolExprSimplify
         - builtinShadow
-        - dupArg
-        - dupBranchBody
-        - dupCase
-        - elseif
         - emptyStringTest
         - nilValReturn
 

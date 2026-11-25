@@ -136,7 +136,9 @@ func (c *jwxCache) Get(ctx context.Context, jwksURI string) (KeySet, error) {
 
 		// Trigger background refresh if in refresh window and not already refreshing
 		if shouldRefresh && cached.refreshing.CompareAndSwap(false, true) {
-			go c.backgroundRefresh(jwksURI, cached)
+			// Detach from the request's cancellation so the refresh is not aborted
+			// when the request completes, while keeping its context values.
+			go c.backgroundRefresh(context.WithoutCancel(ctx), jwksURI, cached)
 		}
 
 		return result, nil
@@ -285,11 +287,12 @@ func parseCacheControl(cacheControl string) time.Duration {
 // backgroundRefresh refreshes JWKS in the background without blocking requests.
 // This prevents cache expiry from blocking requests by proactively refreshing
 // when the cache reaches 80% of its TTL.
-func (c *jwxCache) backgroundRefresh(jwksURI string, cached *cachedJWKS) {
+func (c *jwxCache) backgroundRefresh(ctx context.Context, jwksURI string, cached *cachedJWKS) {
 	defer cached.refreshing.Store(false)
 
-	// Use a fresh context with timeout for background refresh
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Bound the background refresh with its own timeout. ctx is detached from the
+	// request's cancellation by the caller, so only this timeout applies.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	// Fetch fresh JWKS
