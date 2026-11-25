@@ -25,7 +25,7 @@ PRs should:
 
 ## CI gates (all must pass before merge)
 - `test.yaml` — unit tests on Linux / macOS / Windows + example tests on Linux
-- `lint.yaml` — golangci-lint v2.6.2
+- `lint.yaml` — golangci-lint v2.15.0
 - `govulncheck.yml` — vulnerability scan
 - `sca_scan.yml` — Snyk SCA
 
